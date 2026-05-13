@@ -1,0 +1,170 @@
+{
+  "name": "vscode-4d-callchain",
+  "displayName": "4D Call Chain Explorer",
+  "description": "Explore call chains in 4D v21 projects: methods, class functions, plugins. Tree + graph views, test integration.",
+  "version": "0.1.0",
+  "publisher": "hunterdurbin",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:4d",
+    "workspaceContains:**/Project/Sources/catalog.4DCatalog",
+    "workspaceContains:**/Project/**/*.4dm"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "4d",
+        "aliases": [
+          "4D",
+          "4d"
+        ],
+        "extensions": [
+          ".4dm"
+        ]
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "callchain",
+          "title": "4D Call Chain",
+          "icon": "resources/icons/callchain.svg"
+        }
+      ]
+    },
+    "views": {
+      "callchain": [
+        {
+          "id": "callchain.callers",
+          "name": "Callers (up)"
+        },
+        {
+          "id": "callchain.callees",
+          "name": "Callees (down)"
+        },
+        {
+          "id": "callchain.search",
+          "name": "Symbols"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "callchain.reindex",
+        "title": "4D Call Chain: Reindex Project"
+      },
+      {
+        "command": "callchain.showGraph",
+        "title": "4D Call Chain: Show Graph"
+      },
+      {
+        "command": "callchain.revealAtCursor",
+        "title": "4D Call Chain: Reveal at Cursor"
+      },
+      {
+        "command": "callchain.pickSymbol",
+        "title": "4D Call Chain: Pick Symbol…"
+      },
+      {
+        "command": "callchain.runTestsForClass",
+        "title": "4D Call Chain: Run Tests for Class"
+      },
+      {
+        "command": "callchain.runAllTests",
+        "title": "4D Call Chain: Run All Tests"
+      },
+      {
+        "command": "callchain.jumpToTests",
+        "title": "4D Call Chain: Show Tests Covering This"
+      },
+      {
+        "command": "callchain.openSymbol",
+        "title": "4D Call Chain: Open Symbol"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "callchain.revealAtCursor",
+          "when": "resourceExtname == .4dm",
+          "group": "navigation"
+        },
+        {
+          "command": "callchain.showGraph",
+          "when": "resourceExtname == .4dm",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "4D Call Chain",
+      "properties": {
+        "callchain.projectRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to 4D project root (folder containing 'Project/'). Defaults to first workspace folder."
+        },
+        "callchain.testCommand": {
+          "type": "string",
+          "default": "make test class={class} format=junit",
+          "description": "Command template to run tests. {class} is substituted with the test class name."
+        },
+        "callchain.junitResultsPath": {
+          "type": "string",
+          "default": "Components/testing.4dbase/test-results/junit.xml",
+          "description": "Relative path (from projectRoot) to the JUnit XML test results file."
+        },
+        "callchain.maxGraphDepth": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Default maximum BFS depth when rendering the graph."
+        },
+        "callchain.indexExclusions": {
+          "type": "array",
+          "default": [
+            "DerivedData",
+            "Libraries",
+            ".git",
+            "node_modules"
+          ],
+          "description": "Folder names (anywhere in the tree) to skip during indexing."
+        },
+        "callchain.showCoverageHints": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show gutter markers on functions not reached by any test_* function."
+        },
+        "callchain.autoIndexOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Build (or load) the index automatically on activation."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build-builtins": "node ./scripts/build-builtins.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "cytoscape": "^3.33.3",
+    "cytoscape-dagre": "^2.5.0",
+    "dagre": "^0.8.5",
+    "fast-xml-parser": "^4.4.0"
+  }
+}

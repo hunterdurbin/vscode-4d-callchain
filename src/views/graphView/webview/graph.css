@@ -1,0 +1,22 @@
+html, body { margin: 0; padding: 0; height: 100%; width: 100%; font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+#toolbar { display: flex; gap: 12px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); font-size: 12px; flex-wrap: wrap; }
+#toolbar label { display: inline-flex; gap: 4px; align-items: center; }
+#toolbar select, #toolbar input[type="search"], #toolbar button { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); padding: 2px 6px; }
+#toolbar input[type="range"] { width: 100px; }
+#stats { margin-left: auto; opacity: 0.7; }
+#legend { display: flex; gap: 12px; padding: 4px 10px; border-bottom: 1px solid var(--vscode-panel-border); font-size: 11px; opacity: 0.85; flex-wrap: wrap; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.k-ProjectMethod     { background: #4ec9b0; }
+.k-ClassFunction     { background: #569cd6; }
+.k-ClassConstructor  { background: #c586c0; }
+.k-Class             { background: #4fc1ff; }
+.k-DatabaseMethod    { background: #ce9178; }
+.k-FormMethod        { background: #d7ba7d; }
+.k-FormObjectMethod  { background: #b5cea8; }
+.k-TableFormMethod   { background: #d7ba7d; }
+.k-TableObjectMethod { background: #b5cea8; }
+.k-Builtin           { background: #808080; }
+.k-Plugin            { background: #f48771; }
+.k-Unresolved        { background: #f44747; }
+.k-CompilerMethod    { background: #888888; }
+#cy { width: 100%; height: calc(100% - 70px); }
