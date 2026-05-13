@@ -15,10 +15,34 @@ import { XMLParser } from "fast-xml-parser";
 export interface DiscoveredConstant {
   name: string;
   value?: string;
+  /** Friendly type name like "Text" / "Longint" / "Boolean". */
+  type?: string;
   rawValue?: string;
   theme?: string;
   sourceFile: string;
 }
+
+/**
+ * 4D XLIFF stores constant types as a one-letter suffix on the d4:value
+ * attribute (e.g. `"Rules:S"`). Map the letters to human-readable names.
+ * Letters covered match 4D v21 conventions; unknowns pass through verbatim.
+ */
+const TYPE_LETTER_NAMES: Record<string, string> = {
+  S: "Text",
+  L: "Longint",
+  R: "Real",
+  N: "Number",
+  B: "Boolean",
+  D: "Date",
+  H: "Time",
+  T: "Time",
+  P: "Picture",
+  X: "Pointer",
+  C: "Collection",
+  O: "Object",
+  A: "Alpha",
+  Y: "BLOB"
+};
 
 export function discoverConstants(projectRoot: string): DiscoveredConstant[] {
   const resourcesDir = path.join(projectRoot, "Resources");
@@ -49,8 +73,15 @@ export function discoverConstants(projectRoot: string): DiscoveredConstant[] {
       const name = typeof rawSource === "string" ? rawSource.trim() : (rawSource?.["#text"] ?? "").toString().trim();
       if (!name) return;
       const rawValue: string | undefined = unit["@d4:value"];
-      const value = parseValueAttr(rawValue);
-      out.push({ name, value: value.value, rawValue, theme, sourceFile: file });
+      const parsed = parseValueAttr(rawValue);
+      out.push({
+        name,
+        value: parsed.value,
+        type: parsed.type ? (TYPE_LETTER_NAMES[parsed.type] ?? parsed.type) : undefined,
+        rawValue,
+        theme,
+        sourceFile: file
+      });
     });
   }
   return out;

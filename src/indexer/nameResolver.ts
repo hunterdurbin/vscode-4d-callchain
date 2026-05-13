@@ -55,6 +55,12 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   }
   const pluginByName = new Map<string, string>();
   for (const p of input.plugins) pluginByName.set(p.name.toLowerCase(), p.symbolId);
+  // Map from constant name → symbol id, populated from the Constant records
+  // appended into projectSymbols by buildSymbolIndex.
+  const constantsByName = new Map<string, string>();
+  for (const s of projectSymbols) {
+    if (s.kind === SymbolKind.Constant) constantsByName.set(s.name, s.id);
+  }
 
   const findOrCreateBuiltin = (name: string): string => {
     const id = symbolIdFor(SymbolKind.Builtin, name);
@@ -343,6 +349,11 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           break;
         }
         case "DsBracketNew": {
+          // Also count this as a usage of the bracket identifier (typically
+          // a table-name constant like `_Rules`) so the constant's caller
+          // tree includes every ds[_X] site.
+          const cid = constantsByName.get(hint.ident);
+          if (cid) pushEdge(cid, CallKind.Static, true);
           // Strip the conventional leading underscore (`_Rules` → `Rules`)
           // then verify the table exists in the catalog.
           const table = hint.ident.replace(/^_/, "");
@@ -364,6 +375,8 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           break;
         }
         case "DsBracketCall": {
+          const cid = constantsByName.get(hint.ident);
+          if (cid) pushEdge(cid, CallKind.Static, true);
           const table = hint.ident.replace(/^_/, "");
           if (!input.catalogTables.has(table)) {
             pushEdge(findOrCreateUnresolved(`ds[${hint.ident}].${hint.method}`), CallKind.Dynamic, false);
@@ -376,6 +389,14 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           } else {
             pushEdge(findOrCreateBuiltin(`ds.${table}.${hint.method}`), CallKind.Static, true);
           }
+          break;
+        }
+        case "ConstantRef": {
+          // Only emit if the bare identifier resolves to a known constant.
+          // Drop silently otherwise — most leading-underscore identifiers in
+          // method bodies are local helpers, not constants.
+          const id = constantsByName.get(hint.name);
+          if (id) pushEdge(id, CallKind.Static, true);
           break;
         }
       }
@@ -399,7 +420,7 @@ export function buildSymbolIndex(
   parsedFiles: ParsedFile[],
   plugins: { name: string; absolutePath: string }[],
   catalogTables: Set<string> = new Set(),
-  constants: { name: string; value?: string; theme?: string; sourceFile: string }[] = []
+  constants: { name: string; value?: string; type?: string; theme?: string; sourceFile: string }[] = []
 ): SymbolIndex {
   const allSymbols: SymbolRecord[] = [];
   for (const f of parsedFiles) {
@@ -426,6 +447,7 @@ export function buildSymbolIndex(
       kind: SymbolKind.Constant,
       location: { uri: "file://" + c.sourceFile, line: 0 },
       constantValue: c.value,
+      constantType: c.type,
       constantTheme: c.theme
     });
   }

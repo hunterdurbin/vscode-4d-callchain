@@ -54,6 +54,8 @@ export interface SymbolRecord {
   returnType?: string;
   /** For Constant symbols: the parsed value, e.g. "Rules" or "3". */
   constantValue?: string;
+  /** For Constant symbols: friendly type name e.g. "Text", "Longint". */
+  constantType?: string;
   /** For Constant symbols: 4D theme/group name if known. */
   constantTheme?: string;
 }
@@ -83,6 +85,7 @@ export type CallHint =
   | { kind: "CsSet"; className: string; property: string }
   | { kind: "DsBracketNew"; ident: string }
   | { kind: "DsBracketCall"; ident: string; method: string }
+  | { kind: "ConstantRef"; name: string }
   | { kind: "CallWorker"; methodName: string }
   | { kind: "NewProcess"; methodName: string }
   | { kind: "ExecuteMethodLiteral"; methodName: string }
@@ -109,7 +112,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 6;
+export const INDEX_VERSION = 7;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

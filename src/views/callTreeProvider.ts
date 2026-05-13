@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { CallGraph } from "../model/callGraph";
-import { CallEdge, SymbolRecord } from "../model/symbol";
+import { CallEdge, SymbolKind, SymbolRecord } from "../model/symbol";
 import { descriptionFor, iconFor } from "./treeIcons";
 
 export type Direction = "callers" | "callees";
@@ -181,10 +181,14 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
       this.direction === "callers"
         ? this.graph.callers(symbolId)
         : this.graph.callees(symbolId);
+    const rootSym = this.rootSymbolId ? this.graph.symbol(this.rootSymbolId) : undefined;
+    const allowConstantTargets = rootSym?.kind === SymbolKind.Constant;
     for (const e of edges) {
       const targetId = this.direction === "callers" ? e.fromId : e.toId;
       if (parentChain.has(targetId)) continue;
-      if (!this.graph.symbol(targetId)) continue;
+      const sym = this.graph.symbol(targetId);
+      if (!sym) continue;
+      if (!allowConstantTargets && sym.kind === SymbolKind.Constant) continue;
       return true;
     }
     return false;
@@ -223,10 +227,19 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
         ? this.graph.callers(symbolId)
         : this.graph.callees(symbolId);
 
+    // Constants are noise inside method call chains. Hide them everywhere
+    // except when the tree itself is rooted on a Constant (the user explicitly
+    // wants to see who references it).
+    const rootSym = this.rootSymbolId ? this.graph.symbol(this.rootSymbolId) : undefined;
+    const allowConstantTargets = rootSym?.kind === SymbolKind.Constant;
+
     const groups = new Map<string, CallEdge[]>();
     for (const e of edges) {
       const targetId = this.direction === "callers" ? e.fromId : e.toId;
       if (parentChain.has(targetId)) continue;
+      const sym = this.graph.symbol(targetId);
+      if (!sym) continue;
+      if (!allowConstantTargets && sym.kind === SymbolKind.Constant) continue;
       let bucket = groups.get(targetId);
       if (!bucket) {
         bucket = [];

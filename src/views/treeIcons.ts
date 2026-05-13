@@ -24,9 +24,26 @@ export function iconFor(s: SymbolRecord): vscode.ThemeIcon {
 }
 
 export function descriptionFor(s: SymbolRecord): string {
+  if (s.kind === SymbolKind.Constant) {
+    const valueStr = formatConstantValue(s.constantValue, s.constantType);
+    const typeStr = s.constantType ?? "";
+    if (valueStr && typeStr) return `= ${valueStr} · ${typeStr}`;
+    if (valueStr) return `= ${valueStr}`;
+    if (typeStr) return typeStr;
+    return "Constant";
+  }
   const suffix =
     s.kind === SymbolKind.ClassGetter ? " · get" :
     s.kind === SymbolKind.ClassSetter ? " · set" : "";
   if (s.ownerClass) return `${s.ownerClass}${suffix}`;
   return `${s.kind}${suffix}`;
+}
+
+function formatConstantValue(value: string | undefined, type: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (type === "Text" || type === "Alpha") return `"${value}"`;
+  if (type === "Boolean") return value;
+  // Long values: truncate so the tree row stays readable.
+  if (value.length > 40) return value.slice(0, 39) + "…";
+  return value;
 }

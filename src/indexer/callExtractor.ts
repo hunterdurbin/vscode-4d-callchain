@@ -208,6 +208,20 @@ export function extractCallSitesFromLine(
     }
   }
 
+  // --- Leading-underscore identifiers used as values (constant references) ---
+  // Match `_Identifier` standalone — not followed by `(` (method call) and not
+  // preceded by `.`, `$`, `[`, or word chars (which would indicate it's part
+  // of `cs.X`, `$x`, `ds[_X]`, or a larger identifier). The resolver checks
+  // each captured name against the known constants set; non-matches drop.
+  const RE_CONSTANT_REF = /(?<![.$\w\[])_[\w_]+\b/g;
+  let constRefMatch: RegExpExecArray | null;
+  while ((constRefMatch = RE_CONSTANT_REF.exec(line))) {
+    const name = constRefMatch[0];
+    const after = line.slice(constRefMatch.index + name.length);
+    if (/^\s*\(/.test(after)) continue; // skip `_helperMethod(...)` — it's a method call
+    push({ kind: "ConstantRef", name }, name);
+  }
+
   // --- Whole-line "X Y(..." style 4D commands (e.g., HTTP Get(...) / Process 4D tags(...))
   // We run this BEFORE the bare-name pass so we can record the source-text spans
   // these matches consume; the bare pass will skip any name that falls inside.
