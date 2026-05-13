@@ -61,12 +61,17 @@ const RESERVED = new Set<string>([
 
 /**
  * Emit zero-or-more raw call sites from a single (already cleaned) source line.
+ *
+ * @param constantsSet If provided, any bare identifier matching a name in this
+ *                     set is emitted as a `ConstantRef` hint. Without it, the
+ *                     extractor cannot tell a constant from a local variable.
  */
 export function extractCallSitesFromLine(
   line: string,
   strings: string[],
   fromSymbolId: string,
-  lineNumber: number
+  lineNumber: number,
+  constantsSet?: Set<string>
 ): RawCallSite[] {
   const out: RawCallSite[] = [];
   const push = (hint: CallHint, expression: string) => {
@@ -208,18 +213,24 @@ export function extractCallSitesFromLine(
     }
   }
 
-  // --- Leading-underscore identifiers used as values (constant references) ---
-  // Match `_Identifier` standalone — not followed by `(` (method call) and not
-  // preceded by `.`, `$`, `[`, or word chars (which would indicate it's part
-  // of `cs.X`, `$x`, `ds[_X]`, or a larger identifier). The resolver checks
-  // each captured name against the known constants set; non-matches drop.
-  const RE_CONSTANT_REF = /(?<![.$\w\[])_[\w_]+\b/g;
-  let constRefMatch: RegExpExecArray | null;
-  while ((constRefMatch = RE_CONSTANT_REF.exec(line))) {
-    const name = constRefMatch[0];
-    const after = line.slice(constRefMatch.index + name.length);
-    if (/^\s*\(/.test(after)) continue; // skip `_helperMethod(...)` — it's a method call
-    push({ kind: "ConstantRef", name }, name);
+  // --- Bare identifiers used as values (constant references) ---
+  // Constants in 4D have many naming patterns (`_Rules`, `MODULE_INVOICES`,
+  // `4Q_TYPE_*`, `Worker_Backend`, ...). We match any bare identifier that
+  // isn't preceded by `.` / `$` / `[` / word char (which would mean it's
+  // already part of `cs.X`, `$x`, `ds[X]`, or a longer name) and isn't
+  // followed by `(` (which would make it a method call). Then we filter
+  // inline against the known-constants set so non-constant identifiers
+  // (locals, parameters, keywords) are dropped without producing hints.
+  if (constantsSet && constantsSet.size > 0) {
+    const RE_BARE_IDENT = /(?<![.$\w\[])\w+\b/g;
+    let bareIdentMatch: RegExpExecArray | null;
+    while ((bareIdentMatch = RE_BARE_IDENT.exec(line))) {
+      const name = bareIdentMatch[0];
+      if (!constantsSet.has(name)) continue;
+      const after = line.slice(bareIdentMatch.index + name.length);
+      if (/^\s*\(/.test(after)) continue; // method call, not a constant ref
+      push({ kind: "ConstantRef", name }, name);
+    }
   }
 
   // --- Whole-line "X Y(..." style 4D commands (e.g., HTTP Get(...) / Process 4D tags(...))

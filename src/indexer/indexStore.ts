@@ -55,11 +55,17 @@ export class Indexer {
     const files = discoverFiles(this.opts.projectRoot, { exclusions: this.opts.exclusions });
     this.opts.output.appendLine(`[Indexer] Discovered ${files.length} .4dm files`);
 
+    // Discover constants first so the parser can resolve bare-identifier
+    // references against the known set inline.
+    const constants = discoverConstants(this.opts.projectRoot);
+    this.opts.output.appendLine(`[Indexer] Discovered ${constants.length} constants`);
+    const constantsSet = new Set<string>(constants.map((c) => c.name));
+
     const parsed = [];
     const mtimes: Record<string, number> = {};
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      parsed.push(parseFile(f, this.opts.projectRoot));
+      parsed.push(parseFile(f, this.opts.projectRoot, constantsSet));
       try {
         mtimes[f.absolutePath] = fs.statSync(f.absolutePath).mtimeMs;
       } catch {/* skip */}
@@ -71,8 +77,6 @@ export class Indexer {
     this.opts.output.appendLine(`[Indexer] Discovered ${plugins.length} plugin bundles`);
     const catalogTables = discoverCatalogTables(this.opts.projectRoot);
     this.opts.output.appendLine(`[Indexer] Discovered ${catalogTables.size} catalog tables`);
-    const constants = discoverConstants(this.opts.projectRoot);
-    this.opts.output.appendLine(`[Indexer] Discovered ${constants.length} constants`);
 
     const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants);
     idx.fileMtimes = mtimes;

@@ -30,7 +30,7 @@ const ASSIGN_DS_BRACKET_NEW = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\s*
 const ASSIGN_DS_BRACKET_QUERY = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\s*(query|all|fromCollection|orderBy)/g;
 const DECLARE_PARAMS = /#DECLARE\s*\(([^)]*)\)(?:\s*->\s*\$[\w_]+\s*:\s*([\w.]+))?/;
 
-export function parseFile(file: DiscoveredFile, projectRootUri: string): ParsedFile {
+export function parseFile(file: DiscoveredFile, projectRootUri: string, constantsSet?: Set<string>): ParsedFile {
   let source: string;
   try {
     source = fs.readFileSync(file.absolutePath, "utf8");
@@ -211,7 +211,7 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string): ParsedF
 
     if (!currentSymbolId) continue;
 
-    const sites = extractCallSitesFromLine(line, strings, currentSymbolId, i);
+    const sites = extractCallSitesFromLine(line, strings, currentSymbolId, i, constantsSet);
     for (const s of sites) rawCalls.push(s);
   }
 
