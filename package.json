@@ -188,6 +188,11 @@
           "type": "boolean",
           "default": true,
           "description": "Build (or load) the index automatically on activation."
+        },
+        "callchain.showCallSiteSnippets": {
+          "type": "boolean",
+          "default": true,
+          "description": "When a caller/callee has multiple call sites in the same file, show the source-line snippet next to the line number. Disable to show 'line N' only."
         }
       }
     }

@@ -59,6 +59,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   vscode.commands.executeCommand("setContext", "callchain.callersLocked", false);
   vscode.commands.executeCommand("setContext", "callchain.calleesLocked", false);
 
+  // React to config changes that affect tree rendering.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("callchain.showCallSiteSnippets")) {
+        callers.refresh();
+        callees.refresh();
+      }
+    })
+  );
+
   const lensProvider = new CallChainLensProvider(
     () => indexer.getGraph(),
     () => decorator,
