@@ -17,6 +17,21 @@ const RE_THIS_CALL= /\bThis\.([\w_]+)\s*\(/g;
 const RE_SUPER    = /\bSuper(?:\.([\w_]+))?\s*\(/g;
 const RE_VAR_CALL = /\$([\w_]+)\.([\w_]+)\s*\(/g;
 
+// --- Property-access patterns (computed getters / setters) ---
+// Assignment forms: `:=` is plain set; `+=`/`-=`/`*=`/`/=` is compound (read + write).
+// We capture both `:=` and compound, then post-process to emit get+set for compound.
+const RE_THIS_ASSIGN  = /\bThis\.([\w_]+)\s*(:|[+\-*/])=(?!=)/g;
+const RE_VAR_ASSIGN   = /(?<![.\w])\$([\w_]+)\.([\w_]+)\s*(:|[+\-*/])=(?!=)/g;
+const RE_CS_ASSIGN    = /\bcs\.([\w_]+)\.([\w_]+)\s*(:|[+\-*/])=(?!=)/g;
+
+// Property reads (implicit get). We skip the read pattern when the suffix is `(` (call),
+// `.` (chain — handled separately by *_CHAIN), `:=` (assignment), or a compound-op `=`.
+// A bare `=` is comparison, which still does invoke the getter — emit. Same for end-of-line.
+const RE_THIS_GET       = /\bThis\.([\w_]+)\b(?!\s*\()(?!\s*\.)(?!\s*:=)(?!\s*[+\-*/]=)/g;
+const RE_THIS_GET_CHAIN = /\bThis\.([\w_]+)\.(?=[\w_])/g;
+const RE_VAR_GET        = /(?<![.\w])\$([\w_]+)\.([\w_]+)\b(?!\s*\()(?!\s*\.)(?!\s*:=)(?!\s*[+\-*/]=)/g;
+const RE_VAR_GET_CHAIN  = /(?<![.\w])\$([\w_]+)\.([\w_]+)\.(?=[\w_])/g;
+
 // Bare-name calls: <Capitalized identifier> followed by ( and not preceded by '.', '$', or word chars
 // 4D project methods can be camelCase or PascalCase or contain underscores/digits.
 // We require the name not to be a reserved keyword (filtered later).
@@ -116,6 +131,49 @@ export function extractCallSitesFromLine(
   re = new RegExp(RE_VAR_CALL);
   while ((m = re.exec(line))) {
     push({ kind: "VarCall", variable: m[1], method: m[2] }, m[0]);
+  }
+
+  // --- Property assignments (set, and compound = set + get) ---
+  re = new RegExp(RE_THIS_ASSIGN);
+  while ((m = re.exec(line))) {
+    const prop = m[1];
+    const op = m[2]; // ":" for `:=`, otherwise compound op
+    if (op !== ":") push({ kind: "ThisGet", property: prop }, m[0]);
+    push({ kind: "ThisSet", property: prop }, m[0]);
+  }
+  re = new RegExp(RE_VAR_ASSIGN);
+  while ((m = re.exec(line))) {
+    const variable = m[1];
+    const prop = m[2];
+    const op = m[3];
+    if (op !== ":") push({ kind: "VarGet", variable, property: prop }, m[0]);
+    push({ kind: "VarSet", variable, property: prop }, m[0]);
+  }
+  re = new RegExp(RE_CS_ASSIGN);
+  while ((m = re.exec(line))) {
+    const className = m[1];
+    const prop = m[2];
+    const op = m[3];
+    if (op !== ":") push({ kind: "CsGet", className, property: prop }, m[0]);
+    push({ kind: "CsSet", className, property: prop }, m[0]);
+  }
+
+  // --- Property reads (implicit get) ---
+  re = new RegExp(RE_THIS_GET);
+  while ((m = re.exec(line))) {
+    push({ kind: "ThisGet", property: m[1] }, m[0]);
+  }
+  re = new RegExp(RE_THIS_GET_CHAIN);
+  while ((m = re.exec(line))) {
+    push({ kind: "ThisGet", property: m[1] }, m[0]);
+  }
+  re = new RegExp(RE_VAR_GET);
+  while ((m = re.exec(line))) {
+    push({ kind: "VarGet", variable: m[1], property: m[2] }, m[0]);
+  }
+  re = new RegExp(RE_VAR_GET_CHAIN);
+  while ((m = re.exec(line))) {
+    push({ kind: "VarGet", variable: m[1], property: m[2] }, m[0]);
   }
 
   // --- Formula( ... ) body — capture bare names inside ---

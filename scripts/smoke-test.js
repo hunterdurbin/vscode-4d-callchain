@@ -68,3 +68,39 @@ if (auditCardNew) {
   const audit_ws = out.find((e) => idx.symbols.find((s) => s.id === e.toId && s.name === "AuditCard_WS"));
   console.log(`  AuditCard_New → AuditCard_WS (CALL WORKER): ${audit_ws ? "FOUND" : "MISSING"}`);
 }
+
+// ----- Getter / Setter probes -----
+console.log(`\nGetter/Setter probes:`);
+const shippingCostGet = idx.symbols.find(
+  (s) => s.kind === "ClassGetter" && s.ownerClass === "NormalizedOrder" && s.name === "shippingCost"
+);
+console.log(`  ClassGetter:NormalizedOrder.shippingCost: ${shippingCostGet ? "FOUND" : "MISSING"}`);
+
+const splitGet = idx.symbols.find(
+  (s) => s.kind === "ClassGetter" && s.ownerClass === "NormalizedOrderItem" && s.name === "splitPercentage"
+);
+const splitSet = idx.symbols.find(
+  (s) => s.kind === "ClassSetter" && s.ownerClass === "NormalizedOrderItem" && s.name === "splitPercentage"
+);
+console.log(`  ClassGetter:NormalizedOrderItem.splitPercentage: ${splitGet ? "FOUND" : "MISSING"}`);
+console.log(`  ClassSetter:NormalizedOrderItem.splitPercentage: ${splitSet ? "FOUND" : "MISSING"}`);
+
+if (splitSet) {
+  const callers = idx.edges.filter((e) => e.toId === splitSet.id);
+  console.log(`    setter callers: ${callers.length}`);
+}
+if (splitGet) {
+  const callers = idx.edges.filter((e) => e.toId === splitGet.id);
+  console.log(`    getter callers: ${callers.length}`);
+}
+
+// Symbol count and edge growth sanity
+const byKindAfter = {};
+for (const s of idx.symbols) byKindAfter[s.kind] = (byKindAfter[s.kind] ?? 0) + 1;
+console.log(`\nClassGetter count: ${byKindAfter.ClassGetter ?? 0}`);
+console.log(`ClassSetter count: ${byKindAfter.ClassSetter ?? 0}`);
+const getterEdges = idx.edges.filter((e) => {
+  const t = idx.symbols.find((s) => s.id === e.toId);
+  return t && (t.kind === "ClassGetter" || t.kind === "ClassSetter");
+});
+console.log(`Edges into getters/setters: ${getterEdges.length}`);

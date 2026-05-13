@@ -149,6 +149,8 @@ export class GraphPanel {
     <span class="dot k-ProjectMethod"></span>Method
     <span class="dot k-ClassFunction"></span>Class fn
     <span class="dot k-ClassConstructor"></span>Constructor
+    <span class="dot k-ClassGetter"></span>Getter
+    <span class="dot k-ClassSetter"></span>Setter
     <span class="dot k-Class"></span>Class
     <span class="dot k-DatabaseMethod"></span>DB
     <span class="dot k-FormMethod"></span>Form

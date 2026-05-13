@@ -8,6 +8,8 @@ export function iconFor(s: SymbolRecord): vscode.ThemeIcon {
     case SymbolKind.Class:            return new vscode.ThemeIcon("symbol-class");
     case SymbolKind.ClassFunction:    return new vscode.ThemeIcon("symbol-function");
     case SymbolKind.ClassConstructor: return new vscode.ThemeIcon("symbol-constructor");
+    case SymbolKind.ClassGetter:      return new vscode.ThemeIcon("arrow-small-right");
+    case SymbolKind.ClassSetter:      return new vscode.ThemeIcon("arrow-small-left");
     case SymbolKind.FormMethod:
     case SymbolKind.TableFormMethod:  return new vscode.ThemeIcon("preview");
     case SymbolKind.FormObjectMethod:
@@ -21,6 +23,9 @@ export function iconFor(s: SymbolRecord): vscode.ThemeIcon {
 }
 
 export function descriptionFor(s: SymbolRecord): string {
-  if (s.ownerClass) return s.ownerClass;
-  return s.kind;
+  const suffix =
+    s.kind === SymbolKind.ClassGetter ? " · get" :
+    s.kind === SymbolKind.ClassSetter ? " · set" : "";
+  if (s.ownerClass) return `${s.ownerClass}${suffix}`;
+  return `${s.kind}${suffix}`;
 }

@@ -140,7 +140,11 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string): ParsedF
         const name = isCtor ? "constructor" : funcMatch![4];
         const accessor = funcMatch?.[3] as "get" | "set" | undefined;
         const scope = funcMatch?.[1]?.trim() as "local" | "shared" | undefined;
-        const kind = isCtor ? SymbolKind.ClassConstructor : SymbolKind.ClassFunction;
+        const kind = isCtor
+          ? SymbolKind.ClassConstructor
+          : accessor === "get" ? SymbolKind.ClassGetter
+          : accessor === "set" ? SymbolKind.ClassSetter
+          : SymbolKind.ClassFunction;
         const sym: SymbolRecord = {
           id: symbolIdFor(kind, name, className),
           name,

@@ -8,6 +8,8 @@
     ProjectMethod:     "#4ec9b0",
     ClassFunction:     "#569cd6",
     ClassConstructor:  "#c586c0",
+    ClassGetter:       "#9cdcfe",
+    ClassSetter:       "#dcdcaa",
     Class:             "#4fc1ff",
     DatabaseMethod:    "#ce9178",
     FormMethod:        "#d7ba7d",

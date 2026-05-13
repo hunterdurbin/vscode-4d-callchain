@@ -1,4 +1,4 @@
-import { CallEdge, CallKind, RawCallSite, SymbolIndex, SymbolKind, SymbolRecord, symbolIdFor } from "../model/symbol";
+import { CallEdge, CallKind, INDEX_VERSION, RawCallSite, SymbolIndex, SymbolKind, SymbolRecord, symbolIdFor } from "../model/symbol";
 import { ParsedFile } from "./fileParser";
 import builtinsData from "../model/builtins.json";
 
@@ -33,9 +33,22 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
     }
   }
   const classFunctions = new Map<string, SymbolRecord>(); // key: className.fnName (lowercase)
+  const classGetters   = new Map<string, SymbolRecord>(); // key: className.propName (lowercase)
+  const classSetters   = new Map<string, SymbolRecord>(); // key: className.propName (lowercase)
   for (const s of projectSymbols) {
-    if ((s.kind === SymbolKind.ClassFunction || s.kind === SymbolKind.ClassConstructor) && s.ownerClass) {
-      classFunctions.set(`${s.ownerClass}.${s.name}`.toLowerCase(), s);
+    if (!s.ownerClass) continue;
+    const key = `${s.ownerClass}.${s.name}`.toLowerCase();
+    switch (s.kind) {
+      case SymbolKind.ClassFunction:
+      case SymbolKind.ClassConstructor:
+        classFunctions.set(key, s);
+        break;
+      case SymbolKind.ClassGetter:
+        classGetters.set(key, s);
+        break;
+      case SymbolKind.ClassSetter:
+        classSetters.set(key, s);
+        break;
     }
   }
   const pluginByName = new Map<string, string>();
@@ -81,6 +94,44 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
       const cls = classByName.get(cur.toLowerCase());
       cur = cls?.extendsClass;
     }
+    return undefined;
+  };
+
+  // Same, but walks for a `Function get name` accessor.
+  const resolveGetterOnChain = (className: string, prop: string): SymbolRecord | undefined => {
+    let cur: string | undefined = className;
+    const visited = new Set<string>();
+    while (cur && !visited.has(cur.toLowerCase())) {
+      visited.add(cur.toLowerCase());
+      const g = classGetters.get(`${cur}.${prop}`.toLowerCase());
+      if (g) return g;
+      const cls = classByName.get(cur.toLowerCase());
+      cur = cls?.extendsClass;
+    }
+    return undefined;
+  };
+
+  // Same, but for `Function set name`.
+  const resolveSetterOnChain = (className: string, prop: string): SymbolRecord | undefined => {
+    let cur: string | undefined = className;
+    const visited = new Set<string>();
+    while (cur && !visited.has(cur.toLowerCase())) {
+      visited.add(cur.toLowerCase());
+      const s = classSetters.get(`${cur}.${prop}`.toLowerCase());
+      if (s) return s;
+      const cls = classByName.get(cur.toLowerCase());
+      cur = cls?.extendsClass;
+    }
+    return undefined;
+  };
+
+  // Variable type → class name (or undefined). Used by VarGet/VarSet/VarCall.
+  const classFromVarType = (type: string | undefined): string | undefined => {
+    if (!type) return undefined;
+    const csMatch = type.match(/^cs\.([\w_]+)$/);
+    if (csMatch) return csMatch[1];
+    const esMatch = type.match(/^entitySelectionOf:([\w_]+)$/);
+    if (esMatch) return esMatch[1];
     return undefined;
   };
 
@@ -230,6 +281,49 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           // The body's calls were already extracted by callExtractor.
           break;
         }
+        case "ThisGet": {
+          if (!className) break;
+          const g = resolveGetterOnChain(className, hint.property);
+          if (g) {
+            pushEdge(g.id, g.ownerClass === className ? CallKind.Static : CallKind.Inherited, true);
+          }
+          // Drop unresolved silently: it's likely a plain `property`, not a computed accessor.
+          break;
+        }
+        case "ThisSet": {
+          if (!className) break;
+          const s = resolveSetterOnChain(className, hint.property);
+          if (s) {
+            pushEdge(s.id, s.ownerClass === className ? CallKind.Static : CallKind.Inherited, true);
+          }
+          break;
+        }
+        case "VarGet": {
+          const locals = localTypes.get(call.fromSymbolId);
+          const target = classFromVarType(locals?.get(hint.variable));
+          if (!target) break;
+          const g = resolveGetterOnChain(target, hint.property);
+          if (g) pushEdge(g.id, CallKind.Static, true);
+          break;
+        }
+        case "VarSet": {
+          const locals = localTypes.get(call.fromSymbolId);
+          const target = classFromVarType(locals?.get(hint.variable));
+          if (!target) break;
+          const s = resolveSetterOnChain(target, hint.property);
+          if (s) pushEdge(s.id, CallKind.Static, true);
+          break;
+        }
+        case "CsGet": {
+          const g = resolveGetterOnChain(hint.className, hint.property);
+          if (g) pushEdge(g.id, CallKind.Static, true);
+          break;
+        }
+        case "CsSet": {
+          const s = resolveSetterOnChain(hint.className, hint.property);
+          if (s) pushEdge(s.id, CallKind.Static, true);
+          break;
+        }
       }
     }
   }
@@ -271,7 +365,7 @@ export function buildSymbolIndex(
   for (const u of unresolvedSymbols) allSymbols.push(u);
 
   return {
-    version: 2,
+    version: INDEX_VERSION,
     builtAt: Date.now(),
     projectRoot,
     symbols: allSymbols,

@@ -9,6 +9,8 @@ html, body { margin: 0; padding: 0; height: 100%; width: 100%; font-family: var(
 .k-ProjectMethod     { background: #4ec9b0; }
 .k-ClassFunction     { background: #569cd6; }
 .k-ClassConstructor  { background: #c586c0; }
+.k-ClassGetter       { background: #9cdcfe; }
+.k-ClassSetter       { background: #dcdcaa; }
 .k-Class             { background: #4fc1ff; }
 .k-DatabaseMethod    { background: #ce9178; }
 .k-FormMethod        { background: #d7ba7d; }

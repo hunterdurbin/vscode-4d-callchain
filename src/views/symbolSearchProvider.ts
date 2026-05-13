@@ -23,6 +23,8 @@ const ORDER: SymbolKind[] = [
   SymbolKind.Class,
   SymbolKind.ClassFunction,
   SymbolKind.ClassConstructor,
+  SymbolKind.ClassGetter,
+  SymbolKind.ClassSetter,
   SymbolKind.DatabaseMethod,
   SymbolKind.FormMethod,
   SymbolKind.FormObjectMethod,

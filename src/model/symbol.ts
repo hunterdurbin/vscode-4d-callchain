@@ -4,6 +4,8 @@ export enum SymbolKind {
   Class = "Class",
   ClassFunction = "ClassFunction",
   ClassConstructor = "ClassConstructor",
+  ClassGetter = "ClassGetter",
+  ClassSetter = "ClassSetter",
   FormMethod = "FormMethod",
   FormObjectMethod = "FormObjectMethod",
   TableFormMethod = "TableFormMethod",
@@ -68,6 +70,12 @@ export type CallHint =
   | { kind: "ThisCall"; method: string }
   | { kind: "SuperCall"; method?: string }
   | { kind: "VarCall"; variable: string; method: string }
+  | { kind: "ThisGet"; property: string }
+  | { kind: "ThisSet"; property: string }
+  | { kind: "VarGet"; variable: string; property: string }
+  | { kind: "VarSet"; variable: string; property: string }
+  | { kind: "CsGet"; className: string; property: string }
+  | { kind: "CsSet"; className: string; property: string }
   | { kind: "CallWorker"; methodName: string }
   | { kind: "NewProcess"; methodName: string }
   | { kind: "ExecuteMethodLiteral"; methodName: string }
@@ -94,7 +102,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 2;
+export const INDEX_VERSION = 3;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {
