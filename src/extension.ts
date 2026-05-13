@@ -39,6 +39,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const searchView  = vscode.window.createTreeView("callchain.search",  { treeDataProvider: search });
   context.subscriptions.push(callersView, calleesView, searchView);
 
+  // Count badge — show direct-caller / direct-callee count next to each title.
+  const refreshCallersBadge = () => {
+    const n = callers.directCount();
+    const lock = callers.isLocked ? "🔒 " : "";
+    callersView.description = n > 0 ? `${lock}${n}` : (lock || undefined);
+  };
+  const refreshCalleesBadge = () => {
+    const n = callees.directCount();
+    const lock = callees.isLocked ? "🔒 " : "";
+    calleesView.description = n > 0 ? `${lock}${n}` : (lock || undefined);
+  };
+  context.subscriptions.push(
+    callers.onDidChangeRoot(refreshCallersBadge),
+    callees.onDidChangeRoot(refreshCalleesBadge)
+  );
+
+  // Initialize lock context keys to false so the menus pick the right icon.
+  vscode.commands.executeCommand("setContext", "callchain.callersLocked", false);
+  vscode.commands.executeCommand("setContext", "callchain.calleesLocked", false);
+
   const lensProvider = new CallChainLensProvider(
     () => indexer.getGraph(),
     () => decorator,
@@ -98,9 +118,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!graph) return;
       const sym = graph.symbol(symbolId);
       if (!sym) return;
+      // Explicit pin bypasses lock so "▲ N callers" / "▼ N callees" lenses always work.
+      callers.pinRoot(sym.id);
+      callees.pinRoot(sym.id);
       tracker.pin(sym);
       const view = which === "callers" ? callersView : calleesView;
       try { await view.reveal(undefined as any, { focus: true }); } catch { /* ignore */ }
+    }),
+    vscode.commands.registerCommand("callchain.lockCallers", () => {
+      callers.setLocked(true);
+      vscode.commands.executeCommand("setContext", "callchain.callersLocked", true);
+      refreshCallersBadge();
+    }),
+    vscode.commands.registerCommand("callchain.unlockCallers", () => {
+      callers.setLocked(false);
+      vscode.commands.executeCommand("setContext", "callchain.callersLocked", false);
+      // Snap back to the current cursor symbol if any.
+      const cur = tracker.getCurrent();
+      callers.setRoot(cur?.id);
+      refreshCallersBadge();
+    }),
+    vscode.commands.registerCommand("callchain.lockCallees", () => {
+      callees.setLocked(true);
+      vscode.commands.executeCommand("setContext", "callchain.calleesLocked", true);
+      refreshCalleesBadge();
+    }),
+    vscode.commands.registerCommand("callchain.unlockCallees", () => {
+      callees.setLocked(false);
+      vscode.commands.executeCommand("setContext", "callchain.calleesLocked", false);
+      const cur = tracker.getCurrent();
+      callees.setRoot(cur?.id);
+      refreshCalleesBadge();
     }),
     vscode.commands.registerCommand("callchain.pickSymbol", async () => {
       const graph = indexer.getGraph();

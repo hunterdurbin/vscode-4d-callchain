@@ -86,6 +86,26 @@
       {
         "command": "callchain.openSymbol",
         "title": "4D Call Chain: Open Symbol"
+      },
+      {
+        "command": "callchain.lockCallers",
+        "title": "Lock Callers",
+        "icon": "$(unlock)"
+      },
+      {
+        "command": "callchain.unlockCallers",
+        "title": "Unlock Callers",
+        "icon": "$(lock)"
+      },
+      {
+        "command": "callchain.lockCallees",
+        "title": "Lock Callees",
+        "icon": "$(unlock)"
+      },
+      {
+        "command": "callchain.unlockCallees",
+        "title": "Unlock Callees",
+        "icon": "$(lock)"
       }
     ],
     "menus": {
@@ -98,6 +118,28 @@
         {
           "command": "callchain.showGraph",
           "when": "resourceExtname == .4dm",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "callchain.lockCallers",
+          "when": "view == callchain.callers && !callchain.callersLocked",
+          "group": "navigation"
+        },
+        {
+          "command": "callchain.unlockCallers",
+          "when": "view == callchain.callers && callchain.callersLocked",
+          "group": "navigation"
+        },
+        {
+          "command": "callchain.lockCallees",
+          "when": "view == callchain.callees && !callchain.calleesLocked",
+          "group": "navigation"
+        },
+        {
+          "command": "callchain.unlockCallees",
+          "when": "view == callchain.callees && callchain.calleesLocked",
           "group": "navigation"
         }
       ]
