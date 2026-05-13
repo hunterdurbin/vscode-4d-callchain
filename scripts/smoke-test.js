@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Smoke test: build a full index against Symphony, print summary stats.
+// Smoke test: build a full index against Symphony, print summary stats,
+// and assert a battery of regression probes that lock in past bug fixes.
 // Usage: node scripts/smoke-test.js [projectRoot]
+// Exit code: 0 if all probes pass, 1 if any fail.
 
 const path = require("path");
 const { discoverFiles, discoverPlugins, discoverCatalogTables } = require("../out/indexer/projectScanner");
@@ -15,17 +17,20 @@ const start = Date.now();
 const files = discoverFiles(projectRoot, { exclusions: ["DerivedData", "Libraries", ".git", "node_modules"] });
 console.log(`Discovered ${files.length} .4dm files`);
 
+// Constants first so the parser can resolve bare-identifier references inline.
+const constants = discoverConstants(projectRoot);
+const constantsSet = new Set(constants.map((c) => c.name));
+console.log(`Discovered ${constants.length} constants`);
+
 const parsed = [];
 for (let i = 0; i < files.length; i++) {
-  parsed.push(parseFile(files[i], projectRoot));
+  parsed.push(parseFile(files[i], projectRoot, constantsSet));
   if (i > 0 && i % 1000 === 0) console.log(`  parsed ${i}/${files.length}`);
 }
 const plugins = discoverPlugins(projectRoot);
 console.log(`Discovered ${plugins.length} plugins`);
 const catalogTables = discoverCatalogTables(projectRoot);
 console.log(`Discovered ${catalogTables.size} catalog tables`);
-const constants = discoverConstants(projectRoot);
-console.log(`Discovered ${constants.length} constants`);
 
 const idx = buildSymbolIndex(projectRoot, parsed, plugins, catalogTables, constants);
 const elapsed = ((Date.now() - start) / 1000).toFixed(1);
@@ -49,63 +54,105 @@ console.log(`\nEdges:`);
 console.log(`  resolved:   ${edgeByKind.resolved}`);
 console.log(`  unresolved: ${edgeByKind.unresolved}`);
 
-// Sanity probes against known fixtures
-const OrderHydrator = idx.symbols.find((s) => s.name === "OrderHydrator" && s.kind === "Class");
-const OrderHydrator_Test = idx.symbols.find((s) => s.name === "OrderHydrator_Test" && s.kind === "Class");
-const fnGet = idx.symbols.find((s) => s.ownerClass === "OrderHydrator" && s.name === "getNormalizedInvoiceFromDatastore");
-const fnTest = idx.symbols.find((s) => s.ownerClass === "OrderHydrator_Test" && s.name === "test_getNormalizedInvoiceFromDatastore");
-console.log(`\nFixture probes:`);
-console.log(`  OrderHydrator class:      ${OrderHydrator ? "FOUND" : "MISSING"}`);
-console.log(`  OrderHydrator_Test class: ${OrderHydrator_Test ? "FOUND" : "MISSING"}`);
-console.log(`  getNormalizedInvoiceFromDatastore: ${fnGet ? "FOUND" : "MISSING"}`);
-console.log(`  test_getNormalizedInvoiceFromDatastore: ${fnTest ? "FOUND" : "MISSING"}`);
+// ===== Regression probes =====
+// Each probe records pass/fail. Final exit code = 1 if any failed.
+let passed = 0;
+let failed = 0;
+const failures = [];
+function assert(label, condition, detail) {
+  const ok = !!condition;
+  console.log(`  ${ok ? "✓" : "✗"} ${label}${detail ? ` — ${detail}` : ""}`);
+  if (ok) passed++;
+  else { failed++; failures.push(label); }
+}
+const sym = (kind, name, ownerClass) =>
+  idx.symbols.find((s) =>
+    s.kind === kind && s.name === name && (ownerClass === undefined || s.ownerClass === ownerClass)
+  );
+const callersOf = (s) => idx.edges.filter((e) => e.toId === s.id);
+const calleesOf = (s) => idx.edges.filter((e) => e.fromId === s.id);
 
+// ----- Core fixture probes -----
+console.log(`\nCore fixtures:`);
+const orderHydrator = sym("Class", "OrderHydrator");
+assert("OrderHydrator class exists", orderHydrator);
+assert("OrderHydrator_Test class exists", sym("Class", "OrderHydrator_Test"));
+const fnGet = sym("ClassFunction", "getNormalizedInvoiceFromDatastore", "OrderHydrator");
+assert("OrderHydrator.getNormalizedInvoiceFromDatastore exists", fnGet);
+const fnTest = sym("ClassFunction", "test_getNormalizedInvoiceFromDatastore", "OrderHydrator_Test");
+assert("OrderHydrator_Test.test_getNormalizedInvoiceFromDatastore exists", fnTest);
 if (fnGet) {
-  const inbound = idx.edges.filter((e) => e.toId === fnGet.id);
-  const outbound = idx.edges.filter((e) => e.fromId === fnGet.id);
-  console.log(`  getNormalizedInvoiceFromDatastore: ${inbound.length} callers, ${outbound.length} callees`);
+  const inbound = callersOf(fnGet).length;
+  const outbound = calleesOf(fnGet).length;
+  assert("getNormalizedInvoiceFromDatastore has ≥1 caller", inbound >= 1, `${inbound} callers`);
+  assert("getNormalizedInvoiceFromDatastore has ≥3 callees", outbound >= 3, `${outbound} callees`);
 }
 
-// Check a couple of edge cases
-const auditCardNew = idx.symbols.find((s) => s.name === "AuditCard_New" && s.kind === "ProjectMethod");
+// ----- CALL WORKER with a Choose(...) first arg -----
+const auditCardNew = sym("ProjectMethod", "AuditCard_New");
 if (auditCardNew) {
-  const out = idx.edges.filter((e) => e.fromId === auditCardNew.id);
-  const audit_ws = out.find((e) => idx.symbols.find((s) => s.id === e.toId && s.name === "AuditCard_WS"));
-  console.log(`  AuditCard_New → AuditCard_WS (CALL WORKER): ${audit_ws ? "FOUND" : "MISSING"}`);
+  const auditWS = calleesOf(auditCardNew).find((e) => {
+    const t = idx.symbols.find((s) => s.id === e.toId);
+    return t && t.name === "AuditCard_WS";
+  });
+  assert("AuditCard_New → AuditCard_WS (CALL WORKER)", !!auditWS);
 }
 
-// ----- Getter / Setter probes -----
-console.log(`\nGetter/Setter probes:`);
-const shippingCostGet = idx.symbols.find(
-  (s) => s.kind === "ClassGetter" && s.ownerClass === "NormalizedOrder" && s.name === "shippingCost"
-);
-console.log(`  ClassGetter:NormalizedOrder.shippingCost: ${shippingCostGet ? "FOUND" : "MISSING"}`);
+// ----- Multi-word builtins must not produce phantom bare-name edges -----
+const recordGhost = sym("Unresolved", "RECORD");
+assert("RECORD is NOT an Unresolved symbol (multi-word filter)", !recordGhost);
 
-const splitGet = idx.symbols.find(
-  (s) => s.kind === "ClassGetter" && s.ownerClass === "NormalizedOrderItem" && s.name === "splitPercentage"
-);
-const splitSet = idx.symbols.find(
-  (s) => s.kind === "ClassSetter" && s.ownerClass === "NormalizedOrderItem" && s.name === "splitPercentage"
-);
-console.log(`  ClassGetter:NormalizedOrderItem.splitPercentage: ${splitGet ? "FOUND" : "MISSING"}`);
-console.log(`  ClassSetter:NormalizedOrderItem.splitPercentage: ${splitSet ? "FOUND" : "MISSING"}`);
+// ----- Getters / setters -----
+console.log(`\nGetters / setters:`);
+const shippingCostGet = sym("ClassGetter", "shippingCost", "NormalizedOrder");
+assert("ClassGetter NormalizedOrder.shippingCost exists", shippingCostGet);
+const splitGet = sym("ClassGetter", "splitPercentage", "NormalizedOrderItem");
+const splitSet = sym("ClassSetter", "splitPercentage", "NormalizedOrderItem");
+assert("ClassGetter NormalizedOrderItem.splitPercentage exists", splitGet);
+assert("ClassSetter NormalizedOrderItem.splitPercentage exists", splitSet);
+if (splitGet) assert("splitPercentage getter has ≥2 callers", callersOf(splitGet).length >= 2, `${callersOf(splitGet).length} callers`);
+if (splitSet) assert("splitPercentage setter has ≥2 callers", callersOf(splitSet).length >= 2, `${callersOf(splitSet).length} callers`);
 
-if (splitSet) {
-  const callers = idx.edges.filter((e) => e.toId === splitSet.id);
-  console.log(`    setter callers: ${callers.length}`);
+// ----- ds[_X] bracket access resolution -----
+console.log(`\nds[_X] bracket resolution:`);
+const createActiveRule = sym("ClassFunction", "_createActiveRule", "Rules_Test");
+if (createActiveRule) {
+  const outs = calleesOf(createActiveRule);
+  const newEdge = outs.find((e) => {
+    const t = idx.symbols.find((s) => s.id === e.toId);
+    return t && t.name === "ds.Rules.new";
+  });
+  const saveEdge = outs.find((e) => {
+    const t = idx.symbols.find((s) => s.id === e.toId);
+    return t && t.name === "Rules.save";
+  });
+  assert("ds[_Rules].new() → Builtin:ds.Rules.new", !!newEdge);
+  assert("$eRule.save() → Builtin:Rules.save (after ds[_Rules].new())", !!saveEdge);
 }
-if (splitGet) {
-  const callers = idx.edges.filter((e) => e.toId === splitGet.id);
-  console.log(`    getter callers: ${callers.length}`);
+
+// ----- Constants symbols + value/type -----
+console.log(`\nConstants:`);
+const constSamples = [
+  { name: "_Rules",                  expectedType: "Text",    expectedValue: "Rules",              minCallers: 5 },
+  { name: "Worker_Backend",          expectedType: "Longint", expectedValue: "1",                  minCallers: 5 },
+  { name: "MODULE_INVOICES",         expectedType: "Text",    expectedValue: "Invoices",           minCallers: 50 },
+  { name: "4Q_TYPE_AuditCreditCards",expectedType: "Text",    expectedValue: "audit_credit_cards", minCallers: 1 }
+];
+for (const probe of constSamples) {
+  const c = sym("Constant", probe.name);
+  if (!c) { assert(`Constant ${probe.name} exists`, false); continue; }
+  assert(`Constant ${probe.name} exists`, true);
+  assert(`  value = ${JSON.stringify(probe.expectedValue)}`, c.constantValue === probe.expectedValue, `got ${JSON.stringify(c.constantValue)}`);
+  assert(`  type = ${probe.expectedType}`, c.constantType === probe.expectedType, `got ${c.constantType}`);
+  const callers = callersOf(c).length;
+  assert(`  ≥${probe.minCallers} callers (constant-ref tracking)`, callers >= probe.minCallers, `${callers} callers`);
 }
 
-// Symbol count and edge growth sanity
-const byKindAfter = {};
-for (const s of idx.symbols) byKindAfter[s.kind] = (byKindAfter[s.kind] ?? 0) + 1;
-console.log(`\nClassGetter count: ${byKindAfter.ClassGetter ?? 0}`);
-console.log(`ClassSetter count: ${byKindAfter.ClassSetter ?? 0}`);
-const getterEdges = idx.edges.filter((e) => {
-  const t = idx.symbols.find((s) => s.id === e.toId);
-  return t && (t.kind === "ClassGetter" || t.kind === "ClassSetter");
-});
-console.log(`Edges into getters/setters: ${getterEdges.length}`);
+// ===== Summary =====
+console.log(`\n${"=".repeat(40)}`);
+console.log(`Probes: ${passed} passed, ${failed} failed`);
+if (failed > 0) {
+  console.log(`\nFailed probes:`);
+  for (const f of failures) console.log(`  • ${f}`);
+  process.exit(1);
+}
