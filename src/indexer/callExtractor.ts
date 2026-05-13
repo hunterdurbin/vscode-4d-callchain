@@ -193,28 +193,37 @@ export function extractCallSitesFromLine(
     }
   }
 
-  // --- Bare-name calls (project methods, builtins, plugins) ---
-  // We need to avoid matching method-chain receivers like ".save(", "$x.foo(", "cs.X.fn(".
-  re = new RegExp(RE_BARE_CALL);
-  while ((m = re.exec(line))) {
-    const name = m[1];
-    if (RESERVED.has(name)) continue;
-    // Skip if preceded by '.' or '$' or ':'
-    const start = m.index! + m[0].indexOf(name);
-    const prevChar = start > 0 ? line[start - 1] : "";
-    if (prevChar === "." || prevChar === "$" || prevChar === ":") continue;
-    push({ kind: "BareName", name }, m[0]);
-  }
-
-  // --- Whole-line "X Y(..." style 4D commands (e.g., HTTP Get(...) / Process 4D tags(...)) ---
-  // We capture command-like sequences of "Word Word..." preceding "(" so the resolver can
-  // try them against the builtin set.
+  // --- Whole-line "X Y(..." style 4D commands (e.g., HTTP Get(...) / Process 4D tags(...))
+  // We run this BEFORE the bare-name pass so we can record the source-text spans
+  // these matches consume; the bare pass will skip any name that falls inside.
+  // Without this, `CREATE RECORD([Inventory])` produces two edges:
+  //   • multi-word: "CREATE RECORD" (resolved → Builtin) — correct
+  //   • bare:       "RECORD"        (Unresolved)        — bug
   const multiWordCall = /(?:^|[^A-Za-z0-9_.$])([A-Z][\w]*(?:\s+[A-Za-z][\w]*){1,4})\s*\(/g;
   let mw: RegExpMatchArray | null;
+  const consumedSpans: Array<[number, number]> = [];
   while ((mw = multiWordCall.exec(line))) {
     const name = mw[1].replace(/\s+/g, " ").trim();
     if (name.length > 80) continue;
     push({ kind: "BuiltinChain", name }, mw[0]);
+    // Span covers the captured name (skip the leading boundary char).
+    const nameStart = mw.index! + mw[0].indexOf(mw[1]);
+    consumedSpans.push([nameStart, nameStart + mw[1].length]);
+  }
+
+  // --- Bare-name calls (project methods, builtins, plugins) ---
+  // Avoid matching method-chain receivers like ".save(", "$x.foo(", "cs.X.fn(".
+  re = new RegExp(RE_BARE_CALL);
+  while ((m = re.exec(line))) {
+    const name = m[1];
+    if (RESERVED.has(name)) continue;
+    const start = m.index! + m[0].indexOf(name);
+    const prevChar = start > 0 ? line[start - 1] : "";
+    if (prevChar === "." || prevChar === "$" || prevChar === ":") continue;
+    // Skip if this position is already part of a recognized multi-word command —
+    // e.g. the trailing "RECORD" of "CREATE RECORD(...)".
+    if (consumedSpans.some(([a, b]) => start >= a && start < b)) continue;
+    push({ kind: "BareName", name }, m[0]);
   }
 
   return out;

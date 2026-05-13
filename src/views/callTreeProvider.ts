@@ -123,10 +123,12 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
       }
       item.iconPath = new vscode.ThemeIcon("debug-stackframe");
       item.tooltip = buildSiteTooltip(node);
+      // Navigate to the call site itself — that lives in the FROM symbol's
+      // file (the caller), regardless of which direction we're showing.
       item.command = {
         command: "callchain.openSymbol",
         title: "Open",
-        arguments: [node.symbol.id, node.edge.line]
+        arguments: [node.edge.fromId, node.edge.line]
       };
       item.contextValue = "callchain.site";
       return item;
@@ -150,13 +152,21 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
     item.description = count >= 2 ? `${base} · ×${count}` : base;
     item.iconPath = iconFor(node.symbol);
     item.tooltip = buildGroupTooltip(node);
-    if (node.symbol.location.uri) {
-      // Click jumps to the first call site (not the symbol's definition) so the user
-      // sees the call in context.
+    // Click jumps to the first call site so the user sees the call in context.
+    // The call line lives in the FROM symbol's file (the caller), regardless of
+    // tree direction — never the displayed `node.symbol`'s file when they differ.
+    const firstEdge = node.edges[0];
+    if (firstEdge) {
       item.command = {
         command: "callchain.openSymbol",
         title: "Open",
-        arguments: [node.symbol.id, node.edges[0]?.line]
+        arguments: [firstEdge.fromId, firstEdge.line]
+      };
+    } else if (node.symbol.location.uri) {
+      item.command = {
+        command: "callchain.openSymbol",
+        title: "Open",
+        arguments: [node.symbol.id]
       };
     }
     item.contextValue = count >= 2 ? "callchain.symbol.multi" : "callchain.symbol";

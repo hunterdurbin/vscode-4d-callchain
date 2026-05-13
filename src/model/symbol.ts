@@ -102,7 +102,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 3;
+export const INDEX_VERSION = 4;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {
