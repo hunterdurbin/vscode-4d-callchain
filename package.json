@@ -154,13 +154,18 @@
         },
         "callchain.testCommand": {
           "type": "string",
-          "default": "make test class={class} format=junit",
-          "description": "Command template to run tests. {class} is substituted with the test class name."
+          "default": "make test class={class} format=json outputPath={jsonOutputPath}",
+          "description": "Command template used when running tests via our fallback runner (ScottHarris.4d-testing-extension is preferred when installed). {class} is the test class name; {jsonOutputPath} is the value of callchain.jsonResultsPath."
+        },
+        "callchain.jsonResultsPath": {
+          "type": "string",
+          "default": "Components/testing.4dbase/test-results/results.json",
+          "description": "Relative path (from projectRoot) where the JSON test-results file is written and read. Matches the format consumed by ScottHarris.4d-testing-extension."
         },
         "callchain.junitResultsPath": {
           "type": "string",
           "default": "Components/testing.4dbase/test-results/junit.xml",
-          "description": "Relative path (from projectRoot) to the JUnit XML test results file."
+          "description": "Optional JUnit XML fallback path. Used only if the JSON file is missing."
         },
         "callchain.maxGraphDepth": {
           "type": "number",

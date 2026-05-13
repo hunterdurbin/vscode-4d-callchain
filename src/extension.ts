@@ -8,7 +8,8 @@ import { SymbolSearchProvider } from "./views/symbolSearchProvider";
 import { CursorTracker } from "./views/cursorTracker";
 import { GraphPanel } from "./views/graphView/graphPanel";
 import { TestStatusDecorator } from "./decorations/testStatusDecorator";
-import { runTests } from "./testing/testRunner";
+import { delegateToScottHarris, isScottHarrisInstalled, runTests } from "./testing/testRunner";
+import { TestResultsWatcher } from "./testing/resultsWatcher";
 import { CoverageReport, computeCoverage } from "./testing/coverage";
 import { CallChainLensProvider } from "./codelens/callChainLens";
 
@@ -92,16 +93,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     callees.setRoot(s?.id);
   });
 
-  // Watcher for test results
-  const junitRel = vscode.workspace.getConfiguration("callchain").get<string>("junitResultsPath", "");
-  if (junitRel) {
-    const junitAbs = path.join(projectRoot, junitRel);
-    decorator.loadFrom(junitAbs);
-    decorator.onDidChange(() => lensProvider.refresh());
-    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(projectRoot, junitRel));
-    watcher.onDidCreate(() => decorator.loadFrom(junitAbs));
-    watcher.onDidChange(() => decorator.loadFrom(junitAbs));
-    context.subscriptions.push(watcher);
+  // Test-results watcher: persistent JSON path + ScottHarris's transient files.
+  const resultsWatcher = new TestResultsWatcher(projectRoot, decorator, output);
+  resultsWatcher.start();
+  decorator.onDidChange(() => lensProvider.refresh());
+  context.subscriptions.push(resultsWatcher);
+
+  if (isScottHarrisInstalled()) {
+    output.appendLine("[Activate] ScottHarris.4d-testing-extension detected — ▶ Run will delegate to its Test Explorer.");
   }
 
   // File-system watcher for .4dm changes → incremental rebuild
@@ -200,19 +199,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       GraphPanel.show(context, graph, rootId);
     }),
-    vscode.commands.registerCommand("callchain.runTestsForClass", async (className?: string) => {
+    vscode.commands.registerCommand("callchain.runTestsForClass", async (className?: string, testFunctionName?: string) => {
       const cls = className ?? (await vscode.window.showInputBox({ prompt: "Test class name (e.g. OrderHydrator_Test)" }));
       if (!cls) return;
-      const template = vscode.workspace.getConfiguration("callchain").get<string>("testCommand", "make test class={class} format=junit");
-      await runTests({ projectRoot, commandTemplate: template, className: cls, output: testOutput });
-      const junitAbs = path.join(projectRoot, vscode.workspace.getConfiguration("callchain").get<string>("junitResultsPath", ""));
-      decorator.loadFrom(junitAbs);
+      // 1. If ScottHarris is installed, delegate to its Test Explorer.
+      if (isScottHarrisInstalled()) {
+        const classFile = path.join(projectRoot, "Project", "Sources", "Classes", `${cls}.4dm`);
+        const ok = await delegateToScottHarris(classFile, testFunctionName, testOutput);
+        if (ok) return;
+      }
+      // 2. Fall back to our own runner.
+      const cfg = vscode.workspace.getConfiguration("callchain");
+      const template = cfg.get<string>("testCommand", "make test class={class} format=json outputPath={jsonOutputPath}");
+      const jsonRel = cfg.get<string>("jsonResultsPath", "Components/testing.4dbase/test-results/results.json");
+      const cmd = template.replace(/\{jsonOutputPath\}/g, jsonRel);
+      await runTests({ projectRoot, commandTemplate: cmd, className: cls, output: testOutput });
+      const jsonAbs = path.join(projectRoot, jsonRel);
+      decorator.loadFromJson(jsonAbs);
     }),
     vscode.commands.registerCommand("callchain.runAllTests", async () => {
-      const template = vscode.workspace.getConfiguration("callchain").get<string>("testCommand", "make test class={class} format=junit").replace(/\bclass=\{class\}\s*/g, "");
-      await runTests({ projectRoot, commandTemplate: template, output: testOutput });
-      const junitAbs = path.join(projectRoot, vscode.workspace.getConfiguration("callchain").get<string>("junitResultsPath", ""));
-      decorator.loadFrom(junitAbs);
+      if (isScottHarrisInstalled()) {
+        // Run all 4D tests in the global Test Explorer.
+        await vscode.commands.executeCommand("testing.runAll");
+        return;
+      }
+      const cfg = vscode.workspace.getConfiguration("callchain");
+      const template = cfg
+        .get<string>("testCommand", "make test class={class} format=json outputPath={jsonOutputPath}")
+        .replace(/\bclass=\{class\}\s*/g, "");
+      const jsonRel = cfg.get<string>("jsonResultsPath", "Components/testing.4dbase/test-results/results.json");
+      const cmd = template.replace(/\{jsonOutputPath\}/g, jsonRel);
+      await runTests({ projectRoot, commandTemplate: cmd, output: testOutput });
+      const jsonAbs = path.join(projectRoot, jsonRel);
+      decorator.loadFromJson(jsonAbs);
     }),
     vscode.commands.registerCommand("callchain.jumpToTests", async (symbolId: string) => {
       if (!coverage) return;
