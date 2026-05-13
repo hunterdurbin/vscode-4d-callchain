@@ -108,6 +108,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
         title: "Open",
         arguments: [node.symbol.id]
       };
+      item.contextValue = "callchain.symbol.root";
       return item;
     }
     if (node.kind === "site") {

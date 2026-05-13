@@ -233,6 +233,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const jsonAbs = path.join(projectRoot, jsonRel);
       decorator.loadFromJson(jsonAbs);
     }),
+    vscode.commands.registerCommand("callchain.contextShowCallers", (node: any) => {
+      const sym = extractSymbol(node);
+      if (!sym) return;
+      callers.pinRoot(sym.id);
+      callersView.reveal(undefined as any, { focus: true }).then(undefined, () => { /* ignore */ });
+    }),
+    vscode.commands.registerCommand("callchain.contextShowCallees", (node: any) => {
+      const sym = extractSymbol(node);
+      if (!sym) return;
+      callees.pinRoot(sym.id);
+      calleesView.reveal(undefined as any, { focus: true }).then(undefined, () => { /* ignore */ });
+    }),
+    vscode.commands.registerCommand("callchain.contextShowGraph", (node: any) => {
+      const sym = extractSymbol(node);
+      const graph = indexer.getGraph();
+      if (!sym || !graph) return;
+      GraphPanel.show(context, graph, sym.id);
+    }),
+    vscode.commands.registerCommand("callchain.contextPinCallers", (node: any) => {
+      const sym = extractSymbol(node);
+      if (!sym) return;
+      callers.pinRoot(sym.id);
+      callers.setLocked(true);
+      vscode.commands.executeCommand("setContext", "callchain.callersLocked", true);
+    }),
+    vscode.commands.registerCommand("callchain.contextPinCallees", (node: any) => {
+      const sym = extractSymbol(node);
+      if (!sym) return;
+      callees.pinRoot(sym.id);
+      callees.setLocked(true);
+      vscode.commands.executeCommand("setContext", "callchain.calleesLocked", true);
+    }),
+    vscode.commands.registerCommand("callchain.contextCopyName", async (node: any) => {
+      const sym = extractSymbol(node);
+      if (!sym) return;
+      await vscode.env.clipboard.writeText(sym.name);
+    }),
+    vscode.commands.registerCommand("callchain.contextCopyFileLine", async (node: any) => {
+      const sym = extractSymbol(node);
+      if (!sym || !sym.location.uri) return;
+      // file:///… → /abs/path:line
+      const fsPath = vscode.Uri.parse(sym.location.uri).fsPath;
+      const line = (sym.location.line ?? 0) + 1;
+      await vscode.env.clipboard.writeText(`${fsPath}:${line}`);
+    }),
     vscode.commands.registerCommand("callchain.jumpToTests", async (symbolId: string) => {
       if (!coverage) return;
       const graph = indexer.getGraph();
@@ -271,6 +316,19 @@ function resolveProjectRoot(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) return undefined;
   return folders[0].uri.fsPath;
+}
+
+/**
+ * Pull a SymbolRecord out of whatever tree-node shape the context menu passes:
+ *  - SymbolSearchProvider passes a raw SymbolRecord
+ *  - CallTreeProvider passes a {symbol: SymbolRecord, ...} wrapper
+ */
+function extractSymbol(arg: any): SymbolRecord | undefined {
+  if (!arg) return undefined;
+  if (typeof arg === "string") return undefined;
+  if (arg.kind && arg.name && arg.id) return arg as SymbolRecord;
+  if (arg.symbol && typeof arg.symbol === "object") return arg.symbol as SymbolRecord;
+  return undefined;
 }
 
 async function openSymbol(s: SymbolRecord, lineOverride?: number): Promise<void> {

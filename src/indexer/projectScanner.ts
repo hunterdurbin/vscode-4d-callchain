@@ -129,6 +129,24 @@ export function discoverFiles(projectRoot: string, opts: ScanOptions): Discovere
   return out;
 }
 
+/**
+ * Read every table-name file from the 4D catalog. Each
+ * `Project/Sources/Catalog/Tables/<TableName>.json` represents a dataclass.
+ * The set is used by the resolver to validate `ds[_X]` bracket-access
+ * references — `_Rules` is a constant whose value is `"Rules"`, and we
+ * trust the convention that stripping the leading underscore yields the
+ * actual table name iff that name is in the catalog.
+ */
+export function discoverCatalogTables(projectRoot: string): Set<string> {
+  const out = new Set<string>();
+  const tablesDir = path.join(projectRoot, "Project", "Sources", "Catalog", "Tables");
+  if (!fs.existsSync(tablesDir)) return out;
+  for (const entry of safeReaddir(tablesDir)) {
+    if (entry.endsWith(".json")) out.add(entry.replace(/\.json$/, ""));
+  }
+  return out;
+}
+
 export interface DiscoveredPlugin {
   name: string;
   absolutePath: string;

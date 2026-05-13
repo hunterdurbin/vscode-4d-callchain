@@ -106,6 +106,34 @@
         "command": "callchain.unlockCallees",
         "title": "Unlock Callees",
         "icon": "$(lock)"
+      },
+      {
+        "command": "callchain.contextShowCallers",
+        "title": "Show callers"
+      },
+      {
+        "command": "callchain.contextShowCallees",
+        "title": "Show callees"
+      },
+      {
+        "command": "callchain.contextShowGraph",
+        "title": "Show graph from here"
+      },
+      {
+        "command": "callchain.contextPinCallers",
+        "title": "Pin & lock in Callers"
+      },
+      {
+        "command": "callchain.contextPinCallees",
+        "title": "Pin & lock in Callees"
+      },
+      {
+        "command": "callchain.contextCopyName",
+        "title": "Copy name"
+      },
+      {
+        "command": "callchain.contextCopyFileLine",
+        "title": "Copy file:line"
       }
     ],
     "menus": {
@@ -141,6 +169,43 @@
           "command": "callchain.unlockCallees",
           "when": "view == callchain.callees && callchain.calleesLocked",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "callchain.contextShowCallers",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "callchain.contextShowCallees",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "callchain.contextShowGraph",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "navigation@3"
+        },
+        {
+          "command": "callchain.contextPinCallers",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "pin@1"
+        },
+        {
+          "command": "callchain.contextPinCallees",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "pin@2"
+        },
+        {
+          "command": "callchain.contextCopyName",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "copy@1"
+        },
+        {
+          "command": "callchain.contextCopyFileLine",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "copy@2"
         }
       ]
     },

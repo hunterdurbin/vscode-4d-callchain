@@ -3,9 +3,10 @@
 // Usage: node scripts/smoke-test.js [projectRoot]
 
 const path = require("path");
-const { discoverFiles, discoverPlugins } = require("../out/indexer/projectScanner");
+const { discoverFiles, discoverPlugins, discoverCatalogTables } = require("../out/indexer/projectScanner");
 const { parseFile } = require("../out/indexer/fileParser");
 const { buildSymbolIndex } = require("../out/indexer/nameResolver");
+const { discoverConstants } = require("../out/indexer/constantsScanner");
 
 const projectRoot = process.argv[2] || "/Users/hunterdurbin/src/4d/symphony";
 console.log(`Smoke-testing against ${projectRoot}`);
@@ -21,8 +22,12 @@ for (let i = 0; i < files.length; i++) {
 }
 const plugins = discoverPlugins(projectRoot);
 console.log(`Discovered ${plugins.length} plugins`);
+const catalogTables = discoverCatalogTables(projectRoot);
+console.log(`Discovered ${catalogTables.size} catalog tables`);
+const constants = discoverConstants(projectRoot);
+console.log(`Discovered ${constants.length} constants`);
 
-const idx = buildSymbolIndex(projectRoot, parsed, plugins);
+const idx = buildSymbolIndex(projectRoot, parsed, plugins, catalogTables, constants);
 const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 console.log(`\nBuilt index in ${elapsed}s`);
 console.log(`  Total symbols: ${idx.symbols.length}`);

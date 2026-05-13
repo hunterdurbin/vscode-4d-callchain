@@ -13,6 +13,10 @@ const RE_PROCESS_4D_TAGS = /\bProcess\s+4D\s+tags\s*\(/i;
 const RE_CS_NEW   = /\bcs\.([\w_]+)\.new\s*\(/g;
 const RE_CS_CALL  = /\bcs\.([\w_]+)\.([\w_]+)\s*\(/g;
 const RE_DS_CALL  = /\bds\.([\w_]+)\.([\w_]+)\s*\(/g;
+// Bracket-access dataclass: ds[_TableName].new(...) / .method(...)
+// Identifier may have leading underscore (constant convention) or none.
+const RE_DS_BRACKET_NEW  = /\bds\s*\[\s*([\w_]+)\s*\]\s*\.\s*new\s*\(/g;
+const RE_DS_BRACKET_CALL = /\bds\s*\[\s*([\w_]+)\s*\]\s*\.\s*([\w_]+)\s*\(/g;
 const RE_THIS_CALL= /\bThis\.([\w_]+)\s*\(/g;
 const RE_SUPER    = /\bSuper(?:\.([\w_]+))?\s*\(/g;
 const RE_VAR_CALL = /\$([\w_]+)\.([\w_]+)\s*\(/g;
@@ -113,6 +117,17 @@ export function extractCallSitesFromLine(
   re = new RegExp(RE_DS_CALL);
   while ((m = re.exec(line))) {
     push({ kind: "DsCall", className: m[1], method: m[2] }, m[0]);
+  }
+
+  // --- ds[_X].new(...) and ds[_X].method(...) ---
+  re = new RegExp(RE_DS_BRACKET_NEW);
+  while ((m = re.exec(line))) {
+    push({ kind: "DsBracketNew", ident: m[1] }, m[0]);
+  }
+  re = new RegExp(RE_DS_BRACKET_CALL);
+  while ((m = re.exec(line))) {
+    if (m[2] === "new") continue; // already handled
+    push({ kind: "DsBracketCall", ident: m[1], method: m[2] }, m[0]);
   }
 
   // --- This.method(...) ---

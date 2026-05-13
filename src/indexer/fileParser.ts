@@ -25,6 +25,9 @@ const PROPERTY_DECL = /^\s*property\s+([\w_]+)/i;
 const VAR_DECL = /\bvar\s+\$([\w_]+)\s*:\s*([\w.]+)/g;
 const ASSIGN_NEW = /\$([\w_]+)\s*:=\s*cs\.([\w_]+)\.new\s*\(/g;
 const ASSIGN_DS_QUERY = /\$([\w_]+)\s*:=\s*ds\.([\w_]+)\.(query|all|fromCollection|new|orderBy)/g;
+// Bracket-access: $x:=ds[_Table].new() → cs.Table[Entity]; .get/.first → entity; .query/.all → selection.
+const ASSIGN_DS_BRACKET_NEW = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\s*(new|get|first|last)\s*\(/g;
+const ASSIGN_DS_BRACKET_QUERY = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\s*(query|all|fromCollection|orderBy)/g;
 const DECLARE_PARAMS = /#DECLARE\s*\(([^)]*)\)(?:\s*->\s*\$[\w_]+\s*:\s*([\w.]+))?/;
 
 export function parseFile(file: DiscoveredFile, projectRootUri: string): ParsedFile {
@@ -181,6 +184,18 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string): ParsedF
     ASSIGN_DS_QUERY.lastIndex = 0;
     while ((vmatch = ASSIGN_DS_QUERY.exec(line))) {
       currentLocals.set(vmatch[1], `entitySelectionOf:${vmatch[2]}`);
+    }
+    ASSIGN_DS_BRACKET_NEW.lastIndex = 0;
+    while ((vmatch = ASSIGN_DS_BRACKET_NEW.exec(line))) {
+      // Strip leading underscore from the constant identifier. Final mapping to
+      // the actual class happens in the resolver (catalog-validated).
+      const tableName = vmatch[2].replace(/^_/, "");
+      currentLocals.set(vmatch[1], `dsTable:${tableName}`);
+    }
+    ASSIGN_DS_BRACKET_QUERY.lastIndex = 0;
+    while ((vmatch = ASSIGN_DS_BRACKET_QUERY.exec(line))) {
+      const tableName = vmatch[2].replace(/^_/, "");
+      currentLocals.set(vmatch[1], `dsTableSelection:${tableName}`);
     }
 
     // #DECLARE parameter types

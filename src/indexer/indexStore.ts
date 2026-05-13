@@ -3,7 +3,8 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { INDEX_VERSION, SymbolIndex } from "../model/symbol";
 import { CallGraph } from "../model/callGraph";
-import { discoverFiles, discoverPlugins } from "./projectScanner";
+import { discoverCatalogTables, discoverFiles, discoverPlugins } from "./projectScanner";
+import { discoverConstants } from "./constantsScanner";
 import { parseFile } from "./fileParser";
 import { buildSymbolIndex } from "./nameResolver";
 
@@ -68,8 +69,12 @@ export class Indexer {
     }
     const plugins = discoverPlugins(this.opts.projectRoot);
     this.opts.output.appendLine(`[Indexer] Discovered ${plugins.length} plugin bundles`);
+    const catalogTables = discoverCatalogTables(this.opts.projectRoot);
+    this.opts.output.appendLine(`[Indexer] Discovered ${catalogTables.size} catalog tables`);
+    const constants = discoverConstants(this.opts.projectRoot);
+    this.opts.output.appendLine(`[Indexer] Discovered ${constants.length} constants`);
 
-    const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins);
+    const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants);
     idx.fileMtimes = mtimes;
 
     this.currentIndex = idx;

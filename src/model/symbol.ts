@@ -13,6 +13,7 @@ export enum SymbolKind {
   DatabaseMethod = "DatabaseMethod",
   Plugin = "Plugin",
   Builtin = "Builtin",
+  Constant = "Constant",
   Unresolved = "Unresolved"
 }
 
@@ -51,6 +52,10 @@ export interface SymbolRecord {
   accessor?: "get" | "set" | "function";
   scope?: "local" | "shared" | "public";
   returnType?: string;
+  /** For Constant symbols: the parsed value, e.g. "Rules" or "3". */
+  constantValue?: string;
+  /** For Constant symbols: 4D theme/group name if known. */
+  constantTheme?: string;
 }
 
 export interface RawCallSite {
@@ -76,6 +81,8 @@ export type CallHint =
   | { kind: "VarSet"; variable: string; property: string }
   | { kind: "CsGet"; className: string; property: string }
   | { kind: "CsSet"; className: string; property: string }
+  | { kind: "DsBracketNew"; ident: string }
+  | { kind: "DsBracketCall"; ident: string; method: string }
   | { kind: "CallWorker"; methodName: string }
   | { kind: "NewProcess"; methodName: string }
   | { kind: "ExecuteMethodLiteral"; methodName: string }
@@ -102,7 +109,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 4;
+export const INDEX_VERSION = 6;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

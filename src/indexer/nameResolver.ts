@@ -8,6 +8,8 @@ const PLUGIN_PREFIXES: string[] = (builtinsData as any).pluginCommandPrefixes ??
 export interface ResolverInput {
   files: ParsedFile[];
   plugins: { name: string; symbolId: string }[];
+  /** Catalog table names from `Project/Sources/Catalog/Tables/*.json`. */
+  catalogTables: Set<string>;
 }
 
 export interface ResolverOutput {
@@ -125,6 +127,18 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
     return undefined;
   };
 
+  // Map a table name from the catalog to the user-defined class to look up
+  // method calls on. Prefer the Entity class (the per-row API) since that's
+  // what new()/get()/first() return; fall back to the DataClass class
+  // (table-level API). Returns the canonical class name as stored.
+  const classForTable = (tableName: string): string | undefined => {
+    const entityCls = classByName.get(`${tableName}Entity`.toLowerCase());
+    if (entityCls) return entityCls.name;
+    const tableCls = classByName.get(tableName.toLowerCase());
+    if (tableCls) return tableCls.name;
+    return undefined;
+  };
+
   // Variable type → class name (or undefined). Used by VarGet/VarSet/VarCall.
   const classFromVarType = (type: string | undefined): string | undefined => {
     if (!type) return undefined;
@@ -132,6 +146,17 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
     if (csMatch) return csMatch[1];
     const esMatch = type.match(/^entitySelectionOf:([\w_]+)$/);
     if (esMatch) return esMatch[1];
+    const dsTable = type.match(/^dsTable:([\w_]+)$/);
+    if (dsTable) {
+      if (input.catalogTables.has(dsTable[1])) {
+        return classForTable(dsTable[1]) ?? dsTable[1];
+      }
+      return undefined;
+    }
+    const dsTableSel = type.match(/^dsTableSelection:([\w_]+)$/);
+    if (dsTableSel && input.catalogTables.has(dsTableSel[1])) {
+      return classForTable(dsTableSel[1]) ?? dsTableSel[1];
+    }
     return undefined;
   };
 
@@ -236,23 +261,16 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           break;
         }
         case "VarCall": {
-          const fromId = call.fromSymbolId;
-          const locals = localTypes.get(fromId);
-          const type = locals?.get(hint.variable);
-          if (type) {
-            // cs.Foo style
-            const csMatch = type.match(/^cs\.([\w_]+)$/);
-            const esMatch = type.match(/^entitySelectionOf:([\w_]+)$/);
-            const targetClass = csMatch?.[1] ?? esMatch?.[1];
-            if (targetClass) {
-              const fn = resolveOnClassChain(targetClass, hint.method);
-              if (fn) {
-                pushEdge(fn.id, CallKind.Static, true);
-                break;
-              }
+          const locals = localTypes.get(call.fromSymbolId);
+          const targetClass = classFromVarType(locals?.get(hint.variable));
+          if (targetClass) {
+            const fn = resolveOnClassChain(targetClass, hint.method);
+            if (fn) {
+              pushEdge(fn.id, CallKind.Static, true);
+            } else {
               pushEdge(findOrCreateBuiltin(`${targetClass}.${hint.method}`), CallKind.Static, true);
-              break;
             }
+            break;
           }
           pushEdge(findOrCreateUnresolved(`$${hint.variable}.${hint.method}`), CallKind.Dynamic, false);
           break;
@@ -324,6 +342,42 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           if (s) pushEdge(s.id, CallKind.Static, true);
           break;
         }
+        case "DsBracketNew": {
+          // Strip the conventional leading underscore (`_Rules` → `Rules`)
+          // then verify the table exists in the catalog.
+          const table = hint.ident.replace(/^_/, "");
+          if (!input.catalogTables.has(table)) {
+            pushEdge(findOrCreateUnresolved(`ds[${hint.ident}].new`), CallKind.Dynamic, false);
+            break;
+          }
+          const targetClass = classForTable(table);
+          if (targetClass) {
+            const ctor = classFunctions.get(`${targetClass}.constructor`.toLowerCase());
+            const target = ctor ?? classByName.get(targetClass.toLowerCase());
+            if (target) {
+              pushEdge(target.id, CallKind.Static, true);
+              break;
+            }
+          }
+          // No user-defined class — synthesize a builtin to keep the edge.
+          pushEdge(findOrCreateBuiltin(`ds.${table}.new`), CallKind.Static, true);
+          break;
+        }
+        case "DsBracketCall": {
+          const table = hint.ident.replace(/^_/, "");
+          if (!input.catalogTables.has(table)) {
+            pushEdge(findOrCreateUnresolved(`ds[${hint.ident}].${hint.method}`), CallKind.Dynamic, false);
+            break;
+          }
+          const targetClass = classForTable(table);
+          const fn = targetClass ? resolveOnClassChain(targetClass, hint.method) : undefined;
+          if (fn) {
+            pushEdge(fn.id, CallKind.Static, true);
+          } else {
+            pushEdge(findOrCreateBuiltin(`ds.${table}.${hint.method}`), CallKind.Static, true);
+          }
+          break;
+        }
       }
     }
   }
@@ -343,7 +397,9 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
 export function buildSymbolIndex(
   projectRoot: string,
   parsedFiles: ParsedFile[],
-  plugins: { name: string; absolutePath: string }[]
+  plugins: { name: string; absolutePath: string }[],
+  catalogTables: Set<string> = new Set(),
+  constants: { name: string; value?: string; theme?: string; sourceFile: string }[] = []
 ): SymbolIndex {
   const allSymbols: SymbolRecord[] = [];
   for (const f of parsedFiles) {
@@ -357,8 +413,29 @@ export function buildSymbolIndex(
   }));
   for (const s of pluginSyms) allSymbols.push(s);
 
+  // Constants: name-only symbols with no edges. They populate the Symbols view
+  // but are intentionally never added as callees of method bodies.
+  const seenConstants = new Set<string>();
+  for (const c of constants) {
+    const id = symbolIdFor(SymbolKind.Constant, c.name);
+    if (seenConstants.has(id)) continue;
+    seenConstants.add(id);
+    allSymbols.push({
+      id,
+      name: c.name,
+      kind: SymbolKind.Constant,
+      location: { uri: "file://" + c.sourceFile, line: 0 },
+      constantValue: c.value,
+      constantTheme: c.theme
+    });
+  }
+
   const { edges, unresolvedSymbols } = resolve(
-    { files: parsedFiles, plugins: pluginSyms.map((s) => ({ name: s.name, symbolId: s.id })) },
+    {
+      files: parsedFiles,
+      plugins: pluginSyms.map((s) => ({ name: s.name, symbolId: s.id })),
+      catalogTables
+    },
     allSymbols
   );
 
