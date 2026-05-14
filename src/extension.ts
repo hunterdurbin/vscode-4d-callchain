@@ -40,25 +40,54 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const searchView  = vscode.window.createTreeView("callchain.search",  { treeDataProvider: search });
   context.subscriptions.push(callersView, calleesView, searchView);
 
-  // Count badge — show direct-caller / direct-callee count next to each title.
+  // Title badge: count + lock + active-filter summary.
+  const buildBadge = (n: number, locked: boolean, filter: string, matches: number): string | undefined => {
+    const parts: string[] = [];
+    if (locked) parts.push("🔒");
+    if (filter) parts.push(`🔍 "${filter}"·${matches}`);
+    if (n > 0 && !filter) parts.push(`${n}`);
+    return parts.length > 0 ? parts.join(" ") : undefined;
+  };
   const refreshCallersBadge = () => {
-    const n = callers.directCount();
-    const lock = callers.isLocked ? "🔒 " : "";
-    callersView.description = n > 0 ? `${lock}${n}` : (lock || undefined);
+    callersView.description = buildBadge(callers.directCount(), callers.isLocked, callers.filter, callers.filterMatches);
   };
   const refreshCalleesBadge = () => {
-    const n = callees.directCount();
-    const lock = callees.isLocked ? "🔒 " : "";
-    calleesView.description = n > 0 ? `${lock}${n}` : (lock || undefined);
+    calleesView.description = buildBadge(callees.directCount(), callees.isLocked, callees.filter, callees.filterMatches);
+  };
+  const refreshSymbolsBadge = () => {
+    const bits: string[] = [];
+    if (search.currentSort === "callersDesc") bits.push("▲↓");
+    if (search.currentSort === "callersAsc") bits.push("▲↑");
+    if (search.currentCallerFilter === "withCallers") bits.push("▲≥1");
+    if (search.currentCallerFilter === "noCallers") bits.push("▲=0");
+    if (search.filter) bits.push(`🔍 "${search.filter}"`);
+    searchView.description = bits.length ? bits.join(" ") : undefined;
   };
   context.subscriptions.push(
     callers.onDidChangeRoot(refreshCallersBadge),
-    callees.onDidChangeRoot(refreshCalleesBadge)
+    callees.onDidChangeRoot(refreshCalleesBadge),
+    callers.onDidChangeFilter((q) => {
+      vscode.commands.executeCommand("setContext", "callchain.callersFiltered", q.length > 0);
+      refreshCallersBadge();
+    }),
+    callees.onDidChangeFilter((q) => {
+      vscode.commands.executeCommand("setContext", "callchain.calleesFiltered", q.length > 0);
+      refreshCalleesBadge();
+    }),
+    search.onDidChangeFilter((q) => {
+      vscode.commands.executeCommand("setContext", "callchain.symbolsFiltered", q.length > 0);
+      refreshSymbolsBadge();
+    }),
+    search.onDidChangeSort(() => refreshSymbolsBadge()),
+    search.onDidChangeCallerFilter(() => refreshSymbolsBadge())
   );
 
-  // Initialize lock context keys to false so the menus pick the right icon.
+  // Initialize context keys to false so the menus pick the right icon.
   vscode.commands.executeCommand("setContext", "callchain.callersLocked", false);
   vscode.commands.executeCommand("setContext", "callchain.calleesLocked", false);
+  vscode.commands.executeCommand("setContext", "callchain.callersFiltered", false);
+  vscode.commands.executeCommand("setContext", "callchain.calleesFiltered", false);
+  vscode.commands.executeCommand("setContext", "callchain.symbolsFiltered", false);
 
   // React to config changes that affect tree rendering.
   context.subscriptions.push(
@@ -278,6 +307,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const line = (sym.location.line ?? 0) + 1;
       await vscode.env.clipboard.writeText(`${fsPath}:${line}`);
     }),
+    vscode.commands.registerCommand("callchain.filterCallers", () => openFilterInput("Filter Callers", callers)),
+    vscode.commands.registerCommand("callchain.filterCallees", () => openFilterInput("Filter Callees", callees)),
+    vscode.commands.registerCommand("callchain.filterSymbols", () => openFilterInput("Filter Symbols", search)),
+    vscode.commands.registerCommand("callchain.clearFilterCallers", () => callers.setFilter("")),
+    vscode.commands.registerCommand("callchain.clearFilterCallees", () => callees.setFilter("")),
+    vscode.commands.registerCommand("callchain.clearFilterSymbols", () => search.setFilter("")),
+    vscode.commands.registerCommand("callchain.toggleSymbolsSort", () => search.cycleSort()),
+    vscode.commands.registerCommand("callchain.toggleCallerFilter", () => search.cycleCallerFilter()),
+    vscode.commands.registerCommand("callchain.collapseSubtree", (node: any) => {
+      if (!node) return;
+      // Folder nodes (groups + prefixes) only exist in the Symbols view.
+      if (node.kind === "group" || node.kind === "prefix") {
+        search.collapseSubtree(node);
+        return;
+      }
+      // Root / SymbolGroup / Site come from a CallTreeProvider. The node's
+      // own shape tells us which: but it doesn't say which direction. Both
+      // providers accept the same Node shape, and only the matching one will
+      // have the node's id in its expanded state — so we tell BOTH to bump
+      // and let the unrelated provider no-op (bump for an unmounted scope
+      // simply has no descendants to suffix).
+      callers.collapseSubtree(node);
+      callees.collapseSubtree(node);
+    }),
     vscode.commands.registerCommand("callchain.jumpToTests", async (symbolId: string) => {
       if (!coverage) return;
       const graph = indexer.getGraph();
@@ -316,6 +369,27 @@ function resolveProjectRoot(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) return undefined;
   return folders[0].uri.fsPath;
+}
+
+/**
+ * Open a live-filtering InputBox bound to a tree provider. Every keystroke
+ * applies the filter; Esc / Enter dismisses but the filter persists.
+ * Use the matching clearFilter* command (visible as a title button when
+ * filter is active) to reset.
+ */
+interface FilterableProvider {
+  filter: string;
+  setFilter(query: string): void;
+}
+function openFilterInput(title: string, provider: FilterableProvider): void {
+  const input = vscode.window.createInputBox();
+  input.title = title;
+  input.placeholder = "Fuzzy match (chars in order)…";
+  input.value = provider.filter;
+  input.onDidChangeValue((v) => provider.setFilter(v));
+  input.onDidAccept(() => input.hide());
+  input.onDidHide(() => input.dispose());
+  input.show();
 }
 
 /**

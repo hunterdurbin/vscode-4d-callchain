@@ -134,6 +134,50 @@
       {
         "command": "callchain.contextCopyFileLine",
         "title": "Copy file:line"
+      },
+      {
+        "command": "callchain.collapseSubtree",
+        "title": "Collapse sub-folders"
+      },
+      {
+        "command": "callchain.filterCallers",
+        "title": "Filter Callers…",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "callchain.filterCallees",
+        "title": "Filter Callees…",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "callchain.filterSymbols",
+        "title": "Filter Symbols…",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "callchain.clearFilterCallers",
+        "title": "Clear filter",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "callchain.clearFilterCallees",
+        "title": "Clear filter",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "callchain.clearFilterSymbols",
+        "title": "Clear filter",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "callchain.toggleSymbolsSort",
+        "title": "Toggle sort (Name → Callers↓ → Callers↑)",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "callchain.toggleCallerFilter",
+        "title": "Toggle caller filter (off → ≥1 → 0)",
+        "icon": "$(call-incoming)"
       }
     ],
     "menus": {
@@ -169,6 +213,46 @@
           "command": "callchain.unlockCallees",
           "when": "view == callchain.callees && callchain.calleesLocked",
           "group": "navigation"
+        },
+        {
+          "command": "callchain.filterCallers",
+          "when": "view == callchain.callers",
+          "group": "navigation@0"
+        },
+        {
+          "command": "callchain.clearFilterCallers",
+          "when": "view == callchain.callers && callchain.callersFiltered",
+          "group": "navigation@1"
+        },
+        {
+          "command": "callchain.filterCallees",
+          "when": "view == callchain.callees",
+          "group": "navigation@0"
+        },
+        {
+          "command": "callchain.clearFilterCallees",
+          "when": "view == callchain.callees && callchain.calleesFiltered",
+          "group": "navigation@1"
+        },
+        {
+          "command": "callchain.filterSymbols",
+          "when": "view == callchain.search",
+          "group": "navigation@0"
+        },
+        {
+          "command": "callchain.clearFilterSymbols",
+          "when": "view == callchain.search && callchain.symbolsFiltered",
+          "group": "navigation@1"
+        },
+        {
+          "command": "callchain.toggleSymbolsSort",
+          "when": "view == callchain.search",
+          "group": "navigation@1"
+        },
+        {
+          "command": "callchain.toggleCallerFilter",
+          "when": "view == callchain.search",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -206,6 +290,11 @@
           "command": "callchain.contextCopyFileLine",
           "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
           "group": "copy@2"
+        },
+        {
+          "command": "callchain.collapseSubtree",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.(symbol|folder)/",
+          "group": "collapse@1"
         }
       ]
     },

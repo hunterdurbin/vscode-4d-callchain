@@ -102,4 +102,26 @@ export class CallGraph {
     }
     return visited;
   }
+
+  /** All reverse-reachable symbol ids: seeds + anything that can reach them. */
+  reverseClosure(seeds: Iterable<string>): Set<string> {
+    const visited = new Set<string>();
+    const stack: string[] = [];
+    for (const s of seeds) {
+      if (!visited.has(s)) {
+        visited.add(s);
+        stack.push(s);
+      }
+    }
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const e of this.callers(cur)) {
+        if (!visited.has(e.fromId)) {
+          visited.add(e.fromId);
+          stack.push(e.fromId);
+        }
+      }
+    }
+    return visited;
+  }
 }

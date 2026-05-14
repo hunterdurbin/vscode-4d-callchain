@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CallGraph } from "../model/callGraph";
 import { CallEdge, SymbolKind, SymbolRecord } from "../model/symbol";
 import { descriptionFor, iconFor } from "./treeIcons";
+import { fuzzyMatch, parseFilterQuery } from "../util/fuzzy";
 
 export type Direction = "callers" | "callees";
 
@@ -33,13 +34,84 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   private rootSymbolId: string | undefined;
   private graph: CallGraph | undefined;
   private locked = false;
+  /**
+   * Per-symbol "collapse generation". When the user invokes "collapse
+   * sub-folders" on a node, we bump that node's symbol id here. Any descendant
+   * SymbolGroup whose parentChain contains a bumped ancestor gets the bump
+   * appended to its TreeItem id — VS Code treats it as a fresh item and falls
+   * back to the default `Collapsed` state.
+   */
+  private readonly collapseBumps = new Map<string, number>();
+  private filterQuery = "";
+  /**
+   * When a filter is active, this is the set of symbol ids that should be
+   * visible in the tree — every matching symbol plus every symbol that can
+   * reach a matching one via the tree's direction. Recomputed when the
+   * filter or graph changes.
+   */
+  private filterVisible: Set<string> | undefined;
+  private filterMatchCount = 0;
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
   private readonly rootChangedEmitter = new vscode.EventEmitter<string | undefined>();
   /** Fires whenever the effective root symbol id changes (after lock/unlock filtering). */
   readonly onDidChangeRoot = this.rootChangedEmitter.event;
+  private readonly filterChangedEmitter = new vscode.EventEmitter<string>();
+  /** Fires whenever the active filter changes (string is empty when cleared). */
+  readonly onDidChangeFilter = this.filterChangedEmitter.event;
 
   constructor(private readonly direction: Direction) {}
+
+  get filter(): string {
+    return this.filterQuery;
+  }
+
+  get filterMatches(): number {
+    return this.filterMatchCount;
+  }
+
+  setFilter(query: string): void {
+    const next = query.trim();
+    if (next === this.filterQuery) return;
+    this.filterQuery = next;
+    this.recomputeFilter();
+    this.emitter.fire(undefined);
+    this.filterChangedEmitter.fire(this.filterQuery);
+  }
+
+  private recomputeFilter(): void {
+    if (!this.graph || !this.filterQuery) {
+      this.filterVisible = undefined;
+      this.filterMatchCount = 0;
+      return;
+    }
+    const parsed = parseFilterQuery(this.filterQuery);
+    const fuzzy = parsed.fuzzy;
+    // Match: every symbol whose name satisfies the fuzzy query AND none of
+    // the `-token` excludes. An empty positive query matches everything;
+    // excludes still apply.
+    const matches = new Set<string>();
+    for (const s of this.graph.allSymbols()) {
+      const haystack = s.ownerClass ? `${s.ownerClass}.${s.name}` : s.name;
+      if (fuzzy && !fuzzyMatch(fuzzy, haystack)) continue;
+      let excluded = false;
+      for (const ex of parsed.excludes) {
+        if (fuzzyMatch(ex, haystack)) { excluded = true; break; }
+      }
+      if (excluded) continue;
+      matches.add(s.id);
+    }
+    this.filterMatchCount = matches.size;
+    // Visible: every symbol that can reach (in this tree's direction) some match.
+    //  - Callees tree: a parent P is visible iff some symbol in P's forward closure matches
+    //    ⇒ P ∈ reverseClosure(matches) walking reverse edges of the forward graph,
+    //    i.e. anything that calls into a match. CallGraph.reverseClosure walks .callers().
+    //  - Callers tree: mirrored — a parent P is visible iff some caller-of-P (or further
+    //    ancestor) matches ⇒ P ∈ forwardClosure(matches) walking .callees().
+    this.filterVisible = this.direction === "callers"
+      ? this.graph.forwardClosure(matches)
+      : this.graph.reverseClosure(matches);
+  }
 
   get isLocked(): boolean {
     return this.locked;
@@ -55,6 +127,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
 
   setGraph(graph: CallGraph): void {
     this.graph = graph;
+    this.recomputeFilter();
     this.emitter.fire(undefined);
     this.rootChangedEmitter.fire(this.rootSymbolId);
   }
@@ -80,6 +153,19 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
     this.emitter.fire(undefined);
   }
 
+  /**
+   * Collapse every expanded descendant of `target` by bumping the generation
+   * counter for target.symbol.id. Descendant SymbolGroups inherit the suffix
+   * via their parentChain, get a new TreeItem id, and re-render Collapsed.
+   */
+  collapseSubtree(target: Node): void {
+    if (target.kind === "site") return;
+    const ancestorId = target.symbol.id;
+    const prev = this.collapseBumps.get(ancestorId) ?? 0;
+    this.collapseBumps.set(ancestorId, prev + 1);
+    this.emitter.fire(undefined);
+  }
+
   /** Count of direct callers/callees for the current root, or 0 if none. */
   directCount(): number {
     if (!this.graph || !this.rootSymbolId) return 0;
@@ -101,6 +187,9 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
         node.symbol.name,
         hasChildren ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None
       );
+      // Stable id so VS Code preserves expansion state across refreshes
+      // (e.g. when the fuzzy filter changes).
+      item.id = `${this.direction}:root:${node.symbol.id}`;
       item.description = descriptionFor(node.symbol);
       item.iconPath = iconFor(node.symbol);
       item.command = {
@@ -119,6 +208,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
         `line ${node.edge.line + 1}`,
         vscode.TreeItemCollapsibleState.None
       );
+      item.id = `${this.direction}:site:${node.edge.fromId}>${node.edge.toId}@${node.edge.line}`;
       if (showSnippet) {
         item.description = truncate(node.edge.raw, 80);
       }
@@ -149,6 +239,19 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
         : vscode.TreeItemCollapsibleState.None;
     }
     const item = new vscode.TreeItem(node.symbol.name, collapsible);
+    // Path-aware id so the same symbol appearing at different depths is
+    // recognised as distinct. parentChain is iterated in insertion order
+    // (Set preserves it) so the id is stable across refreshes.
+    const path = [...node.parentChain].join(">");
+    let groupId = `${this.direction}:grp:${path}>${node.symbol.id}`;
+    // If any ancestor in this node's path has been collapsed via right-click,
+    // append the bump suffix so VS Code forgets the old expansion state.
+    for (const [ancestorId, bump] of this.collapseBumps) {
+      if (node.parentChain.has(ancestorId)) {
+        groupId += `:b${bump}@${ancestorId}`;
+      }
+    }
+    item.id = groupId;
     const base = descriptionFor(node.symbol);
     item.description = count >= 2 ? `${base} · ×${count}` : base;
     item.iconPath = iconFor(node.symbol);
@@ -183,12 +286,14 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
         : this.graph.callees(symbolId);
     const rootSym = this.rootSymbolId ? this.graph.symbol(this.rootSymbolId) : undefined;
     const allowConstantTargets = rootSym?.kind === SymbolKind.Constant;
+    const visible = this.filterVisible;
     for (const e of edges) {
       const targetId = this.direction === "callers" ? e.fromId : e.toId;
       if (parentChain.has(targetId)) continue;
       const sym = this.graph.symbol(targetId);
       if (!sym) continue;
       if (!allowConstantTargets && sym.kind === SymbolKind.Constant) continue;
+      if (visible && !visible.has(targetId)) continue;
       return true;
     }
     return false;
@@ -233,6 +338,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
     const rootSym = this.rootSymbolId ? this.graph.symbol(this.rootSymbolId) : undefined;
     const allowConstantTargets = rootSym?.kind === SymbolKind.Constant;
 
+    const visible = this.filterVisible;
     const groups = new Map<string, CallEdge[]>();
     for (const e of edges) {
       const targetId = this.direction === "callers" ? e.fromId : e.toId;
@@ -240,6 +346,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
       const sym = this.graph.symbol(targetId);
       if (!sym) continue;
       if (!allowConstantTargets && sym.kind === SymbolKind.Constant) continue;
+      if (visible && !visible.has(targetId)) continue; // filter hides this branch
       let bucket = groups.get(targetId);
       if (!bucket) {
         bucket = [];

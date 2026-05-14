@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CallGraph } from "../model/callGraph";
 import { SymbolKind, SymbolRecord } from "../model/symbol";
 import { descriptionFor, iconFor } from "./treeIcons";
+import { fuzzyMatch, parseFilterQuery, ParsedQuery } from "../util/fuzzy";
 
 interface SymbolGroup {
   kind: SymbolKind;
@@ -19,6 +20,9 @@ class PrefixNode {
 }
 
 type Node = GroupNode | PrefixNode | SymbolRecord;
+
+export type SortMode = "name" | "callersDesc" | "callersAsc";
+export type CallerCountFilter = "off" | "withCallers" | "noCallers";
 
 const ORDER: SymbolKind[] = [
   SymbolKind.ProjectMethod,
@@ -42,13 +46,129 @@ const ORDER: SymbolKind[] = [
 /** Groups above this size are sub-divided by prefix. Smaller groups stay flat. */
 const SUBGROUP_THRESHOLD = 100;
 
+
 export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
   private graph: CallGraph | undefined;
+  private filterQuery = "";
+  private parsedFilter: ParsedQuery = { fuzzy: "", excludes: [] };
+  private sortMode: SortMode = "name";
+  private callerCountFilter: CallerCountFilter = "off";
+  /** Bump generation per group/prefix scope so right-click "collapse" forces fresh ids on descendants. */
+  private readonly collapseBumps = new Map<string, number>();
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
+  private readonly filterChangedEmitter = new vscode.EventEmitter<string>();
+  readonly onDidChangeFilter = this.filterChangedEmitter.event;
+  private readonly sortChangedEmitter = new vscode.EventEmitter<SortMode>();
+  readonly onDidChangeSort = this.sortChangedEmitter.event;
+  private readonly callerFilterChangedEmitter = new vscode.EventEmitter<CallerCountFilter>();
+  readonly onDidChangeCallerFilter = this.callerFilterChangedEmitter.event;
   /** Cache symbol partitions per kind so getChildren stays O(1) after the first hit. */
   private readonly byKind = new Map<SymbolKind, SymbolRecord[]>();
   private readonly byKindAndPrefix = new Map<SymbolKind, Map<string, SymbolRecord[]>>();
+
+  get filter(): string {
+    return this.filterQuery;
+  }
+
+  get currentSort(): SortMode {
+    return this.sortMode;
+  }
+
+  get currentCallerFilter(): CallerCountFilter {
+    return this.callerCountFilter;
+  }
+
+  setFilter(query: string): void {
+    const next = query.trim();
+    if (next === this.filterQuery) return;
+    this.filterQuery = next;
+    this.parsedFilter = parseFilterQuery(next);
+    // Partition caches are keyed by SymbolKind only; invalidate them so the
+    // count badges on prefix folders reflect the current filter state.
+    this.byKindAndPrefix.clear();
+    this.emitter.fire(undefined);
+    this.filterChangedEmitter.fire(this.filterQuery);
+  }
+
+  /** Cycle sort mode: Name → CallersDesc → CallersAsc → Name → … */
+  cycleSort(): void {
+    this.sortMode =
+      this.sortMode === "name" ? "callersDesc" :
+      this.sortMode === "callersDesc" ? "callersAsc" : "name";
+    this.emitter.fire(undefined);
+    this.sortChangedEmitter.fire(this.sortMode);
+  }
+
+  /**
+   * Collapse every expanded descendant of the right-clicked group or prefix
+   * by bumping the generation for that scope. Descendant TreeItem ids get
+   * the bump suffix and VS Code re-renders them with default Collapsed state.
+   */
+  collapseSubtree(node: Node): void {
+    let scope: string | undefined;
+    if (isGroup(node)) scope = `group:${node.group.kind}`;
+    else if (isPrefix(node)) scope = `prefix:${node.symbolKind}:${node.prefix}`;
+    if (!scope) return;
+    this.collapseBumps.set(scope, (this.collapseBumps.get(scope) ?? 0) + 1);
+    this.emitter.fire(undefined);
+  }
+
+  /** Suffix to append to a descendant's id when any of its ancestor scopes have been collapsed. */
+  private bumpSuffixFor(...scopes: string[]): string {
+    let suffix = "";
+    for (const s of scopes) {
+      const b = this.collapseBumps.get(s);
+      if (b) suffix += `:b${b}@${s}`;
+    }
+    return suffix;
+  }
+
+  /** Cycle caller-count quick filter: off → withCallers (≥1) → noCallers (=0) → off → … */
+  cycleCallerFilter(): void {
+    this.callerCountFilter =
+      this.callerCountFilter === "off" ? "withCallers" :
+      this.callerCountFilter === "withCallers" ? "noCallers" : "off";
+    this.byKindAndPrefix.clear();
+    this.emitter.fire(undefined);
+    this.callerFilterChangedEmitter.fire(this.callerCountFilter);
+  }
+
+  private matches(s: SymbolRecord): boolean {
+    const haystack = s.ownerClass ? `${s.ownerClass}.${s.name}` : s.name;
+    if (this.callerCountFilter !== "off" && this.graph) {
+      const n = this.graph.callers(s.id).length;
+      if (this.callerCountFilter === "withCallers" && n < 1) return false;
+      if (this.callerCountFilter === "noCallers" && n !== 0) return false;
+    }
+    if (this.parsedFilter.callerPredicate && this.graph) {
+      const n = this.graph.callers(s.id).length;
+      if (!this.parsedFilter.callerPredicate(n)) return false;
+    }
+    for (const ex of this.parsedFilter.excludes) {
+      if (fuzzyMatch(ex, haystack)) return false;
+    }
+    if (!this.parsedFilter.fuzzy) return true;
+    return fuzzyMatch(this.parsedFilter.fuzzy, haystack);
+  }
+
+  private callerCount(s: SymbolRecord): number {
+    return this.graph?.callers(s.id).length ?? 0;
+  }
+
+  /** Sort a list of symbols according to the current sort mode. */
+  private sortItems(items: SymbolRecord[]): SymbolRecord[] {
+    if (this.sortMode === "callersDesc" || this.sortMode === "callersAsc") {
+      const dir = this.sortMode === "callersDesc" ? -1 : 1;
+      return [...items].sort((a, b) => {
+        const ca = this.callerCount(a);
+        const cb = this.callerCount(b);
+        if (ca !== cb) return dir * (ca - cb);
+        return a.name.localeCompare(b.name);
+      });
+    }
+    return [...items].sort((a, b) => a.name.localeCompare(b.name));
+  }
 
   setGraph(graph: CallGraph): void {
     this.graph = graph;
@@ -60,23 +180,48 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
   getTreeItem(node: Node): vscode.TreeItem {
     if (isGroup(node)) {
       const item = new vscode.TreeItem(`${node.group.label} (${node.count})`, vscode.TreeItemCollapsibleState.Collapsed);
+      // Stable id so VS Code preserves expansion state across tree refreshes
+      // (filter typing, sort changes, etc.).
+      item.id = `group:${node.group.kind}`;
       item.iconPath = new vscode.ThemeIcon("folder");
+      item.contextValue = "callchain.folder.group";
       return item;
     }
     if (isPrefix(node)) {
       const item = new vscode.TreeItem(node.prefix, vscode.TreeItemCollapsibleState.Collapsed);
+      // Inherit bump from parent group if it was collapsed.
+      item.id = `prefix:${node.symbolKind}:${node.prefix}${this.bumpSuffixFor(`group:${node.symbolKind}`)}`;
       item.description = `${node.count}`;
       item.iconPath = new vscode.ThemeIcon("folder");
+      item.contextValue = "callchain.folder.prefix";
       return item;
     }
     const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.None);
-    item.description = descriptionFor(node);
+    // Inherit bumps from both the symbol's kind group and its prefix folder.
+    const prefix = prefixFor(node.name);
+    const scopes = [`group:${node.kind}`];
+    if (prefix) scopes.push(`prefix:${node.kind}:${prefix}`);
+    item.id = `sym:${node.id}${this.bumpSuffixFor(...scopes)}`;
+    const baseDesc = descriptionFor(node);
+    const callers = this.callerCount(node);
+    item.description = callers > 0 ? `${baseDesc} · ▲ ${callers}` : baseDesc;
     item.iconPath = iconFor(node);
-    item.command = {
-      command: "callchain.openSymbol",
-      title: "Open",
-      arguments: [node.id]
-    };
+    if (node.kind === SymbolKind.Constant) {
+      // Constants all "live" in the same XLF file — navigation there is useless.
+      // Clicking pins the constant as the Callers root so the real-world value
+      // (where it's used) shows up immediately.
+      item.command = {
+        command: "callchain.contextShowCallers",
+        title: "Show callers",
+        arguments: [node]
+      };
+    } else {
+      item.command = {
+        command: "callchain.openSymbol",
+        title: "Open",
+        arguments: [node.id]
+      };
+    }
     item.contextValue = "callchain.symbol";
     return item;
   }
@@ -84,8 +229,10 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
   getChildren(node?: Node): Node[] {
     if (!this.graph) return [];
     if (!node) {
+      // Count only filter-matching symbols per kind; hide empty groups when filtered.
       const counts = new Map<SymbolKind, number>();
       for (const s of this.graph.allSymbols()) {
+        if (!this.matches(s)) continue;
         counts.set(s.kind, (counts.get(s.kind) ?? 0) + 1);
       }
       return ORDER.filter((k) => (counts.get(k) ?? 0) > 0).map(
@@ -93,16 +240,18 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
       );
     }
     if (isGroup(node)) {
-      const items = this.itemsForKind(node.group.kind);
+      const items = this.itemsForKind(node.group.kind).filter((s) => this.matches(s));
       if (items.length <= SUBGROUP_THRESHOLD) {
-        return [...items].sort((a, b) => a.name.localeCompare(b.name));
+        return this.sortItems(items);
       }
       return this.partitionByPrefix(node.group.kind, items);
     }
     if (isPrefix(node)) {
-      const buckets = this.byKindAndPrefix.get(node.symbolKind);
-      const list = buckets?.get(node.prefix) ?? [];
-      return [...list].sort((a, b) => a.name.localeCompare(b.name));
+      // Bypass the cached prefix map when filtering — caches are built off
+      // the unfiltered set. Rebuild on the fly from the filter-matching items.
+      const items = this.itemsForKind(node.symbolKind).filter((s) => this.matches(s));
+      const list = items.filter((s) => prefixFor(s.name) === node.prefix);
+      return this.sortItems(list);
     }
     return [];
   }
@@ -119,9 +268,14 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     return cached;
   }
 
-  /** Build prefix → symbols map for a kind; cache for subsequent expansion. */
+  /**
+   * Build prefix → symbols map for a kind. Caches the unfiltered partition so
+   * repeated expansion of the same group stays O(1); recomputes on the fly
+   * when a filter is active (items already filtered upstream).
+   */
   private partitionByPrefix(kind: SymbolKind, items: SymbolRecord[]): Node[] {
-    let buckets = this.byKindAndPrefix.get(kind);
+    const filterActive = this.filterQuery.length > 0;
+    let buckets = filterActive ? undefined : this.byKindAndPrefix.get(kind);
     if (!buckets) {
       buckets = new Map<string, SymbolRecord[]>();
       const orphans: SymbolRecord[] = [];
@@ -148,7 +302,7 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
         // they're available alongside real prefixes.
         buckets.set("", orphans);
       }
-      this.byKindAndPrefix.set(kind, buckets);
+      if (!filterActive) this.byKindAndPrefix.set(kind, buckets);
     }
     const out: Node[] = [];
     for (const [prefix, list] of buckets) {
@@ -157,7 +311,7 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     }
     out.sort((a, b) => (a as PrefixNode).prefix.localeCompare((b as PrefixNode).prefix));
     const orphans = buckets.get("") ?? [];
-    out.push(...[...orphans].sort((a, b) => a.name.localeCompare(b.name)));
+    out.push(...this.sortItems(orphans));
     return out;
   }
 }
