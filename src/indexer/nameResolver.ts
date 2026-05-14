@@ -399,6 +399,18 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           if (id) pushEdge(id, CallKind.Static, true);
           break;
         }
+        case "ProjectMethodBare": {
+          // A bare identifier on its own line — 4D's parenthesis-less call form.
+          // Emit an edge ONLY if a real project method (or database method) with
+          // that name exists. Drops silently otherwise so unknown identifiers
+          // don't become Unresolved noise.
+          const matches = byName.get(hint.name.toLowerCase()) ?? [];
+          const method = matches.find(
+            (s) => s.kind === SymbolKind.ProjectMethod || s.kind === SymbolKind.DatabaseMethod
+          );
+          if (method) pushEdge(method.id, CallKind.Static, true);
+          break;
+        }
       }
     }
   }

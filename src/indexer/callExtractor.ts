@@ -251,6 +251,20 @@ export function extractCallSitesFromLine(
     consumedSpans.push([nameStart, nameStart + mw[1].length]);
   }
 
+  // --- Parenthesis-less project method calls ---
+  // 4D allows calling a parameterless project method by name alone as a
+  // statement (its own line). Match a line that's nothing but an identifier
+  // after the cleanLine pass strips comments/strings. The resolver maps the
+  // name to a project method if one exists and drops silently otherwise —
+  // we never want random identifiers becoming Unresolved symbols.
+  const bareStatement = line.match(/^\s*([A-Z][\w_]+|[a-z]+[A-Z][\w_]+)\s*$/);
+  if (bareStatement) {
+    const name = bareStatement[1];
+    if (!RESERVED.has(name)) {
+      push({ kind: "ProjectMethodBare", name }, name);
+    }
+  }
+
   // --- Bare-name calls (project methods, builtins, plugins) ---
   // Avoid matching method-chain receivers like ".save(", "$x.foo(", "cs.X.fn(".
   re = new RegExp(RE_BARE_CALL);

@@ -102,6 +102,24 @@ if (auditCardNew) {
 const recordGhost = sym("Unresolved", "RECORD");
 assert("RECORD is NOT an Unresolved symbol (multi-word filter)", !recordGhost);
 
+// ----- Parenthesis-less project method calls -----
+const webOrderAssign = sym("ProjectMethod", "WebOrder_Assign");
+if (webOrderAssign) {
+  const calleeNames = new Set(
+    calleesOf(webOrderAssign)
+      .map((e) => idx.symbols.find((s) => s.id === e.toId)?.name)
+      .filter(Boolean)
+  );
+  assert(
+    "WebOrder_Assign → WebOrder_Assign2 (bare-name call)",
+    calleeNames.has("WebOrder_Assign2")
+  );
+  assert(
+    "WebOrder_Assign → WebOrder_Assign3 (bare-name call)",
+    calleeNames.has("WebOrder_Assign3")
+  );
+}
+
 // ----- Getters / setters -----
 console.log(`\nGetters / setters:`);
 const shippingCostGet = sym("ClassGetter", "shippingCost", "NormalizedOrder");

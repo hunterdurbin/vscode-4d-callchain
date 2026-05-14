@@ -1,0 +1,21 @@
+# Source — only the compiled `out/` ships
+src/**
+scripts/**
+
+# Dev infrastructure
+.vscode/**
+.gitignore
+.gitattributes
+tsconfig.json
+eslint.config.*
+.eslintrc*
+
+# TypeScript artifacts
+**/*.map
+**/*.ts
+!out/**/*.d.ts
+
+# Misc
+**/.DS_Store
+.github/**
+*.vsix

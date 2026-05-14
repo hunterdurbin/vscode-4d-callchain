@@ -86,6 +86,7 @@ export type CallHint =
   | { kind: "DsBracketNew"; ident: string }
   | { kind: "DsBracketCall"; ident: string; method: string }
   | { kind: "ConstantRef"; name: string }
+  | { kind: "ProjectMethodBare"; name: string }
   | { kind: "CallWorker"; methodName: string }
   | { kind: "NewProcess"; methodName: string }
   | { kind: "ExecuteMethodLiteral"; methodName: string }
@@ -112,7 +113,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 8;
+export const INDEX_VERSION = 9;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {
