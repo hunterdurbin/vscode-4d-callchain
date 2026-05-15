@@ -55,14 +55,26 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   }
   const pluginByName = new Map<string, string>();
   for (const p of input.plugins) pluginByName.set(p.name.toLowerCase(), p.symbolId);
-  // Map from constant name → symbol id. Includes both user-defined constants
-  // and 4D built-in constants so bare references in code (e.g. `_Rules` or
-  // `Active`) resolve to whichever is defined.
+  // Map from constant/process-variable name → symbol id. Constants and
+  // process variables share the bare-identifier syntax so they go through the
+  // same resolver path; user constants take precedence on name collisions.
   const constantsByName = new Map<string, string>();
   for (const s of projectSymbols) {
     if (s.kind === SymbolKind.Constant || s.kind === SymbolKind.BuiltinConstant) {
-      // User constants take precedence — already inserted if they exist.
       if (!constantsByName.has(s.name)) constantsByName.set(s.name, s.id);
+    }
+  }
+  for (const s of projectSymbols) {
+    if (s.kind === SymbolKind.ProcessVariable && !constantsByName.has(s.name)) {
+      constantsByName.set(s.name, s.id);
+    }
+  }
+  // Interprocess variables are matched separately because their canonical
+  // reference syntax is `<>name`, distinct from bare identifiers.
+  const interprocessByName = new Map<string, string>();
+  for (const s of projectSymbols) {
+    if (s.kind === SymbolKind.InterprocessVariable) {
+      interprocessByName.set(s.name, s.id);
     }
   }
 
@@ -396,10 +408,15 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           break;
         }
         case "ConstantRef": {
-          // Only emit if the bare identifier resolves to a known constant.
-          // Drop silently otherwise — most leading-underscore identifiers in
-          // method bodies are local helpers, not constants.
+          // Only emit if the bare identifier resolves to a known constant or
+          // process variable. Drop silently otherwise — most identifiers in
+          // method bodies are local helpers, not globals.
           const id = constantsByName.get(hint.name);
+          if (id) pushEdge(id, CallKind.Static, true);
+          break;
+        }
+        case "InterprocessRef": {
+          const id = interprocessByName.get(hint.name);
           if (id) pushEdge(id, CallKind.Static, true);
           break;
         }

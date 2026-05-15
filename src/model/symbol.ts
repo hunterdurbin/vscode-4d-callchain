@@ -91,6 +91,7 @@ export type CallHint =
   | { kind: "DsBracketNew"; ident: string }
   | { kind: "DsBracketCall"; ident: string; method: string }
   | { kind: "ConstantRef"; name: string }
+  | { kind: "InterprocessRef"; name: string }
   | { kind: "ProjectMethodBare"; name: string }
   | { kind: "CallWorker"; methodName: string }
   | { kind: "NewProcess"; methodName: string }

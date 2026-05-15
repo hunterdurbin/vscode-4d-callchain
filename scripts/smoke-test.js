@@ -18,13 +18,16 @@ const start = Date.now();
 const files = discoverFiles(projectRoot, { exclusions: ["DerivedData", "Libraries", ".git", "node_modules"] });
 console.log(`Discovered ${files.length} .4dm files`);
 
-// Constants first so the parser can resolve bare-identifier references inline.
+// Constants + variables first so the parser can resolve bare-identifier
+// references against the known set inline. Mirrors indexStore's set build.
 const constants = discoverConstants(projectRoot);
 const builtinConstants = discoverBuiltinConstants(DEFAULT_BUILTIN_CONSTANTS_PROBES);
-console.log(`Discovered ${constants.length} constants, ${builtinConstants.length} built-in constants`);
+const variables = discoverVariables(projectRoot);
+console.log(`Discovered ${constants.length} constants, ${builtinConstants.length} built-in constants, ${variables.length} variables`);
 const constantsSet = new Set([
   ...constants.map((c) => c.name),
-  ...builtinConstants.map((c) => c.name)
+  ...builtinConstants.map((c) => c.name),
+  ...variables.filter((v) => v.scope === "process").map((v) => v.name)
 ]);
 
 const parsed = [];
@@ -37,8 +40,6 @@ console.log(`Discovered ${plugins.length} plugins`);
 const catalogTables = discoverCatalogTables(projectRoot);
 console.log(`Discovered ${catalogTables.size} catalog tables`);
 
-const variables = discoverVariables(projectRoot);
-console.log(`Discovered ${variables.length} process/interprocess variables`);
 const idx = buildSymbolIndex(projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables);
 const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 console.log(`\nBuilt index in ${elapsed}s`);
@@ -214,6 +215,15 @@ assert("≥100 interprocess variables indexed", ipVars.length >= 100, `${ipVars.
 assert("≥10 process variables indexed", procVars.length >= 10, `${procVars.length}`);
 const alpAlph = idx.symbols.find((s) => s.kind === "InterprocessVariable" && s.name === "aALPAlph1");
 assert("<>aALPAlph1 indexed (compiler file decl)", !!alpAlph, alpAlph ? `type=${alpAlph.variableType}` : undefined);
+if (alpAlph) {
+  const refs = callersOf(alpAlph).length;
+  assert("<>aALPAlph1 has ≥1 caller (interprocess ref tracking)", refs >= 1, `${refs} callers`);
+}
+const lineItemsDesc = idx.symbols.find((s) => s.kind === "ProcessVariable" && s.name === "aLineItems_Description");
+if (lineItemsDesc) {
+  const refs = callersOf(lineItemsDesc).length;
+  assert("aLineItems_Description has ≥1 caller (process ref tracking)", refs >= 1, `${refs} callers`);
+}
 
 // ===== Summary =====
 console.log(`\n${"=".repeat(40)}`);

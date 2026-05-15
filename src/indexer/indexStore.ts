@@ -58,8 +58,8 @@ export class Indexer {
     const files = discoverFiles(this.opts.projectRoot, { exclusions: this.opts.exclusions });
     this.opts.output.appendLine(`[Indexer] Discovered ${files.length} .4dm files`);
 
-    // Discover constants first so the parser can resolve bare-identifier
-    // references against the known set inline.
+    // Discover constants + variables first so the parser can resolve
+    // bare-identifier references against the known sets inline.
     const constants = discoverConstants(this.opts.projectRoot);
     this.opts.output.appendLine(`[Indexer] Discovered ${constants.length} constants`);
     const builtinProbes = [
@@ -68,9 +68,14 @@ export class Indexer {
     ];
     const builtinConstants = discoverBuiltinConstants(builtinProbes);
     this.opts.output.appendLine(`[Indexer] Discovered ${builtinConstants.length} built-in constants`);
+    const variables = discoverVariables(this.opts.projectRoot);
+    this.opts.output.appendLine(`[Indexer] Discovered ${variables.length} process/interprocess variables`);
+    // Bare-identifier lookup set: constants + process variables. Interprocess
+    // variables are matched via the `<>name` regex, not the bare path.
     const constantsSet = new Set<string>([
       ...constants.map((c) => c.name),
-      ...builtinConstants.map((c) => c.name)
+      ...builtinConstants.map((c) => c.name),
+      ...variables.filter((v) => v.scope === "process").map((v) => v.name)
     ]);
 
     const parsed = [];
@@ -89,9 +94,6 @@ export class Indexer {
     this.opts.output.appendLine(`[Indexer] Discovered ${plugins.length} plugin bundles`);
     const catalogTables = discoverCatalogTables(this.opts.projectRoot);
     this.opts.output.appendLine(`[Indexer] Discovered ${catalogTables.size} catalog tables`);
-
-    const variables = discoverVariables(this.opts.projectRoot);
-    this.opts.output.appendLine(`[Indexer] Discovered ${variables.length} process/interprocess variables`);
 
     const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables);
     idx.fileMtimes = mtimes;

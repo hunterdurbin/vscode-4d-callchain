@@ -213,6 +213,17 @@ export function extractCallSitesFromLine(
     }
   }
 
+  // --- Interprocess variable references: `<>name` is unambiguous syntax. ---
+  // Emit always — the resolver drops if no matching InterprocessVariable exists.
+  const RE_INTERPROCESS = /(?<![.$\w])<>([A-Za-z_][\w_]*)/g;
+  let ipMatch: RegExpExecArray | null;
+  while ((ipMatch = RE_INTERPROCESS.exec(line))) {
+    const name = ipMatch[1];
+    const after = line.slice(ipMatch.index + ipMatch[0].length);
+    if (/^\s*\(/.test(after)) continue; // method call
+    push({ kind: "InterprocessRef", name }, ipMatch[0]);
+  }
+
   // --- Bare identifiers used as values (constant references) ---
   // Constants in 4D have many naming patterns:
   //   `_Rules`, `MODULE_INVOICES`, `4Q_TYPE_*`, `Worker_Backend` — single-word
