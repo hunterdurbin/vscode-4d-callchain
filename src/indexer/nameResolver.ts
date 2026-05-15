@@ -439,6 +439,17 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           if (id) pushEdge(id, CallKind.Static, true);
           break;
         }
+        case "FormRefDynamic": {
+          // Look up the variable's literal value in the per-method strings
+          // table — intra-method scope only. Skip silently if the variable
+          // wasn't assigned a string literal in the same method body.
+          const literals = parsed.localStrings?.get(call.fromSymbolId);
+          const formName = literals?.get(hint.variable);
+          if (!formName) break;
+          const id = formsByName.get(formName);
+          if (id) pushEdge(id, CallKind.Dynamic, true);
+          break;
+        }
         case "ProjectMethodBare": {
           // A bare identifier on its own line — 4D's parenthesis-less call form.
           // Emit an edge ONLY if a real project method (or database method) with

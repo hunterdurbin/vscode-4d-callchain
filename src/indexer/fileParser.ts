@@ -11,6 +11,13 @@ export interface ParsedFile {
   rawCalls: RawCallSite[];
   /** Per-symbol local variable type table (built during call extraction). */
   localTypes: Map<string, Map<string, string>>;
+  /**
+   * Per-symbol map of `$var → string literal` assignments. Populated when the
+   * parser sees patterns like `$formName:="Commissions_Admin"`. The resolver
+   * uses this to recover the form name from `DIALOG([T]; $formName)` etc.
+   * Intra-method only — cross-method passing is out of scope.
+   */
+  localStrings: Map<string, Map<string, string>>;
   classInfo?: {
     name: string;
     extends?: string;
@@ -29,6 +36,8 @@ const ASSIGN_DS_QUERY = /\$([\w_]+)\s*:=\s*ds\.([\w_]+)\.(query|all|fromCollecti
 const ASSIGN_DS_BRACKET_NEW = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\s*(new|get|first|last)\s*\(/g;
 const ASSIGN_DS_BRACKET_QUERY = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\s*(query|all|fromCollection|orderBy)/g;
 const DECLARE_PARAMS = /#DECLARE\s*\(([^)]*)\)(?:\s*->\s*\$[\w_]+\s*:\s*([\w.]+))?/;
+// `$var := "literal"` — track for intra-method form-name resolution.
+const ASSIGN_STRING_LITERAL = /\$([\w_]+)\s*:=\s*"\x01(\d+)\x01"/g;
 
 export function parseFile(file: DiscoveredFile, projectRootUri: string, constantsSet?: Set<string>): ParsedFile {
   let source: string;
@@ -39,7 +48,8 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
       file,
       symbols: [],
       rawCalls: [],
-      localTypes: new Map()
+      localTypes: new Map(),
+      localStrings: new Map()
     };
   }
   const cleaned = stripBlockComments(source);
@@ -49,6 +59,7 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
   const symbols: SymbolRecord[] = [];
   const rawCalls: RawCallSite[] = [];
   const localTypes = new Map<string, Map<string, string>>();
+  const localStrings = new Map<string, Map<string, string>>();
   let classInfo: ParsedFile["classInfo"];
 
   // ---------- Symbol creation ----------
@@ -136,7 +147,7 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
     };
     symbols.push(formSym);
     extractFormDataSourceCalls(source, formSym.id, constantsSet, rawCalls);
-    return { file, symbols, rawCalls, localTypes };
+    return { file, symbols, rawCalls, localTypes, localStrings };
   }
 
   // ---------- Inner functions (class only) + collect call sites ----------
@@ -144,7 +155,11 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
   // are attributed correctly.
   let currentSymbolId = symbols[0]?.id;
   let currentLocals = new Map<string, string>();
-  if (currentSymbolId) localTypes.set(currentSymbolId, currentLocals);
+  let currentStrings = new Map<string, string>();
+  if (currentSymbolId) {
+    localTypes.set(currentSymbolId, currentLocals);
+    localStrings.set(currentSymbolId, currentStrings);
+  }
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
@@ -176,7 +191,9 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
         symbols.push(sym);
         currentSymbolId = sym.id;
         currentLocals = new Map();
+        currentStrings = new Map();
         localTypes.set(currentSymbolId, currentLocals);
+        localStrings.set(currentSymbolId, currentStrings);
         // Continue — the function-decl line itself may also contain #DECLARE params via a different line
         continue;
       }
@@ -213,6 +230,15 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
       const tableName = vmatch[2].replace(/^_/, "");
       currentLocals.set(vmatch[1], `dsTableSelection:${tableName}`);
     }
+    // String-literal assignments — `$formName:="Commissions_Admin"`. The
+    // resolver consults this when a form-opening call passes `$formName` in
+    // the form-name slot.
+    ASSIGN_STRING_LITERAL.lastIndex = 0;
+    while ((vmatch = ASSIGN_STRING_LITERAL.exec(line))) {
+      const idx = Number(vmatch[2]);
+      const value = strings[idx];
+      if (value !== undefined) currentStrings.set(vmatch[1], value);
+    }
 
     // #DECLARE parameter types
     const dec = line.match(DECLARE_PARAMS);
@@ -231,7 +257,7 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
     for (const s of sites) rawCalls.push(s);
   }
 
-  return { file, symbols, rawCalls, localTypes, classInfo };
+  return { file, symbols, rawCalls, localTypes, localStrings, classInfo };
 }
 
 /**

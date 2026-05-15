@@ -21,6 +21,15 @@ const RE_FORM_LOAD          = /\bFORM\s+LOAD\s*\(\s*(?:\[[^\]]+\]\s*;\s*)?"\x01(
 const RE_PRINT_FORM         = /\bPrint\s+form\s*\(\s*(?:\[[^\]]+\]\s*;\s*)?"\x01(\d+)\x01"/i;
 const RE_MODIFY_SELECTION   = /\bMODIFY\s+SELECTION\s*\(\s*\[[^\]]+\]\s*;\s*"\x01(\d+)\x01"/i;
 const RE_DISPLAY_SELECTION  = /\bDISPLAY\s+SELECTION\s*\(\s*\[[^\]]+\]\s*;\s*"\x01(\d+)\x01"/i;
+// Same commands but with `$var` in the form-name slot — the resolver will
+// look up the variable in the method's literal-string map (intra-method scope
+// only) and emit a FormRef edge to the recovered form.
+const RE_OPEN_FORM_WINDOW_VAR  = /\bOpen\s+form\s+window\s*\(\s*\$([\w_]+)/i;
+const RE_DIALOG_FORM_VAR       = /\bDIALOG\s*\(\s*(?:\[[^\]]+\]\s*;\s*)?\$([\w_]+)/i;
+const RE_FORM_LOAD_VAR         = /\bFORM\s+LOAD\s*\(\s*(?:\[[^\]]+\]\s*;\s*)?\$([\w_]+)/i;
+const RE_PRINT_FORM_VAR        = /\bPrint\s+form\s*\(\s*(?:\[[^\]]+\]\s*;\s*)?\$([\w_]+)/i;
+const RE_MODIFY_SELECTION_VAR  = /\bMODIFY\s+SELECTION\s*\(\s*\[[^\]]+\]\s*;\s*\$([\w_]+)/i;
+const RE_DISPLAY_SELECTION_VAR = /\bDISPLAY\s+SELECTION\s*\(\s*\[[^\]]+\]\s*;\s*\$([\w_]+)/i;
 
 // Static identifier-based patterns
 const RE_CS_NEW   = /\bcs\.([\w_]+)\.new\s*\(/g;
@@ -143,6 +152,14 @@ export function extractCallSitesFromLine(
     const formName = strings[Number(m[1])];
     if (formName) push({ kind: "FormRef", formName }, m[0]);
   }
+  // Variable-form variants — the resolver maps $var → literal via the
+  // method's localStrings table.
+  if ((m = line.match(RE_OPEN_FORM_WINDOW_VAR)))  push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
+  if ((m = line.match(RE_DIALOG_FORM_VAR)))        push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
+  if ((m = line.match(RE_FORM_LOAD_VAR)))          push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
+  if ((m = line.match(RE_PRINT_FORM_VAR)))         push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
+  if ((m = line.match(RE_MODIFY_SELECTION_VAR)))   push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
+  if ((m = line.match(RE_DISPLAY_SELECTION_VAR)))  push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
 
   // --- cs.X.new(...) ---
   let re = new RegExp(RE_CS_NEW);
