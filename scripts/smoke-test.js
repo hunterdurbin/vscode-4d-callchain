@@ -10,6 +10,7 @@ const { parseFile } = require("../out/indexer/fileParser");
 const { buildSymbolIndex } = require("../out/indexer/nameResolver");
 const { discoverConstants, discoverBuiltinConstants, DEFAULT_BUILTIN_CONSTANTS_PROBES } = require("../out/indexer/constantsScanner");
 const { discoverVariables } = require("../out/indexer/variableScanner");
+const { discoverComponents } = require("../out/indexer/componentScanner");
 
 const projectRoot = process.argv[2] || "/Users/hunterdurbin/src/4d/symphony";
 console.log(`Smoke-testing against ${projectRoot}`);
@@ -40,7 +41,9 @@ console.log(`Discovered ${plugins.length} plugins`);
 const catalogTables = discoverCatalogTables(projectRoot);
 console.log(`Discovered ${catalogTables.size} catalog tables`);
 
-const idx = buildSymbolIndex(projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables);
+const components = discoverComponents(projectRoot);
+console.log(`Discovered ${components.length} components (${components.reduce((n, c) => n + c.methods.length, 0)} exposed methods)`);
+const idx = buildSymbolIndex(projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables, components);
 const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 console.log(`\nBuilt index in ${elapsed}s`);
 console.log(`  Total symbols: ${idx.symbols.length}`);
@@ -223,6 +226,16 @@ const lineItemsDesc = idx.symbols.find((s) => s.kind === "ProcessVariable" && s.
 if (lineItemsDesc) {
   const refs = callersOf(lineItemsDesc).length;
   assert("aLineItems_Description has ≥1 caller (process ref tracking)", refs >= 1, `${refs} callers`);
+}
+
+// ----- Components -----
+console.log(`\nComponents:`);
+const componentSyms = idx.symbols.filter((s) => s.kind === "Component");
+assert("≥1 Component symbol indexed", componentSyms.length >= 1, `${componentSyms.length}`);
+const checkout = componentSyms.find((s) => s.name === "Checkout");
+if (checkout) {
+  const callers = callersOf(checkout).length;
+  assert("'Checkout' component has ≥1 caller", callers >= 1, `${callers} callers`);
 }
 
 // ===== Summary =====

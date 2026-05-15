@@ -6,6 +6,7 @@ import { CallGraph } from "../model/callGraph";
 import { discoverCatalogTables, discoverFiles, discoverPlugins } from "./projectScanner";
 import { DEFAULT_BUILTIN_CONSTANTS_PROBES, discoverBuiltinConstants, discoverConstants } from "./constantsScanner";
 import { discoverVariables } from "./variableScanner";
+import { discoverComponents } from "./componentScanner";
 import { parseFile } from "./fileParser";
 import { buildSymbolIndex } from "./nameResolver";
 
@@ -95,7 +96,11 @@ export class Indexer {
     const catalogTables = discoverCatalogTables(this.opts.projectRoot);
     this.opts.output.appendLine(`[Indexer] Discovered ${catalogTables.size} catalog tables`);
 
-    const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables);
+    const components = discoverComponents(this.opts.projectRoot);
+    const totalCompMethods = components.reduce((n, c) => n + c.methods.length, 0);
+    this.opts.output.appendLine(`[Indexer] Discovered ${components.length} components (${totalCompMethods} exposed methods)`);
+
+    const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables, components);
     idx.fileMtimes = mtimes;
 
     this.currentIndex = idx;

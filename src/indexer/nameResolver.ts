@@ -10,6 +10,8 @@ export interface ResolverInput {
   plugins: { name: string; symbolId: string; commands?: string[] }[];
   /** Catalog table names from `Project/Sources/Catalog/Tables/*.json`. */
   catalogTables: Set<string>;
+  /** Method name → Component symbol id (from each component's methodAttributes.json). */
+  componentByMethod?: Map<string, string>;
 }
 
 export interface ResolverOutput {
@@ -227,7 +229,7 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
 
       switch (hint.kind) {
         case "BareName": {
-          // Order: project method by name → plugin command → builtin → unresolved
+          // Order: project method → component method → plugin command → builtin → unresolved
           const matches = byName.get(hint.name.toLowerCase()) ?? [];
           const method = matches.find(
             (s) =>
@@ -236,6 +238,8 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           );
           if (method) {
             pushEdge(method.id, CallKind.Static, true);
+          } else if (input.componentByMethod?.has(hint.name)) {
+            pushEdge(input.componentByMethod.get(hint.name)!, CallKind.Static, true);
           } else if (commandToPlugin.has(hint.name)) {
             pushEdge(commandToPlugin.get(hint.name)!, CallKind.Static, true);
           } else if (BUILTIN_SET.has(hint.name)) {
@@ -489,7 +493,8 @@ export function buildSymbolIndex(
   catalogTables: Set<string> = new Set(),
   constants: { name: string; value?: string; type?: string; theme?: string; sourceFile: string }[] = [],
   builtinConstants: { name: string; value?: string; theme?: string; sourceFile: string }[] = [],
-  variables: { name: string; scope: "process" | "interprocess"; type?: string; sourceFile: string; line: number }[] = []
+  variables: { name: string; scope: "process" | "interprocess"; type?: string; sourceFile: string; line: number }[] = [],
+  components: { name: string; bundlePath: string; zipPath?: string; methods: string[] }[] = []
 ): SymbolIndex {
   const allSymbols: SymbolRecord[] = [];
   for (const f of parsedFiles) {
@@ -502,6 +507,17 @@ export function buildSymbolIndex(
     location: { uri: "file://" + p.absolutePath, line: 0 }
   }));
   for (const s of pluginSyms) allSymbols.push(s);
+
+  // Components (compiled .4dbase bundles). Each becomes one symbol whose
+  // location points at the bundle folder; the resolver maps every method
+  // name listed in the component's methodAttributes.json back to this id.
+  const componentSyms = components.map((c) => ({
+    id: symbolIdFor(SymbolKind.Component, c.name),
+    name: c.name,
+    kind: SymbolKind.Component,
+    location: { uri: "file://" + c.bundlePath, line: 0 }
+  }));
+  for (const s of componentSyms) allSymbols.push(s);
 
   // User-defined constants from Resources/Constants_*.xlf. Name-only symbols
   // with no edges by default — refs are tracked separately via the ConstantRef
@@ -559,6 +575,17 @@ export function buildSymbolIndex(
     });
   }
 
+  // Map each component method name → component symbol id. The resolver
+  // consults this AFTER project methods but BEFORE plugin/builtin so a
+  // bare `MyComponentMethod()` call attributes to the Component bundle.
+  const componentByMethod = new Map<string, string>();
+  for (let i = 0; i < components.length; i++) {
+    const id = componentSyms[i].id;
+    for (const m of components[i].methods) {
+      if (!componentByMethod.has(m)) componentByMethod.set(m, id);
+    }
+  }
+
   const { edges, unresolvedSymbols } = resolve(
     {
       files: parsedFiles,
@@ -567,7 +594,8 @@ export function buildSymbolIndex(
         symbolId: s.id,
         commands: plugins[i]?.commands
       })),
-      catalogTables
+      catalogTables,
+      componentByMethod
     },
     allSymbols
   );

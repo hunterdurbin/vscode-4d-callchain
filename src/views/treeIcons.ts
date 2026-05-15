@@ -18,6 +18,7 @@ export function iconFor(s: SymbolRecord): vscode.ThemeIcon {
     case SymbolKind.TableObjectMethod:return new vscode.ThemeIcon("symbol-property");
     case SymbolKind.DatabaseMethod:   return new vscode.ThemeIcon("database");
     case SymbolKind.Plugin:           return new vscode.ThemeIcon("plug");
+    case SymbolKind.Component:        return new vscode.ThemeIcon("package");
     case SymbolKind.Builtin:          return new vscode.ThemeIcon("symbol-keyword");
     case SymbolKind.Constant:         return new vscode.ThemeIcon("symbol-constant");
     case SymbolKind.BuiltinConstant:  return new vscode.ThemeIcon("symbol-numeric");

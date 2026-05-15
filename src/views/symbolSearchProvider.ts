@@ -44,6 +44,7 @@ const ORDER: SymbolKind[] = [
   SymbolKind.Constant,
   SymbolKind.BuiltinConstant,
   SymbolKind.Plugin,
+  SymbolKind.Component,
   SymbolKind.Builtin,
   SymbolKind.Unresolved
 ];

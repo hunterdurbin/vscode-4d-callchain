@@ -14,6 +14,7 @@ export enum SymbolKind {
   TableObjectMethod = "TableObjectMethod",
   DatabaseMethod = "DatabaseMethod",
   Plugin = "Plugin",
+  Component = "Component",
   Builtin = "Builtin",
   Constant = "Constant",
   BuiltinConstant = "BuiltinConstant",
@@ -122,7 +123,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 12;
+export const INDEX_VERSION = 13;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {
