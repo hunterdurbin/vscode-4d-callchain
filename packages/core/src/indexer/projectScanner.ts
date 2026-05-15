@@ -168,6 +168,29 @@ export function discoverCatalogTables(projectRoot: string): Set<string> {
   return out;
 }
 
+/**
+ * Build a map from the numeric `@id` in each catalog Tables/*.json (used by 4D
+ * as the TableForms/<id> directory name) to the friendly table name. Used to
+ * resolve TableForm symbols' `ownerTable` to a human-readable label.
+ */
+export function discoverCatalogTableIdMap(projectRoot: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const tablesDir = path.join(projectRoot, "Project", "Sources", "Catalog", "Tables");
+  if (!fs.existsSync(tablesDir)) return out;
+  for (const entry of safeReaddir(tablesDir)) {
+    if (!entry.endsWith(".json")) continue;
+    try {
+      const json = JSON.parse(fs.readFileSync(path.join(tablesDir, entry), "utf8")) as { "@id"?: string; "@name"?: string };
+      const id = json["@id"];
+      const name = json["@name"] ?? entry.replace(/\.json$/, "");
+      if (id) out.set(id, name);
+    } catch {
+      // skip malformed
+    }
+  }
+  return out;
+}
+
 export interface DiscoveredPlugin {
   name: string;
   absolutePath: string;

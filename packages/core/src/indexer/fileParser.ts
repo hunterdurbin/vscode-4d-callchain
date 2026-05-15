@@ -108,20 +108,24 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
   } else if (file.category === "formMethod" || file.category === "tableFormMethod") {
     const name = `${file.containerName ?? "Form"}.method`;
     const kind = file.category === "formMethod" ? SymbolKind.FormMethod : SymbolKind.TableFormMethod;
+    const ownerTable = file.category === "tableFormMethod" ? file.ownerTableId : undefined;
     symbols.push({
-      id: symbolIdFor(kind, name),
+      id: ownerTable ? `${kind}:${ownerTable}.${name}` : symbolIdFor(kind, name),
       name,
       kind,
+      ownerTable,
       location: { uri: fileUri, line: 0 }
     });
   } else if (file.category === "formObjectMethod" || file.category === "tableObjectMethod") {
     const objName = path.basename(file.absolutePath, ".4dm");
     const name = `${file.containerName ?? "Form"}.${objName}`;
     const kind = file.category === "formObjectMethod" ? SymbolKind.FormObjectMethod : SymbolKind.TableObjectMethod;
+    const ownerTable = file.category === "tableObjectMethod" ? file.ownerTableId : undefined;
     symbols.push({
-      id: symbolIdFor(kind, name),
+      id: ownerTable ? `${kind}:${ownerTable}.${name}` : symbolIdFor(kind, name),
       name,
       kind,
+      ownerTable,
       location: { uri: fileUri, line: 0 }
     });
   } else if (file.category === "databaseMethod") {
@@ -139,10 +143,12 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
     // refs are attributed to this Form symbol (NOT FormMethod).
     const kind = file.category === "formDefinition" ? SymbolKind.Form : SymbolKind.TableForm;
     const formName = file.containerName ?? "Form";
+    const ownerTable = file.category === "tableFormDefinition" ? file.ownerTableId : undefined;
     const formSym: SymbolRecord = {
-      id: symbolIdFor(kind, formName),
+      id: ownerTable ? `${kind}:${ownerTable}.${formName}` : symbolIdFor(kind, formName),
       name: formName,
       kind,
+      ownerTable,
       location: { uri: fileUri, line: 0 }
     };
     symbols.push(formSym);
@@ -194,6 +200,19 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
         currentStrings = new Map();
         localTypes.set(currentSymbolId, currentLocals);
         localStrings.set(currentSymbolId, currentStrings);
+        // Extract parameter types from the function-declaration line itself:
+        // `Function foo($t : cs.NS.Class; $b : Integer)` — record each param so
+        // subsequent `$t.method()` calls can be resolved against the type.
+        const openParen = rawLine.indexOf("(");
+        if (openParen !== -1) {
+          const closeParen = rawLine.indexOf(")", openParen);
+          const paramText = closeParen !== -1 ? rawLine.slice(openParen + 1, closeParen) : rawLine.slice(openParen + 1);
+          const paramRe = /\$([\w_]+)\s*:\s*([\w.]+)/g;
+          let pm: RegExpExecArray | null;
+          while ((pm = paramRe.exec(paramText))) {
+            currentLocals.set(pm[1], pm[2]);
+          }
+        }
         // Continue — the function-decl line itself may also contain #DECLARE params via a different line
         continue;
       }

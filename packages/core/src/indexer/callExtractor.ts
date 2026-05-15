@@ -32,6 +32,10 @@ const RE_MODIFY_SELECTION_VAR  = /\bMODIFY\s+SELECTION\s*\(\s*\[[^\]]+\]\s*;\s*\
 const RE_DISPLAY_SELECTION_VAR = /\bDISPLAY\s+SELECTION\s*\(\s*\[[^\]]+\]\s*;\s*\$([\w_]+)/i;
 
 // Static identifier-based patterns
+// 3-segment (component-namespace) forms must be matched before the 2-segment
+// `RE_CS_*` ones so cs.NS.Class.new/method() doesn't degrade to an unresolved hint.
+const RE_CS_NEW_NS  = /\bcs\.([\w_]+)\.([\w_]+)\.new\s*\(/g;
+const RE_CS_CALL_NS = /\bcs\.([\w_]+)\.([\w_]+)\.([\w_]+)\s*\(/g;
 const RE_CS_NEW   = /\bcs\.([\w_]+)\.new\s*\(/g;
 const RE_CS_CALL  = /\bcs\.([\w_]+)\.([\w_]+)\s*\(/g;
 const RE_DS_CALL  = /\bds\.([\w_]+)\.([\w_]+)\s*\(/g;
@@ -49,6 +53,7 @@ const RE_VAR_CALL = /\$([\w_]+)\.([\w_]+)\s*\(/g;
 const RE_THIS_ASSIGN  = /\bThis\.([\w_]+)\s*(:|[+\-*/])=(?!=)/g;
 const RE_VAR_ASSIGN   = /(?<![.\w])\$([\w_]+)\.([\w_]+)\s*(:|[+\-*/])=(?!=)/g;
 const RE_CS_ASSIGN    = /\bcs\.([\w_]+)\.([\w_]+)\s*(:|[+\-*/])=(?!=)/g;
+const RE_CS_ASSIGN_NS = /\bcs\.([\w_]+)\.([\w_]+)\.([\w_]+)\s*(:|[+\-*/])=(?!=)/g;
 
 // Property reads (implicit get). We skip the read pattern when the suffix is `(` (call),
 // `.` (chain — handled separately by *_CHAIN), `:=` (assignment), or a compound-op `=`.
@@ -168,9 +173,30 @@ export function extractCallSitesFromLine(
   if ((m = line.match(RE_MODIFY_SELECTION_VAR)))   pushFormVar(m[1], m[0]);
   if ((m = line.match(RE_DISPLAY_SELECTION_VAR)))  pushFormVar(m[1], m[0]);
 
-  // --- cs.X.new(...) ---
-  let re = new RegExp(RE_CS_NEW);
+  // --- cs.NS.Class.new(...) — component-class constructor ---
+  // Tracked positions so the 2-segment fallback doesn't double-attribute.
+  const consumedCsSpans: Array<[number, number]> = [];
+  let re = new RegExp(RE_CS_NEW_NS);
   while ((m = re.exec(line))) {
+    push({ kind: "CsNewNs", namespace: m[1], className: m[2] }, m[0]);
+    consumedCsSpans.push([m.index!, m.index! + m[0].length]);
+  }
+
+  // --- cs.NS.Class.method(...) — component-class function ---
+  re = new RegExp(RE_CS_CALL_NS);
+  while ((m = re.exec(line))) {
+    if (m[3] === "new") continue;
+    push({ kind: "CsCallNs", namespace: m[1], className: m[2], method: m[3] }, m[0]);
+    consumedCsSpans.push([m.index!, m.index! + m[0].length]);
+  }
+
+  const inConsumed = (start: number): boolean =>
+    consumedCsSpans.some(([s, e]) => start >= s && start < e);
+
+  // --- cs.X.new(...) ---
+  re = new RegExp(RE_CS_NEW);
+  while ((m = re.exec(line))) {
+    if (inConsumed(m.index!)) continue;
     push({ kind: "CsNew", className: m[1] }, m[0]);
   }
 
@@ -178,6 +204,7 @@ export function extractCallSitesFromLine(
   re = new RegExp(RE_CS_CALL);
   while ((m = re.exec(line))) {
     if (m[2] === "new") continue;
+    if (inConsumed(m.index!)) continue;
     push({ kind: "CsCall", className: m[1], method: m[2] }, m[0]);
   }
 

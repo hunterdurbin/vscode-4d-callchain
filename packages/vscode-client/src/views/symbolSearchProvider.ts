@@ -253,7 +253,13 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
           }
         } else if (bundle.kind === SymbolKind.Component) {
           for (const s of this.graph.allSymbols()) {
-            if (s.kind === SymbolKind.ComponentMethod && s.ownerComponent === bundle.name) cached.push(s);
+            if (s.ownerComponent !== bundle.name) continue;
+            // Show ComponentMethods + Class symbols (the discoverable exports
+            // of the component). Skip ClassFunction/Constructor — those are
+            // reachable via call hierarchy or workspace symbol search.
+            if (s.kind === SymbolKind.ComponentMethod || s.kind === SymbolKind.Class) {
+              cached.push(s);
+            }
           }
         }
       }
@@ -391,7 +397,12 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     if (!cached) {
       cached = [];
       for (const s of this.graph!.allSymbols()) {
-        if (s.kind === kind) cached.push(s);
+        if (s.kind !== kind) continue;
+        // Component-owned class symbols (Class, ClassFunction, ClassConstructor,
+        // ClassGetter, ClassSetter) are nested under their Component bundle —
+        // don't double-count them in the top-level kind folders.
+        if (s.ownerComponent && s.kind !== SymbolKind.ComponentMethod) continue;
+        cached.push(s);
       }
       this.byKind.set(kind, cached);
     }

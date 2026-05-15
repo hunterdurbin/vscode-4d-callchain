@@ -4,7 +4,7 @@ import { INDEX_VERSION, SymbolIndex } from "../model/symbol";
 import { CallGraph } from "../model/callGraph";
 import { Logger } from "../util/logger";
 import { TypedEmitter } from "../util/emitter";
-import { discoverCatalogTables, discoverFiles, discoverPlugins } from "./projectScanner";
+import { discoverCatalogTableIdMap, discoverCatalogTables, discoverFiles, discoverPlugins } from "./projectScanner";
 import { DEFAULT_BUILTIN_CONSTANTS_PROBES, discoverBuiltinConstants, discoverConstants } from "./constantsScanner";
 import { discoverVariables } from "./variableScanner";
 import { discoverComponents } from "./componentScanner";
@@ -105,6 +105,17 @@ export class Indexer {
 
     const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables, components);
     idx.fileMtimes = mtimes;
+
+    // Resolve numeric table ids (used as TableForms/<id> directory names) to
+    // friendly table names so tree display shows `[Customers]` not `[25]`.
+    const tableIdToName = discoverCatalogTableIdMap(this.opts.projectRoot);
+    if (tableIdToName.size > 0) {
+      for (const s of idx.symbols) {
+        if (s.ownerTable && tableIdToName.has(s.ownerTable)) {
+          s.ownerTable = tableIdToName.get(s.ownerTable);
+        }
+      }
+    }
 
     this.currentIndex = idx;
     this.graph = new CallGraph(idx);

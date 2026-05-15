@@ -27,13 +27,23 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   // Build indexes for fast lookup.
   const byName = new Map<string, SymbolRecord[]>();
   const classByName = new Map<string, SymbolRecord>();
+  // Component classes are keyed by their fully-qualified `cs.<ns>.<class>`
+  // identifier (lowercase) — keeps them out of the bare-name classByName map
+  // so a project class named `Testing` and a component class named `Testing`
+  // don't collide.
+  const componentClassByNs = new Map<string, SymbolRecord>();
   for (const s of projectSymbols) {
     const key = s.name.toLowerCase();
     const arr = byName.get(key) ?? [];
     arr.push(s);
     byName.set(key, arr);
     if (s.kind === SymbolKind.Class) {
-      classByName.set(s.name.toLowerCase(), s);
+      if (s.ownerComponent) {
+        const nsKey = s.id.replace(/^Class:/, "").toLowerCase();
+        componentClassByNs.set(nsKey, s);
+      } else {
+        classByName.set(s.name.toLowerCase(), s);
+      }
     }
   }
   const classFunctions = new Map<string, SymbolRecord>(); // key: className.fnName (lowercase)
@@ -187,8 +197,16 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   };
 
   // Variable type → class name (or undefined). Used by VarGet/VarSet/VarCall.
+  // Returns either a bare class name (`Foo`) for project classes or the fully
+  // qualified `cs.<ns>.<class>` form for component classes — the resolveOnClassChain
+  // lookup keys ClassFunction entries by `ownerClass` so both forms work.
   const classFromVarType = (type: string | undefined): string | undefined => {
     if (!type) return undefined;
+    // Component-class type: `cs.<ns>.<Class>`
+    const csNsMatch = type.match(/^cs\.([\w_]+)\.([\w_]+)$/);
+    if (csNsMatch && componentClassByNs.has(`cs.${csNsMatch[1]}.${csNsMatch[2]}`.toLowerCase())) {
+      return `cs.${csNsMatch[1]}.${csNsMatch[2]}`;
+    }
     const csMatch = type.match(/^cs\.([\w_]+)$/);
     if (csMatch) return csMatch[1];
     const esMatch = type.match(/^entitySelectionOf:([\w_]+)$/);
@@ -275,6 +293,45 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           } else {
             pushEdge(findOrCreateUnresolved(`cs.${hint.className}.${hint.method}`), CallKind.Dynamic, false);
           }
+          break;
+        }
+        case "CsNewNs": {
+          const nsKey = `cs.${hint.namespace}.${hint.className}`.toLowerCase();
+          const cls = componentClassByNs.get(nsKey);
+          if (cls) {
+            // Prefer the constructor symbol if we have one — otherwise attribute the
+            // call to the Class symbol so the component still surfaces a caller.
+            const ctor = classFunctions.get(`cs.${hint.namespace}.${hint.className}.constructor`.toLowerCase());
+            pushEdge(ctor?.id ?? cls.id, CallKind.Static, true);
+          } else {
+            pushEdge(findOrCreateUnresolved(`cs.${hint.namespace}.${hint.className}.new`), CallKind.Dynamic, false);
+          }
+          break;
+        }
+        case "CsCallNs": {
+          const fnKey = `cs.${hint.namespace}.${hint.className}.${hint.method}`.toLowerCase();
+          const fn = classFunctions.get(fnKey);
+          if (fn) {
+            pushEdge(fn.id, CallKind.Static, true);
+          } else {
+            // Fall back: attribute to the Class symbol so callers still get aggregated.
+            const cls = componentClassByNs.get(`cs.${hint.namespace}.${hint.className}`.toLowerCase());
+            if (cls) {
+              pushEdge(cls.id, CallKind.Static, true);
+            } else {
+              pushEdge(findOrCreateUnresolved(`cs.${hint.namespace}.${hint.className}.${hint.method}`), CallKind.Dynamic, false);
+            }
+          }
+          break;
+        }
+        case "CsGetNs": {
+          const g = classGetters.get(`cs.${hint.namespace}.${hint.className}.${hint.property}`.toLowerCase());
+          if (g) pushEdge(g.id, CallKind.Static, true);
+          break;
+        }
+        case "CsSetNs": {
+          const s = classSetters.get(`cs.${hint.namespace}.${hint.className}.${hint.property}`.toLowerCase());
+          if (s) pushEdge(s.id, CallKind.Static, true);
           break;
         }
         case "DsCall": {
@@ -492,7 +549,14 @@ export function buildSymbolIndex(
   constants: { name: string; value?: string; type?: string; theme?: string; sourceFile: string }[] = [],
   builtinConstants: { name: string; value?: string; theme?: string; sourceFile: string }[] = [],
   variables: { name: string; scope: "process" | "interprocess"; type?: string; sourceFile: string; line: number }[] = [],
-  components: { name: string; bundlePath: string; zipPath?: string; methods: string[] }[] = []
+  components: {
+    name: string;
+    bundlePath: string;
+    zipPath?: string;
+    methods: string[];
+    classStoreName?: string;
+    classes?: { name: string; functions: string[]; hasConstructor: boolean }[];
+  }[] = []
 ): SymbolIndex {
   const allSymbols: SymbolRecord[] = [];
   for (const f of parsedFiles) {
@@ -551,6 +615,46 @@ export function buildSymbolIndex(
         location: { uri: "file://" + c.bundlePath, line: 0 },
         ownerComponent: c.name
       });
+    }
+  }
+
+  // Component class symbols (Class / ClassConstructor / ClassFunction), parsed
+  // from CompiledCode/classes.json in each .4DZ. Ids include the namespace
+  // (`cs.<NS>.<Class>`) so they don't collide with project classes of the
+  // same name. ownerClass on functions is the full `cs.<NS>.<Class>` form so
+  // the existing resolveOnClassChain lookup hits them via the namespaced key.
+  for (const c of components) {
+    if (!c.classes || c.classes.length === 0) continue;
+    const ns = c.classStoreName ?? c.name;
+    for (const cls of c.classes) {
+      const fqClass = `cs.${ns}.${cls.name}`;
+      allSymbols.push({
+        id: `${SymbolKind.Class}:${fqClass}`,
+        name: cls.name,
+        kind: SymbolKind.Class,
+        location: { uri: "file://" + c.bundlePath, line: 0 },
+        ownerComponent: c.name
+      });
+      if (cls.hasConstructor) {
+        allSymbols.push({
+          id: `${SymbolKind.ClassConstructor}:${fqClass}.constructor`,
+          name: "constructor",
+          kind: SymbolKind.ClassConstructor,
+          location: { uri: "file://" + c.bundlePath, line: 0 },
+          ownerClass: fqClass,
+          ownerComponent: c.name
+        });
+      }
+      for (const fn of cls.functions) {
+        allSymbols.push({
+          id: `${SymbolKind.ClassFunction}:${fqClass}.${fn}`,
+          name: fn,
+          kind: SymbolKind.ClassFunction,
+          location: { uri: "file://" + c.bundlePath, line: 0 },
+          ownerClass: fqClass,
+          ownerComponent: c.name
+        });
+      }
     }
   }
 

@@ -72,6 +72,8 @@ export interface SymbolRecord {
   ownerPlugin?: string;
   /** For ComponentMethod symbols: name of the Component bundle the method belongs to. */
   ownerComponent?: string;
+  /** For TableForm / TableFormMethod / TableObjectMethod: name of the parent table (disambiguates same-named forms across tables). */
+  ownerTable?: string;
 }
 
 export interface RawCallSite {
@@ -86,6 +88,10 @@ export type CallHint =
   | { kind: "BareName"; name: string }
   | { kind: "CsNew"; className: string }
   | { kind: "CsCall"; className: string; method: string }
+  | { kind: "CsNewNs"; namespace: string; className: string }
+  | { kind: "CsCallNs"; namespace: string; className: string; method: string }
+  | { kind: "CsGetNs"; namespace: string; className: string; property: string }
+  | { kind: "CsSetNs"; namespace: string; className: string; property: string }
   | { kind: "DsCall"; className: string; method: string }
   | { kind: "DsAccess"; className: string }
   | { kind: "ThisCall"; method: string }
@@ -129,7 +135,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 15;
+export const INDEX_VERSION = 17;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

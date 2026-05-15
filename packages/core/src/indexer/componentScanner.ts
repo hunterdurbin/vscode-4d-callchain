@@ -2,6 +2,15 @@ import * as cp from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
+export interface DiscoveredComponentClass {
+  /** Class name as it appears in classes.json (e.g. "Testing", "Assert"). */
+  name: string;
+  /** Function names defined on the class. */
+  functions: string[];
+  /** True if classes.json records a `constructorID` for this class. */
+  hasConstructor: boolean;
+}
+
 export interface DiscoveredComponent {
   /** Display name — basename without `.4dbase`. */
   name: string;
@@ -12,6 +21,13 @@ export interface DiscoveredComponent {
   /** Method names exposed by the component, read from the .4DZ's
    *  methodAttributes.json. */
   methods: string[];
+  /** The `cs.<name>` namespace this component exposes, from
+   *  settings.4DSettings' `component_classStore_name` attribute.
+   *  Falls back to the component directory name when absent. */
+  classStoreName: string;
+  /** Classes exposed under the classStore namespace, parsed from
+   *  CompiledCode/classes.json. Empty when the archive lacks that file. */
+  classes: DiscoveredComponentClass[];
 }
 
 /**
@@ -33,7 +49,9 @@ export function discoverComponents(projectRoot: string): DiscoveredComponent[] {
     const name = entry.replace(/\.4dbase$/, "");
     const zipPath = findArchive(bundlePath);
     const methods = zipPath ? readMethodNamesFromZip(zipPath) : [];
-    out.push({ name, bundlePath, zipPath, methods });
+    const classStoreName = (zipPath && readClassStoreName(zipPath)) || name;
+    const classes = zipPath ? readClassesFromZip(zipPath) : [];
+    out.push({ name, bundlePath, zipPath, methods, classStoreName, classes });
   }
   return out;
 }
@@ -66,6 +84,49 @@ function readMethodNamesFromZip(zipPath: string): string[] {
   const methods = doc?.methods;
   if (!methods || typeof methods !== "object") return [];
   return Object.keys(methods);
+}
+
+/**
+ * Pull `component_classStore_name` from the .4DZ's settings.4DSettings.
+ * Returns undefined when the attribute is missing — callers should fall
+ * back to the component directory name.
+ */
+function readClassStoreName(zipPath: string): string | undefined {
+  const result = cp.spawnSync("unzip", ["-p", zipPath, "Project/Sources/settings.4DSettings"], {
+    encoding: "utf8",
+    maxBuffer: 4 * 1024 * 1024
+  });
+  if (result.status !== 0 || !result.stdout) return undefined;
+  const m = result.stdout.match(/component_classStore_name\s*=\s*"([^"]+)"/);
+  return m ? m[1] : undefined;
+}
+
+/**
+ * Parse `CompiledCode/classes.json` to discover classes + their functions.
+ * The shape is `{ "ClassName": { functions: { "fnName": <numeric-id>, ... },
+ * properties?: {...}, constructorID?: <numeric-id> } }`.
+ */
+function readClassesFromZip(zipPath: string): DiscoveredComponentClass[] {
+  const result = cp.spawnSync("unzip", ["-p", zipPath, "Project/DerivedData/CompiledCode/classes.json"], {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024
+  });
+  if (result.status !== 0 || !result.stdout) return [];
+  let raw = result.stdout;
+  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+  let doc: any;
+  try { doc = JSON.parse(raw); } catch { return []; }
+  if (!doc || typeof doc !== "object") return [];
+  const out: DiscoveredComponentClass[] = [];
+  for (const className of Object.keys(doc)) {
+    const entry = doc[className];
+    if (!entry || typeof entry !== "object") continue;
+    const fnObj = entry.functions;
+    const functions = fnObj && typeof fnObj === "object" ? Object.keys(fnObj) : [];
+    const hasConstructor = typeof entry.constructorID === "number";
+    out.push({ name: className, functions, hasConstructor });
+  }
+  return out;
 }
 
 function safeReaddir(p: string): string[] {

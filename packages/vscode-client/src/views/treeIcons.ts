@@ -55,6 +55,9 @@ export function descriptionFor(s: SymbolRecord): string {
   if (s.kind === SymbolKind.ComponentMethod) {
     return s.ownerComponent ? `${s.ownerComponent}` : "Component method";
   }
+  if (s.kind === SymbolKind.TableForm || s.kind === SymbolKind.TableFormMethod || s.kind === SymbolKind.TableObjectMethod) {
+    if (s.ownerTable) return `[${s.ownerTable}]`;
+  }
   if (s.kind === SymbolKind.ProcessVariable || s.kind === SymbolKind.InterprocessVariable) {
     const prefix = s.kind === SymbolKind.InterprocessVariable ? "<> · " : "";
     if (s.variableType) return `${prefix}${s.variableType}`;
