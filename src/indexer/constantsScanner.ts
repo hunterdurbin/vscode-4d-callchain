@@ -65,8 +65,23 @@ export function discoverConstants(projectRoot: string): DiscoveredConstant[] {
     try { xml = fs.readFileSync(file, "utf8"); } catch { continue; }
     let doc: any;
     try { doc = parser.parse(xml); } catch { continue; }
-    // Walk every trans-unit anywhere in the tree.
-    walkTransUnits(doc, undefined, (unit, theme) => {
+
+    // Pass 1: build UUID → theme-name map from the themes group.
+    //   <group resname="themes">
+    //     <trans-unit id="thm_N" resname="UUID"><source>Theme Name</source></trans-unit>
+    //   </group>
+    const themeByUuid = new Map<string, string>();
+    walkThemeUnits(doc, (unit) => {
+      const id = unit["@id"];
+      if (typeof id !== "string" || !id.startsWith("thm_")) return;
+      const uuid = unit["@resname"];
+      const rawSource = unit.source;
+      const name = typeof rawSource === "string" ? rawSource.trim() : (rawSource?.["#text"] ?? "").toString().trim();
+      if (typeof uuid === "string" && uuid && name) themeByUuid.set(uuid, name);
+    });
+
+    // Pass 2: walk constant groups, resolve theme via parent group's d4:groupName.
+    walkConstantGroups(doc, undefined, (unit, groupUuid) => {
       const id = unit["@id"];
       if (typeof id !== "string" || !id.startsWith("k_")) return;
       const rawSource = unit.source;
@@ -79,7 +94,7 @@ export function discoverConstants(projectRoot: string): DiscoveredConstant[] {
         value: parsed.value,
         type: parsed.type ? (TYPE_LETTER_NAMES[parsed.type] ?? parsed.type) : undefined,
         rawValue,
-        theme,
+        theme: groupUuid ? themeByUuid.get(groupUuid) : undefined,
         sourceFile: file
       });
     });
@@ -95,26 +110,39 @@ function parseValueAttr(raw: string | undefined): { value?: string; type?: strin
   return { value: raw };
 }
 
-function walkTransUnits(node: any, theme: string | undefined, visit: (unit: any, theme?: string) => void): void {
+/**
+ * Visit every trans-unit inside the `<group resname="themes">` block — that's
+ * where 4D records its UUID → display-name mapping for themes.
+ */
+function walkThemeUnits(node: any, visit: (unit: any) => void): void {
   if (!node || typeof node !== "object") return;
-  if (Array.isArray(node)) {
-    for (const child of node) walkTransUnits(child, theme, visit);
-    return;
-  }
-  // Capture theme name from `<group resname="themes"><trans-unit resname="UUID"><source>` patterns —
-  // 4D's theme metadata isn't strictly attached to constants in the XLF, so we leave theme undefined
-  // unless a parent <group> carries an obvious name.
-  let nextTheme = theme;
-  const groupName = node["@resname"];
-  if (typeof groupName === "string" && groupName.length > 0 && groupName !== "themes") {
-    nextTheme = groupName;
-  }
-  if (Array.isArray(node["trans-unit"])) {
-    for (const u of node["trans-unit"]) visit(u, nextTheme);
+  if (Array.isArray(node)) { for (const c of node) walkThemeUnits(c, visit); return; }
+  if (node["@resname"] === "themes" && Array.isArray(node["trans-unit"])) {
+    for (const u of node["trans-unit"]) visit(u);
+    return; // themes group has no nested groups we care about
   }
   for (const key of Object.keys(node)) {
     if (key === "trans-unit" || key.startsWith("@") || key === "#text") continue;
-    walkTransUnits(node[key], nextTheme, visit);
+    walkThemeUnits(node[key], visit);
+  }
+}
+
+/**
+ * Visit every constant trans-unit, tracking the enclosing group's
+ * d4:groupName UUID so the caller can look up the friendly theme name.
+ */
+function walkConstantGroups(node: any, groupUuid: string | undefined, visit: (unit: any, groupUuid?: string) => void): void {
+  if (!node || typeof node !== "object") return;
+  if (Array.isArray(node)) { for (const c of node) walkConstantGroups(c, groupUuid, visit); return; }
+  // Skip the themes block — those trans-units aren't constants.
+  if (node["@resname"] === "themes") return;
+  const nextUuid = (typeof node["@d4:groupName"] === "string" && node["@d4:groupName"]) || groupUuid;
+  if (Array.isArray(node["trans-unit"])) {
+    for (const u of node["trans-unit"]) visit(u, nextUuid);
+  }
+  for (const key of Object.keys(node)) {
+    if (key === "trans-unit" || key.startsWith("@") || key === "#text") continue;
+    walkConstantGroups(node[key], nextUuid, visit);
   }
 }
 
