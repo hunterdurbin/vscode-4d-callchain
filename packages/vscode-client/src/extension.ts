@@ -1,8 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { Indexer } from "./indexer/indexStore";
-import { CallGraph } from "./model/callGraph";
-import { SymbolKind, SymbolRecord } from "./model/symbol";
+import { Indexer, SymbolKind } from "@4d/core";
+import type { SymbolRecord } from "@4d/core";
 import { CallTreeProvider } from "./views/callTreeProvider";
 import { SymbolSearchProvider } from "./views/symbolSearchProvider";
 import { CursorTracker } from "./views/cursorTracker";
@@ -27,7 +26,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const exclusions = vscode.workspace.getConfiguration("callchain").get<string[]>("indexExclusions", []);
   const builtinConstantsPaths = vscode.workspace.getConfiguration("callchain").get<string[]>("builtinConstantsPaths", []);
-  const indexer = new Indexer({ projectRoot, exclusions, output, builtinConstantsPaths });
+  const indexer = new Indexer({
+    projectRoot,
+    exclusions,
+    builtinConstantsPaths,
+    logger: {
+      info: (m) => output.appendLine(m),
+      warn: (m) => output.appendLine(m),
+      error: (m) => output.appendLine(m)
+    }
+  });
 
   const callers = new CallTreeProvider("callers");
   const callees = new CallTreeProvider("callees");

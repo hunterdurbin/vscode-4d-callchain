@@ -1,8 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as vscode from "vscode";
 import { INDEX_VERSION, SymbolIndex } from "../model/symbol";
 import { CallGraph } from "../model/callGraph";
+import { Logger } from "../util/logger";
+import { TypedEmitter } from "../util/emitter";
 import { discoverCatalogTables, discoverFiles, discoverPlugins } from "./projectScanner";
 import { DEFAULT_BUILTIN_CONSTANTS_PROBES, discoverBuiltinConstants, discoverConstants } from "./constantsScanner";
 import { discoverVariables } from "./variableScanner";
@@ -13,9 +14,11 @@ import { buildSymbolIndex } from "./nameResolver";
 export interface IndexerOptions {
   projectRoot: string;
   exclusions: string[];
-  output: vscode.OutputChannel;
+  logger: Logger;
   /** User override(s) for the 4D built-in constants XLF path. */
   builtinConstantsPaths?: string[];
+  /** Optional override for the persistence directory. Defaults to <projectRoot>/.vscode. */
+  cacheDir?: string;
 }
 
 const INDEX_FILENAME = "callchain-index.json";
@@ -23,7 +26,7 @@ const INDEX_FILENAME = "callchain-index.json";
 export class Indexer {
   private currentIndex: SymbolIndex | undefined;
   private graph: CallGraph | undefined;
-  private readonly emitter = new vscode.EventEmitter<CallGraph>();
+  private readonly emitter = new TypedEmitter<CallGraph>();
   readonly onDidUpdate = this.emitter.event;
 
   constructor(private readonly opts: IndexerOptions) {}
@@ -38,16 +41,16 @@ export class Indexer {
       try {
         const raw = JSON.parse(fs.readFileSync(cachePath, "utf8")) as SymbolIndex;
         if (raw.version === INDEX_VERSION && (await this.isFresh(raw))) {
-          this.opts.output.appendLine(`[Indexer] Loaded cached index (${raw.symbols.length} symbols, ${raw.edges.length} edges)`);
+          this.opts.logger.info(`[Indexer] Loaded cached index (${raw.symbols.length} symbols, ${raw.edges.length} edges)`);
           this.currentIndex = raw;
           this.graph = new CallGraph(raw);
           this.emitter.fire(this.graph);
           return this.graph;
         } else {
-          this.opts.output.appendLine(`[Indexer] Cache stale or version mismatch — rebuilding`);
+          this.opts.logger.info(`[Indexer] Cache stale or version mismatch — rebuilding`);
         }
       } catch (err) {
-        this.opts.output.appendLine(`[Indexer] Cache read failed: ${err} — rebuilding`);
+        this.opts.logger.warn(`[Indexer] Cache read failed: ${err} — rebuilding`);
       }
     }
     return this.rebuild();
@@ -55,22 +58,22 @@ export class Indexer {
 
   async rebuild(): Promise<CallGraph> {
     const start = Date.now();
-    this.opts.output.appendLine(`[Indexer] Scanning ${this.opts.projectRoot}`);
+    this.opts.logger.info(`[Indexer] Scanning ${this.opts.projectRoot}`);
     const files = discoverFiles(this.opts.projectRoot, { exclusions: this.opts.exclusions });
-    this.opts.output.appendLine(`[Indexer] Discovered ${files.length} .4dm files`);
+    this.opts.logger.info(`[Indexer] Discovered ${files.length} .4dm files`);
 
     // Discover constants + variables first so the parser can resolve
     // bare-identifier references against the known sets inline.
     const constants = discoverConstants(this.opts.projectRoot);
-    this.opts.output.appendLine(`[Indexer] Discovered ${constants.length} constants`);
+    this.opts.logger.info(`[Indexer] Discovered ${constants.length} constants`);
     const builtinProbes = [
       ...(this.opts.builtinConstantsPaths ?? []),
       ...DEFAULT_BUILTIN_CONSTANTS_PROBES
     ];
     const builtinConstants = discoverBuiltinConstants(builtinProbes);
-    this.opts.output.appendLine(`[Indexer] Discovered ${builtinConstants.length} built-in constants`);
+    this.opts.logger.info(`[Indexer] Discovered ${builtinConstants.length} built-in constants`);
     const variables = discoverVariables(this.opts.projectRoot);
-    this.opts.output.appendLine(`[Indexer] Discovered ${variables.length} process/interprocess variables`);
+    this.opts.logger.info(`[Indexer] Discovered ${variables.length} process/interprocess variables`);
     // Bare-identifier lookup set: constants + process variables. Interprocess
     // variables are matched via the `<>name` regex, not the bare path.
     const constantsSet = new Set<string>([
@@ -88,17 +91,17 @@ export class Indexer {
         mtimes[f.absolutePath] = fs.statSync(f.absolutePath).mtimeMs;
       } catch {/* skip */}
       if (i % 500 === 0 && i > 0) {
-        this.opts.output.appendLine(`[Indexer]   parsed ${i}/${files.length}`);
+        this.opts.logger.info(`[Indexer]   parsed ${i}/${files.length}`);
       }
     }
     const plugins = discoverPlugins(this.opts.projectRoot);
-    this.opts.output.appendLine(`[Indexer] Discovered ${plugins.length} plugin bundles`);
+    this.opts.logger.info(`[Indexer] Discovered ${plugins.length} plugin bundles`);
     const catalogTables = discoverCatalogTables(this.opts.projectRoot);
-    this.opts.output.appendLine(`[Indexer] Discovered ${catalogTables.size} catalog tables`);
+    this.opts.logger.info(`[Indexer] Discovered ${catalogTables.size} catalog tables`);
 
     const components = discoverComponents(this.opts.projectRoot);
     const totalCompMethods = components.reduce((n, c) => n + c.methods.length, 0);
-    this.opts.output.appendLine(`[Indexer] Discovered ${components.length} components (${totalCompMethods} exposed methods)`);
+    this.opts.logger.info(`[Indexer] Discovered ${components.length} components (${totalCompMethods} exposed methods)`);
 
     const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables, components);
     idx.fileMtimes = mtimes;
@@ -108,7 +111,7 @@ export class Indexer {
 
     this.persist(idx);
     const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-    this.opts.output.appendLine(
+    this.opts.logger.info(
       `[Indexer] Build complete: ${idx.symbols.length} symbols, ${idx.edges.length} edges in ${elapsed}s`
     );
     this.emitter.fire(this.graph);
@@ -119,7 +122,7 @@ export class Indexer {
     if (!this.currentIndex) return;
     if (!absolutePath.endsWith(".4dm")) return;
     // Cheap approach: rebuild fully. Incremental update is a v2 improvement.
-    this.opts.output.appendLine(`[Indexer] File changed: ${path.basename(absolutePath)} — full rebuild`);
+    this.opts.logger.info(`[Indexer] File changed: ${path.basename(absolutePath)} — full rebuild`);
     await this.rebuild();
   }
 
@@ -140,7 +143,8 @@ export class Indexer {
   }
 
   private indexPath(): string {
-    return path.join(this.opts.projectRoot, ".vscode", INDEX_FILENAME);
+    const dir = this.opts.cacheDir ?? path.join(this.opts.projectRoot, ".vscode");
+    return path.join(dir, INDEX_FILENAME);
   }
 
   private persist(idx: SymbolIndex): void {
@@ -149,7 +153,7 @@ export class Indexer {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(this.indexPath(), JSON.stringify(idx));
     } catch (err) {
-      this.opts.output.appendLine(`[Indexer] Persist failed: ${err}`);
+      this.opts.logger.warn(`[Indexer] Persist failed: ${err}`);
     }
   }
 }

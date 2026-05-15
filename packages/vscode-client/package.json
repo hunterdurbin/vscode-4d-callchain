@@ -1,0 +1,413 @@
+{
+  "name": "vscode-4d-callchain",
+  "displayName": "4D Call Chain Explorer",
+  "description": "Explore call chains in 4D v21 projects: methods, class functions, plugins. Tree + graph views, test integration.",
+  "version": "0.1.16",
+  "publisher": "hunterdurbin",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:4d",
+    "workspaceContains:**/Project/Sources/catalog.4DCatalog",
+    "workspaceContains:**/Project/**/*.4dm"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "4d",
+        "aliases": [
+          "4D",
+          "4d"
+        ],
+        "extensions": [
+          ".4dm"
+        ]
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "callchain",
+          "title": "4D Call Chain",
+          "icon": "resources/icons/callchain.svg"
+        }
+      ]
+    },
+    "views": {
+      "callchain": [
+        {
+          "id": "callchain.callers",
+          "name": "Callers (up)"
+        },
+        {
+          "id": "callchain.callees",
+          "name": "Callees (down)"
+        },
+        {
+          "id": "callchain.search",
+          "name": "Symbols"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "callchain.reindex",
+        "title": "4D Call Chain: Reindex Project"
+      },
+      {
+        "command": "callchain.showGraph",
+        "title": "4D Call Chain: Show Graph"
+      },
+      {
+        "command": "callchain.revealAtCursor",
+        "title": "4D Call Chain: Reveal at Cursor"
+      },
+      {
+        "command": "callchain.pickSymbol",
+        "title": "4D Call Chain: Pick Symbol…"
+      },
+      {
+        "command": "callchain.runTestsForClass",
+        "title": "4D Call Chain: Run Tests for Class"
+      },
+      {
+        "command": "callchain.runAllTests",
+        "title": "4D Call Chain: Run All Tests"
+      },
+      {
+        "command": "callchain.jumpToTests",
+        "title": "4D Call Chain: Show Tests Covering This"
+      },
+      {
+        "command": "callchain.openSymbol",
+        "title": "4D Call Chain: Open Symbol"
+      },
+      {
+        "command": "callchain.lockCallers",
+        "title": "Lock Callers",
+        "icon": "$(unlock)"
+      },
+      {
+        "command": "callchain.unlockCallers",
+        "title": "Unlock Callers",
+        "icon": "$(lock)"
+      },
+      {
+        "command": "callchain.lockCallees",
+        "title": "Lock Callees",
+        "icon": "$(unlock)"
+      },
+      {
+        "command": "callchain.unlockCallees",
+        "title": "Unlock Callees",
+        "icon": "$(lock)"
+      },
+      {
+        "command": "callchain.contextShowCallers",
+        "title": "Show callers"
+      },
+      {
+        "command": "callchain.contextShowCallees",
+        "title": "Show callees"
+      },
+      {
+        "command": "callchain.contextShowGraph",
+        "title": "Show graph from here"
+      },
+      {
+        "command": "callchain.contextPinCallers",
+        "title": "Pin & lock in Callers"
+      },
+      {
+        "command": "callchain.contextPinCallees",
+        "title": "Pin & lock in Callees"
+      },
+      {
+        "command": "callchain.contextCopyName",
+        "title": "Copy name"
+      },
+      {
+        "command": "callchain.contextCopyFileLine",
+        "title": "Copy file:line"
+      },
+      {
+        "command": "callchain.collapseSubtree",
+        "title": "Collapse sub-folders"
+      },
+      {
+        "command": "callchain.contextGroupByTheme",
+        "title": "Group by theme / Group by name (toggle)"
+      },
+      {
+        "command": "callchain.resetSymbols",
+        "title": "Reset filters & sorting",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "callchain.filterCallers",
+        "title": "Filter Callers…",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "callchain.filterCallees",
+        "title": "Filter Callees…",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "callchain.filterSymbols",
+        "title": "Filter Symbols…",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "callchain.clearFilterCallers",
+        "title": "Clear filter",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "callchain.clearFilterCallees",
+        "title": "Clear filter",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "callchain.clearFilterSymbols",
+        "title": "Clear filter",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "callchain.toggleSymbolsSort",
+        "title": "Toggle sort (Name → Callers↓ → Callers↑)",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "callchain.toggleCallerFilter",
+        "title": "Toggle caller filter (off → ≥1 → 0)",
+        "icon": "$(call-incoming)"
+      },
+      {
+        "command": "callchain.toggleFlattenSymbols",
+        "title": "Toggle prefix folders (flat / grouped)",
+        "icon": "$(list-flat)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "callchain.revealAtCursor",
+          "when": "resourceExtname == .4dm",
+          "group": "navigation"
+        },
+        {
+          "command": "callchain.showGraph",
+          "when": "resourceExtname == .4dm",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "callchain.lockCallers",
+          "when": "view == callchain.callers && !callchain.callersLocked",
+          "group": "navigation"
+        },
+        {
+          "command": "callchain.unlockCallers",
+          "when": "view == callchain.callers && callchain.callersLocked",
+          "group": "navigation"
+        },
+        {
+          "command": "callchain.lockCallees",
+          "when": "view == callchain.callees && !callchain.calleesLocked",
+          "group": "navigation"
+        },
+        {
+          "command": "callchain.unlockCallees",
+          "when": "view == callchain.callees && callchain.calleesLocked",
+          "group": "navigation"
+        },
+        {
+          "command": "callchain.filterCallers",
+          "when": "view == callchain.callers",
+          "group": "navigation@0"
+        },
+        {
+          "command": "callchain.clearFilterCallers",
+          "when": "view == callchain.callers && callchain.callersFiltered",
+          "group": "navigation@1"
+        },
+        {
+          "command": "callchain.filterCallees",
+          "when": "view == callchain.callees",
+          "group": "navigation@0"
+        },
+        {
+          "command": "callchain.clearFilterCallees",
+          "when": "view == callchain.callees && callchain.calleesFiltered",
+          "group": "navigation@1"
+        },
+        {
+          "command": "callchain.filterSymbols",
+          "when": "view == callchain.search",
+          "group": "navigation@0"
+        },
+        {
+          "command": "callchain.clearFilterSymbols",
+          "when": "view == callchain.search && callchain.symbolsFiltered",
+          "group": "navigation@1"
+        },
+        {
+          "command": "callchain.toggleSymbolsSort",
+          "when": "view == callchain.search",
+          "group": "navigation@1"
+        },
+        {
+          "command": "callchain.toggleCallerFilter",
+          "when": "view == callchain.search",
+          "group": "navigation@2"
+        },
+        {
+          "command": "callchain.toggleFlattenSymbols",
+          "when": "view == callchain.search",
+          "group": "navigation@3"
+        },
+        {
+          "command": "callchain.resetSymbols",
+          "when": "view == callchain.search",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "callchain.contextShowCallers",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "callchain.contextShowCallees",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "callchain.contextShowGraph",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "navigation@3"
+        },
+        {
+          "command": "callchain.contextPinCallers",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "pin@1"
+        },
+        {
+          "command": "callchain.contextPinCallees",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "pin@2"
+        },
+        {
+          "command": "callchain.contextCopyName",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "copy@1"
+        },
+        {
+          "command": "callchain.contextCopyFileLine",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "copy@2"
+        },
+        {
+          "command": "callchain.collapseSubtree",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.(symbol|folder)/",
+          "group": "collapse@1"
+        },
+        {
+          "command": "callchain.contextGroupByTheme",
+          "when": "view == callchain.search && (viewItem == callchain.folder.group.Constant || viewItem == callchain.folder.group.BuiltinConstant)",
+          "group": "view@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "4D Call Chain",
+      "properties": {
+        "callchain.projectRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to 4D project root (folder containing 'Project/'). Defaults to first workspace folder."
+        },
+        "callchain.testCommand": {
+          "type": "string",
+          "default": "make test class={class} format=json outputPath={jsonOutputPath}",
+          "description": "Command template used when running tests via our fallback runner (ScottHarris.4d-testing-extension is preferred when installed). {class} is the test class name; {jsonOutputPath} is the value of callchain.jsonResultsPath."
+        },
+        "callchain.jsonResultsPath": {
+          "type": "string",
+          "default": "Components/testing.4dbase/test-results/results.json",
+          "description": "Relative path (from projectRoot) where the JSON test-results file is written and read. Matches the format consumed by ScottHarris.4d-testing-extension."
+        },
+        "callchain.junitResultsPath": {
+          "type": "string",
+          "default": "Components/testing.4dbase/test-results/junit.xml",
+          "description": "Optional JUnit XML fallback path. Used only if the JSON file is missing."
+        },
+        "callchain.maxGraphDepth": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Default maximum BFS depth when rendering the graph."
+        },
+        "callchain.indexExclusions": {
+          "type": "array",
+          "default": [
+            "DerivedData",
+            "Libraries",
+            ".git",
+            "node_modules"
+          ],
+          "description": "Folder names (anywhere in the tree) to skip during indexing."
+        },
+        "callchain.showCoverageHints": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show gutter markers on functions not reached by any test_* function."
+        },
+        "callchain.autoIndexOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Build (or load) the index automatically on activation."
+        },
+        "callchain.showCallSiteSnippets": {
+          "type": "boolean",
+          "default": true,
+          "description": "When a caller/callee has multiple call sites in the same file, show the source-line snippet next to the line number. Disable to show 'line N' only."
+        },
+        "callchain.builtinConstantsPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Optional absolute paths to a 4D 4D_ConstantsEN.xlf file. If empty, the extension auto-detects tool4d.app / 4D installations under /Applications."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@4d/core": "*",
+    "cytoscape": "^3.33.3",
+    "cytoscape-dagre": "^2.5.0",
+    "dagre": "^0.8.5",
+    "fast-xml-parser": "^4.4.0"
+  }
+}

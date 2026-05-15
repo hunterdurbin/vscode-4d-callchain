@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { SymbolKind, SymbolRecord } from "../model/symbol";
+import { SymbolKind } from "@4d/core";
+import type { SymbolRecord } from "@4d/core";
 
 export function iconFor(s: SymbolRecord): vscode.ThemeIcon {
   switch (s.kind) {

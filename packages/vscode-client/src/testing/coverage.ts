@@ -1,5 +1,5 @@
-import { CallGraph } from "../model/callGraph";
-import { ClassFlavor, SymbolKind, SymbolRecord } from "../model/symbol";
+import { CallGraph, ClassFlavor, SymbolKind } from "@4d/core";
+import type { SymbolRecord } from "@4d/core";
 
 export interface CoverageReport {
   /** Symbols reachable forward from any test_* function */

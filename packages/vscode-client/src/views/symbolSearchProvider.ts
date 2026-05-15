@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
-import { CallGraph } from "../model/callGraph";
-import { SymbolKind, SymbolRecord } from "../model/symbol";
+import { CallGraph, SymbolKind, fuzzyMatch, parseFilterQuery } from "@4d/core";
+import type { SymbolRecord, ParsedQuery } from "@4d/core";
 import { descriptionFor, iconFor } from "./treeIcons";
-import { fuzzyMatch, parseFilterQuery, ParsedQuery } from "../util/fuzzy";
 
 interface SymbolGroup {
   kind: SymbolKind;

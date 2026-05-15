@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
-import { CallGraph } from "../model/callGraph";
-import { CallEdge, SymbolKind, SymbolRecord } from "../model/symbol";
+import { CallGraph, SymbolKind, fuzzyMatch, parseFilterQuery } from "@4d/core";
+import type { CallEdge, SymbolRecord } from "@4d/core";
 import { descriptionFor, iconFor } from "./treeIcons";
-import { fuzzyMatch, parseFilterQuery } from "../util/fuzzy";
 
 export type Direction = "callers" | "callees";
 

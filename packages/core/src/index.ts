@@ -1,0 +1,31 @@
+// Pure 4D indexer + call graph. No editor dependencies.
+// Consumed by the language server and by the VSCode extension's in-process UI.
+
+export { Indexer } from "./indexer/indexStore";
+export type { IndexerOptions } from "./indexer/indexStore";
+
+export { CallGraph } from "./model/callGraph";
+export {
+  SymbolKind,
+  ClassFlavor,
+  CallKind,
+  INDEX_VERSION,
+  symbolIdFor
+} from "./model/symbol";
+export type {
+  FileLocation,
+  SymbolRecord,
+  RawCallSite,
+  CallHint,
+  CallEdge,
+  SymbolIndex
+} from "./model/symbol";
+
+export type { Logger } from "./util/logger";
+export { consoleLogger } from "./util/logger";
+export { TypedEmitter } from "./util/emitter";
+export type { Disposable } from "./util/emitter";
+
+export { fuzzyMatch, parseFilterQuery } from "./util/fuzzy";
+export type { ParsedQuery } from "./util/fuzzy";
+export { cleanLine, stripBlockComments, recoverString } from "./util/textCleanup";

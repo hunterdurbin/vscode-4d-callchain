@@ -5,12 +5,12 @@
 // Exit code: 0 if all probes pass, 1 if any fail.
 
 const path = require("path");
-const { discoverFiles, discoverPlugins, discoverCatalogTables } = require("../out/indexer/projectScanner");
-const { parseFile } = require("../out/indexer/fileParser");
-const { buildSymbolIndex } = require("../out/indexer/nameResolver");
-const { discoverConstants, discoverBuiltinConstants, DEFAULT_BUILTIN_CONSTANTS_PROBES } = require("../out/indexer/constantsScanner");
-const { discoverVariables } = require("../out/indexer/variableScanner");
-const { discoverComponents } = require("../out/indexer/componentScanner");
+const { discoverFiles, discoverPlugins, discoverCatalogTables } = require("../packages/core/dist/indexer/projectScanner");
+const { parseFile } = require("../packages/core/dist/indexer/fileParser");
+const { buildSymbolIndex } = require("../packages/core/dist/indexer/nameResolver");
+const { discoverConstants, discoverBuiltinConstants, DEFAULT_BUILTIN_CONSTANTS_PROBES } = require("../packages/core/dist/indexer/constantsScanner");
+const { discoverVariables } = require("../packages/core/dist/indexer/variableScanner");
+const { discoverComponents } = require("../packages/core/dist/indexer/componentScanner");
 
 const projectRoot = process.argv[2] || "/Users/hunterdurbin/src/4d/symphony";
 console.log(`Smoke-testing against ${projectRoot}`);

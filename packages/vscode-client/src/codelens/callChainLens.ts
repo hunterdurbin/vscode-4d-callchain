@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { CallGraph } from "../model/callGraph";
-import { ClassFlavor, SymbolKind, SymbolRecord } from "../model/symbol";
+import { CallGraph, ClassFlavor, SymbolKind } from "@4d/core";
+import type { SymbolRecord } from "@4d/core";
 import { TestStatusDecorator } from "../decorations/testStatusDecorator";
 import { CoverageReport } from "../testing/coverage";
 

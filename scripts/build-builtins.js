@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Generates src/model/builtins.json from the 4d-v21 skill docs.
+// Generates packages/core/src/model/builtins.json from the 4d-v21 skill docs.
 // Usage: node scripts/build-builtins.js [path-to-skill-root]
 // Default: /Users/hunterdurbin/src/4d/symphony/.claude/skills/4d-v21
 
@@ -85,6 +85,6 @@ const output = {
   pluginCommandPrefixes
 };
 
-const outPath = path.join(__dirname, "..", "src", "model", "builtins.json");
+const outPath = path.join(__dirname, "..", "packages", "core", "src", "model", "builtins.json");
 fs.writeFileSync(outPath, JSON.stringify(output, null, 2));
 console.log(`Wrote ${output.count} built-in commands to ${outPath}`);

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { CallGraph } from "../model/callGraph";
-import { SymbolKind, SymbolRecord } from "../model/symbol";
+import { CallGraph, SymbolKind } from "@4d/core";
+import type { SymbolRecord } from "@4d/core";
 import { debounce } from "../util/debounce";
 
 /**

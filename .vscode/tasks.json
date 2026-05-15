@@ -3,17 +3,26 @@
   "tasks": [
     {
       "type": "npm",
-      "script": "compile",
+      "script": "build",
       "group": { "kind": "build", "isDefault": true },
       "problemMatcher": "$tsc",
-      "label": "npm: compile"
+      "label": "npm: build"
     },
     {
       "type": "npm",
       "script": "watch",
+      "path": "packages/vscode-client",
       "isBackground": true,
       "problemMatcher": "$tsc-watch",
-      "label": "npm: watch"
+      "label": "npm: watch (client)"
+    },
+    {
+      "type": "npm",
+      "script": "watch",
+      "path": "packages/core",
+      "isBackground": true,
+      "problemMatcher": "$tsc-watch",
+      "label": "npm: watch (core)"
     }
   ]
 }

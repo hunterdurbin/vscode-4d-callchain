@@ -1,8 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
-import { CallGraph } from "../../model/callGraph";
-import { CallKind, SymbolKind } from "../../model/symbol";
+import { CallGraph, CallKind, SymbolKind } from "@4d/core";
 
 interface GraphData {
   rootId: string;

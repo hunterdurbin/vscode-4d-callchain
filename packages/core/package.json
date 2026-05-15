@@ -1,0 +1,18 @@
+{
+  "name": "@4d/core",
+  "version": "0.1.16",
+  "description": "Pure 4D indexer + call graph. No editor dependencies.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
