@@ -21,13 +21,28 @@ class CallSite {
   constructor(public symbol: SymbolRecord, public edge: CallEdge) {}
 }
 
+/**
+ * A sub-grouping under a bundle root: "this caller, calling THIS specific
+ * function of the bundle". Holds the called-function symbol and the subset
+ * of edges into it; children are the actual call-site leaves.
+ */
+class CalleeGroup {
+  readonly kind = "callee-group" as const;
+  constructor(
+    public callee: SymbolRecord,
+    public caller: SymbolRecord,
+    public edges: CallEdge[],
+    public parentChain: Set<string>
+  ) {}
+}
+
 /** Root marker — wraps the root symbol so the tree has a single seed node. */
 class RootNode {
   readonly kind = "root" as const;
   constructor(public symbol: SymbolRecord) {}
 }
 
-type Node = SymbolGroup | CallSite | RootNode;
+type Node = SymbolGroup | CallSite | CalleeGroup | RootNode;
 
 export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   private rootSymbolId: string | undefined;
@@ -126,6 +141,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
 
   setGraph(graph: CallGraph): void {
     this.graph = graph;
+    this.bundleMemberCache.clear();
     this.recomputeFilter();
     this.emitter.fire(undefined);
     this.rootChangedEmitter.fire(this.rootSymbolId);
@@ -159,7 +175,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
    */
   collapseSubtree(target: Node): void {
     if (target.kind === "site") return;
-    const ancestorId = target.symbol.id;
+    const ancestorId = target.kind === "callee-group" ? target.callee.id : target.symbol.id;
     const prev = this.collapseBumps.get(ancestorId) ?? 0;
     this.collapseBumps.set(ancestorId, prev + 1);
     this.emitter.fire(undefined);
@@ -168,15 +184,69 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   /** Count of direct callers/callees for the current root, or 0 if none. */
   directCount(): number {
     if (!this.graph || !this.rootSymbolId) return 0;
-    const edges =
-      this.direction === "callers"
-        ? this.graph.callers(this.rootSymbolId)
-        : this.graph.callees(this.rootSymbolId);
+    const edges = this.rootEdges(this.rootSymbolId);
     const targets = new Set<string>();
     for (const e of edges) {
       targets.add(this.direction === "callers" ? e.fromId : e.toId);
     }
     return targets.size;
+  }
+
+  /**
+   * Edges that should appear immediately under the root.
+   *
+   * For most symbols this is just `graph.callers(id)` / `graph.callees(id)`.
+   * For *bundle-like* roots — Component bundles and component-owned Class
+   * symbols — the direct edge count is near zero (calls land on the individual
+   * functions, not the bundle), so we aggregate edges across every member of
+   * the bundle. Without this rollup the Callers panel for a Component shows
+   * nothing even when the bundle has thousands of inbound edges.
+   */
+  private rootEdges(rootId: string): CallEdge[] {
+    if (!this.graph) return [];
+    const root = this.graph.symbol(rootId);
+    const memberIds = root ? this.bundleMemberIds(root) : undefined;
+    if (!memberIds) {
+      return this.direction === "callers" ? this.graph.callers(rootId) : this.graph.callees(rootId);
+    }
+    const out: CallEdge[] = [];
+    for (const id of memberIds) {
+      const edges = this.direction === "callers" ? this.graph.callers(id) : this.graph.callees(id);
+      for (const e of edges) out.push(e);
+    }
+    return out;
+  }
+
+  /**
+   * Return the member ids whose call edges should roll up under this symbol,
+   * or `undefined` for a plain leaf. Caches by root id since membership is
+   * stable across refreshes within one graph load.
+   */
+  private readonly bundleMemberCache = new Map<string, string[]>();
+  private bundleMemberIds(root: SymbolRecord): string[] | undefined {
+    if (!this.graph) return undefined;
+    const cached = this.bundleMemberCache.get(root.id);
+    if (cached) return cached;
+    if (root.kind === SymbolKind.Component) {
+      const ids: string[] = [];
+      for (const s of this.graph.allSymbols()) {
+        if (s.ownerComponent === root.name) ids.push(s.id);
+      }
+      this.bundleMemberCache.set(root.id, ids);
+      return ids;
+    }
+    if (root.kind === SymbolKind.Class && root.ownerComponent) {
+      // Component class: `Class:cs.<NS>.<Class>` — its members carry the
+      // unprefixed form as ownerClass.
+      const fq = root.id.replace(/^Class:/, "");
+      const ids: string[] = [root.id];
+      for (const s of this.graph.allSymbols()) {
+        if (s.ownerClass === fq) ids.push(s.id);
+      }
+      this.bundleMemberCache.set(root.id, ids);
+      return ids;
+    }
+    return undefined;
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
@@ -197,6 +267,24 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
         arguments: [node.symbol.id]
       };
       item.contextValue = "callchain.symbol.root";
+      return item;
+    }
+    if (node.kind === "callee-group") {
+      const item = new vscode.TreeItem(
+        node.callee.name,
+        vscode.TreeItemCollapsibleState.Expanded
+      );
+      const path = [...node.parentChain].join(">");
+      item.id = `${this.direction}:calleegrp:${path}>${node.callee.id}`;
+      item.description = `${descriptionFor(node.callee)} · ×${node.edges.length}`;
+      item.iconPath = iconFor(node.callee);
+      item.tooltip = `${node.callee.name} (${node.callee.kind}) — ${node.edges.length} call site${node.edges.length === 1 ? "" : "s"}`;
+      item.command = {
+        command: "callchain.openSymbol",
+        title: "Open",
+        arguments: [node.callee.id]
+      };
+      item.contextValue = "callchain.calleegroup";
       return item;
     }
     if (node.kind === "site") {
@@ -279,10 +367,9 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   /** True if expanding `symbolId` (with `parentChain` blocking cycles) would yield ≥1 group. */
   private hasNextLevel(symbolId: string, parentChain: Set<string>): boolean {
     if (!this.graph) return false;
-    const edges =
-      this.direction === "callers"
-        ? this.graph.callers(symbolId)
-        : this.graph.callees(symbolId);
+    const edges = symbolId === this.rootSymbolId
+      ? this.rootEdges(symbolId)
+      : (this.direction === "callers" ? this.graph.callers(symbolId) : this.graph.callees(symbolId));
     const rootSym = this.rootSymbolId ? this.graph.symbol(this.rootSymbolId) : undefined;
     const allowConstantTargets = rootSym?.kind === SymbolKind.Constant;
     const visible = this.filterVisible;
@@ -307,10 +394,23 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
       return [new RootNode(root)];
     }
     if (node.kind === "site") return [];
+    if (node.kind === "callee-group") {
+      const sites = [...node.edges]
+        .sort((a, b) => a.line - b.line)
+        .map((e) => new CallSite(node.caller, e));
+      return sites;
+    }
     if (node.kind === "root") {
       return this.expandChildren(node.symbol.id, new Set([node.symbol.id]));
     }
     // SymbolGroup
+    // When this group is a *direct* child of a bundle root (Component or a
+    // component-owned Class), the rolled-up edges may target several distinct
+    // members of the bundle. Insert a "called function" layer so the user can
+    // see WHICH member each caller invokes.
+    if (this.isDirectChildOfBundleRoot(node) && this.shouldSubgroupByCallee(node)) {
+      return this.subgroupByCallee(node);
+    }
     if (node.edges.length >= 2) {
       // Children are call-site leaves (one per edge), ordered by line.
       const sites = [...node.edges]
@@ -324,12 +424,54 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
     return this.expandChildren(node.symbol.id, parentChain);
   }
 
+  /** Direct child of root = parentChain holds exactly the root id. */
+  private isDirectChildOfBundleRoot(node: SymbolGroup): boolean {
+    if (!this.graph || !this.rootSymbolId) return false;
+    if (node.parentChain.size !== 1 || !node.parentChain.has(this.rootSymbolId)) return false;
+    const root = this.graph.symbol(this.rootSymbolId);
+    if (!root) return false;
+    return root.kind === SymbolKind.Component
+      || (root.kind === SymbolKind.Class && !!root.ownerComponent);
+  }
+
+  /** True when the group's edges target ≥2 distinct bundle members. */
+  private shouldSubgroupByCallee(node: SymbolGroup): boolean {
+    const seen = new Set<string>();
+    const targetField: keyof CallEdge = this.direction === "callers" ? "toId" : "fromId";
+    for (const e of node.edges) {
+      seen.add(e[targetField] as string);
+      if (seen.size > 1) return true;
+    }
+    return false;
+  }
+
+  private subgroupByCallee(node: SymbolGroup): CalleeGroup[] {
+    if (!this.graph) return [];
+    const targetField: keyof CallEdge = this.direction === "callers" ? "toId" : "fromId";
+    const bucket = new Map<string, CallEdge[]>();
+    for (const e of node.edges) {
+      const key = e[targetField] as string;
+      const arr = bucket.get(key) ?? [];
+      arr.push(e);
+      bucket.set(key, arr);
+    }
+    const nextChain = new Set(node.parentChain);
+    nextChain.add(node.symbol.id);
+    const out: CalleeGroup[] = [];
+    for (const [id, edges] of bucket) {
+      const sym = this.graph.symbol(id);
+      if (!sym) continue;
+      out.push(new CalleeGroup(sym, node.symbol, edges, nextChain));
+    }
+    out.sort((a, b) => b.edges.length - a.edges.length || a.callee.name.localeCompare(b.callee.name));
+    return out;
+  }
+
   private expandChildren(symbolId: string, parentChain: Set<string>): SymbolGroup[] {
     if (!this.graph) return [];
-    const edges =
-      this.direction === "callers"
-        ? this.graph.callers(symbolId)
-        : this.graph.callees(symbolId);
+    const edges = symbolId === this.rootSymbolId
+      ? this.rootEdges(symbolId)
+      : (this.direction === "callers" ? this.graph.callers(symbolId) : this.graph.callees(symbolId));
 
     // Constants are noise inside method call chains. Hide them everywhere
     // except when the tree itself is rooted on a Constant (the user explicitly

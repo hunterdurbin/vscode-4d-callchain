@@ -231,12 +231,59 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
       );
     }
     if (s.kind === SymbolKind.Component) {
-      return this.childrenForBundle(s).reduce(
-        (n, c) => n + (this.graph?.callers(c.id).length ?? 0),
+      // Aggregate over every symbol owned by this component — ComponentMethods,
+      // Classes, ClassFunctions, Getters/Setters/Constructors. Direct callers of
+      // the Class bundle alone miss the call-chain edges that land on individual
+      // class functions (the common case).
+      return this.descendantIdsForComponent(s.name).reduce(
+        (n, id) => n + (this.graph?.callers(id).length ?? 0),
+        0
+      );
+    }
+    if (s.kind === SymbolKind.Class && s.ownerComponent) {
+      // Component-class display: roll up callers of the class's functions/
+      // constructor/accessors so the row reflects real usage of the API.
+      return this.descendantIdsForClass(s).reduce(
+        (n, id) => n + (this.graph?.callers(id).length ?? 0),
         0
       );
     }
     return this.graph?.callers(s.id).length ?? 0;
+  }
+
+  /** Cache: component name → all owned symbol ids (ComponentMethod + Class + members). */
+  private readonly descendantIdsByComponent = new Map<string, string[]>();
+  private descendantIdsForComponent(componentName: string): string[] {
+    let cached = this.descendantIdsByComponent.get(componentName);
+    if (!cached) {
+      cached = [];
+      if (this.graph) {
+        for (const s of this.graph.allSymbols()) {
+          if (s.ownerComponent === componentName) cached.push(s.id);
+        }
+      }
+      this.descendantIdsByComponent.set(componentName, cached);
+    }
+    return cached;
+  }
+
+  /** Cache: Class symbol id → all member ids (functions, constructor, getters, setters). */
+  private readonly descendantIdsByClass = new Map<string, string[]>();
+  private descendantIdsForClass(classSym: SymbolRecord): string[] {
+    let cached = this.descendantIdsByClass.get(classSym.id);
+    if (!cached) {
+      cached = [classSym.id];
+      // The fully-qualified ownerClass key used by component class members is
+      // baked into the class symbol's id: `Class:cs.<NS>.<Class>` -> `cs.<NS>.<Class>`.
+      const fq = classSym.id.replace(/^Class:/, "");
+      if (this.graph) {
+        for (const s of this.graph.allSymbols()) {
+          if (s.ownerClass === fq) cached.push(s.id);
+        }
+      }
+      this.descendantIdsByClass.set(classSym.id, cached);
+    }
+    return cached;
   }
 
   /** PluginCommand or ComponentMethod children for a Plugin / Component bundle. */
@@ -295,6 +342,9 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     this.byKind.clear();
     this.byKindAndPrefix.clear();
     this.childrenByBundle.clear();
+    this.descendantIdsByComponent.clear();
+    this.descendantIdsByClass.clear();
+    this.membersByClass.clear();
     this.emitter.fire(undefined);
   }
 
@@ -322,9 +372,16 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
       return item;
     }
     // Plugin and Component bundles are collapsible — expanding shows their
-    // PluginCommand / ComponentMethod children. Everything else stays a leaf.
+    // PluginCommand / ComponentMethod children. Component-owned classes are
+    // ALSO collapsible — they expand to their member functions/constructor.
     const isBundle = node.kind === SymbolKind.Plugin || node.kind === SymbolKind.Component;
-    const collapsible = isBundle && this.childrenForBundle(node).length > 0
+    const isComponentClass = node.kind === SymbolKind.Class && !!node.ownerComponent;
+    const expandable = isBundle
+      ? this.childrenForBundle(node).length > 0
+      : isComponentClass
+        ? this.membersForComponentClass(node).length > 0
+        : false;
+    const collapsible = expandable
       ? vscode.TreeItemCollapsibleState.Collapsed
       : vscode.TreeItemCollapsibleState.None;
     const item = new vscode.TreeItem(node.name, collapsible);
@@ -389,7 +446,32 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
       const children = this.childrenForBundle(node).filter((s) => this.matches(s));
       return this.sortItems(children);
     }
+    // Component-owned Class → expand to its member functions/constructor/accessors.
+    if (node.kind === SymbolKind.Class && node.ownerComponent) {
+      const members = this.membersForComponentClass(node).filter((s) => this.matches(s));
+      return this.sortItems(members);
+    }
     return [];
+  }
+
+  /** Member functions/constructor/getters/setters belonging to a component class. */
+  private readonly membersByClass = new Map<string, SymbolRecord[]>();
+  private membersForComponentClass(classSym: SymbolRecord): SymbolRecord[] {
+    let cached = this.membersByClass.get(classSym.id);
+    if (!cached) {
+      cached = [];
+      if (this.graph) {
+        // `Class:cs.<NS>.<Class>` -> the unprefixed `cs.<NS>.<Class>` is the
+        // ownerClass value carried by every member.
+        const fq = classSym.id.replace(/^Class:/, "");
+        for (const s of this.graph.allSymbols()) {
+          if (s.ownerClass !== fq) continue;
+          cached.push(s);
+        }
+      }
+      this.membersByClass.set(classSym.id, cached);
+    }
+    return cached;
   }
 
   private itemsForKind(kind: SymbolKind): SymbolRecord[] {
