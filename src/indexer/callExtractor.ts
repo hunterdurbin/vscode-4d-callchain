@@ -214,22 +214,50 @@ export function extractCallSitesFromLine(
   }
 
   // --- Bare identifiers used as values (constant references) ---
-  // Constants in 4D have many naming patterns (`_Rules`, `MODULE_INVOICES`,
-  // `4Q_TYPE_*`, `Worker_Backend`, ...). We match any bare identifier that
-  // isn't preceded by `.` / `$` / `[` / word char (which would mean it's
-  // already part of `cs.X`, `$x`, `ds[X]`, or a longer name) and isn't
-  // followed by `(` (which would make it a method call). Then we filter
-  // inline against the known-constants set so non-constant identifiers
-  // (locals, parameters, keywords) are dropped without producing hints.
+  // Constants in 4D have many naming patterns:
+  //   `_Rules`, `MODULE_INVOICES`, `4Q_TYPE_*`, `Worker_Backend` — single-word
+  //   `Char Quote`, `Is text`, `On Load`, `Form event code` — multi-word
+  // We tokenize the line into identifier words, then at each starting position
+  // try matching the longest constant name (1 to 5 words) against the known
+  // constants set. Words consumed by a longer match are skipped so we don't
+  // double-emit (e.g. `Char Quote` shouldn't also emit `Quote` separately).
   if (constantsSet && constantsSet.size > 0) {
-    const RE_BARE_IDENT = /(?<![.$\w\[])\w+\b/g;
-    let bareIdentMatch: RegExpExecArray | null;
-    while ((bareIdentMatch = RE_BARE_IDENT.exec(line))) {
-      const name = bareIdentMatch[0];
-      if (!constantsSet.has(name)) continue;
-      const after = line.slice(bareIdentMatch.index + name.length);
-      if (/^\s*\(/.test(after)) continue; // method call, not a constant ref
-      push({ kind: "ConstantRef", name }, name);
+    // Allow digit-start tokens (e.g. `4Q_TYPE_*`) — single-word constants are
+    // matched against the set as-is regardless of leading char.
+    const RE_WORD = /(?<![.$\w\[])\w+\b/g;
+    const positions: Array<{ word: string; start: number; end: number }> = [];
+    let wm: RegExpExecArray | null;
+    while ((wm = RE_WORD.exec(line))) {
+      positions.push({ word: wm[0], start: wm.index, end: wm.index + wm[0].length });
+    }
+    const consumed = new Array(positions.length).fill(false);
+    for (let i = 0; i < positions.length; i++) {
+      if (consumed[i]) continue;
+      // Greedy-longest: try 5 words, then 4, then 3, …, then 1.
+      let matchedLen = 0;
+      let matchedName = "";
+      for (let len = Math.min(5, positions.length - i); len >= 1; len--) {
+        // Verify positions[i..i+len-1] are separated only by whitespace.
+        let contiguous = true;
+        for (let j = i + 1; j < i + len; j++) {
+          const gap = line.slice(positions[j - 1].end, positions[j].start);
+          if (!/^[ \t]+$/.test(gap)) { contiguous = false; break; }
+        }
+        if (!contiguous) continue;
+        const candidate = positions.slice(i, i + len).map((p) => p.word).join(" ");
+        if (constantsSet.has(candidate)) {
+          matchedLen = len;
+          matchedName = candidate;
+          break;
+        }
+      }
+      if (matchedLen === 0) continue;
+      // Reject if immediately followed by `(` — that's a method call, not a value.
+      const endPos = positions[i + matchedLen - 1].end;
+      const after = line.slice(endPos);
+      if (/^\s*\(/.test(after)) continue;
+      push({ kind: "ConstantRef", name: matchedName }, matchedName);
+      for (let j = 0; j < matchedLen; j++) consumed[i + j] = true;
     }
   }
 

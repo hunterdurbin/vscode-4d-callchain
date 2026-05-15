@@ -181,6 +181,15 @@ assert("BuiltinConstant 'On Load' exists", !!onLoad, onLoad ? `value=${onLoad.co
 const builtinCount = idx.symbols.filter((s) => s.kind === "BuiltinConstant").length;
 assert("≥1000 built-in constants indexed", builtinCount >= 1000, `${builtinCount} indexed`);
 
+// Multi-word built-in constant refs are tracked.
+const charQuote = sym("BuiltinConstant", "Char Quote");
+if (charQuote) {
+  const refs = callersOf(charQuote).length;
+  assert(`'Char Quote' has ≥1 caller (multi-word ref)`, refs >= 1, `${refs} callers`);
+}
+const onLoadRefs = onLoad ? callersOf(onLoad).length : 0;
+assert("'On Load' has ≥10 callers (multi-word ref)", onLoadRefs >= 10, `${onLoadRefs} callers`);
+
 // ===== Summary =====
 console.log(`\n${"=".repeat(40)}`);
 console.log(`Probes: ${passed} passed, ${failed} failed`);
