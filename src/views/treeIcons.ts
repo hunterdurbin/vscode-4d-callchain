@@ -18,6 +18,7 @@ export function iconFor(s: SymbolRecord): vscode.ThemeIcon {
     case SymbolKind.Plugin:           return new vscode.ThemeIcon("plug");
     case SymbolKind.Builtin:          return new vscode.ThemeIcon("symbol-keyword");
     case SymbolKind.Constant:         return new vscode.ThemeIcon("symbol-constant");
+    case SymbolKind.BuiltinConstant:  return new vscode.ThemeIcon("symbol-numeric");
     case SymbolKind.Unresolved:       return new vscode.ThemeIcon("question");
     default:                          return new vscode.ThemeIcon("symbol-misc");
   }
@@ -31,6 +32,14 @@ export function descriptionFor(s: SymbolRecord): string {
     if (valueStr) return `= ${valueStr}`;
     if (typeStr) return typeStr;
     return "Constant";
+  }
+  if (s.kind === SymbolKind.BuiltinConstant) {
+    const valueStr = formatConstantValue(s.constantValue, undefined);
+    const theme = s.constantTheme ?? "";
+    if (valueStr && theme) return `= ${valueStr} · ${theme}`;
+    if (valueStr) return `= ${valueStr}`;
+    if (theme) return theme;
+    return "Builtin constant";
   }
   const suffix =
     s.kind === SymbolKind.ClassGetter ? " · get" :

@@ -26,7 +26,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   output.appendLine(`[Activate] Project root: ${projectRoot}`);
 
   const exclusions = vscode.workspace.getConfiguration("callchain").get<string[]>("indexExclusions", []);
-  const indexer = new Indexer({ projectRoot, exclusions, output });
+  const builtinConstantsPaths = vscode.workspace.getConfiguration("callchain").get<string[]>("builtinConstantsPaths", []);
+  const indexer = new Indexer({ projectRoot, exclusions, output, builtinConstantsPaths });
 
   const callers = new CallTreeProvider("callers");
   const callees = new CallTreeProvider("callees");
@@ -56,6 +57,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const refreshSymbolsBadge = () => {
     const bits: string[] = [];
+    if (search.isFlat) bits.push("flat");
     if (search.currentSort === "callersDesc") bits.push("▲↓");
     if (search.currentSort === "callersAsc") bits.push("▲↑");
     if (search.currentCallerFilter === "withCallers") bits.push("▲≥1");
@@ -79,7 +81,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       refreshSymbolsBadge();
     }),
     search.onDidChangeSort(() => refreshSymbolsBadge()),
-    search.onDidChangeCallerFilter(() => refreshSymbolsBadge())
+    search.onDidChangeCallerFilter(() => refreshSymbolsBadge()),
+    search.onDidChangeFlatten(() => refreshSymbolsBadge())
   );
 
   // Initialize context keys to false so the menus pick the right icon.
@@ -315,6 +318,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("callchain.clearFilterSymbols", () => search.setFilter("")),
     vscode.commands.registerCommand("callchain.toggleSymbolsSort", () => search.cycleSort()),
     vscode.commands.registerCommand("callchain.toggleCallerFilter", () => search.cycleCallerFilter()),
+    vscode.commands.registerCommand("callchain.toggleFlattenSymbols", () => search.toggleFlatten()),
     vscode.commands.registerCommand("callchain.collapseSubtree", (node: any) => {
       if (!node) return;
       // Folder nodes (groups + prefixes) only exist in the Symbols view.

@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import { INDEX_VERSION, SymbolIndex } from "../model/symbol";
 import { CallGraph } from "../model/callGraph";
 import { discoverCatalogTables, discoverFiles, discoverPlugins } from "./projectScanner";
-import { discoverConstants } from "./constantsScanner";
+import { DEFAULT_BUILTIN_CONSTANTS_PROBES, discoverBuiltinConstants, discoverConstants } from "./constantsScanner";
 import { parseFile } from "./fileParser";
 import { buildSymbolIndex } from "./nameResolver";
 
@@ -12,6 +12,8 @@ export interface IndexerOptions {
   projectRoot: string;
   exclusions: string[];
   output: vscode.OutputChannel;
+  /** User override(s) for the 4D built-in constants XLF path. */
+  builtinConstantsPaths?: string[];
 }
 
 const INDEX_FILENAME = "callchain-index.json";
@@ -59,7 +61,16 @@ export class Indexer {
     // references against the known set inline.
     const constants = discoverConstants(this.opts.projectRoot);
     this.opts.output.appendLine(`[Indexer] Discovered ${constants.length} constants`);
-    const constantsSet = new Set<string>(constants.map((c) => c.name));
+    const builtinProbes = [
+      ...(this.opts.builtinConstantsPaths ?? []),
+      ...DEFAULT_BUILTIN_CONSTANTS_PROBES
+    ];
+    const builtinConstants = discoverBuiltinConstants(builtinProbes);
+    this.opts.output.appendLine(`[Indexer] Discovered ${builtinConstants.length} built-in constants`);
+    const constantsSet = new Set<string>([
+      ...constants.map((c) => c.name),
+      ...builtinConstants.map((c) => c.name)
+    ]);
 
     const parsed = [];
     const mtimes: Record<string, number> = {};
@@ -78,7 +89,7 @@ export class Indexer {
     const catalogTables = discoverCatalogTables(this.opts.projectRoot);
     this.opts.output.appendLine(`[Indexer] Discovered ${catalogTables.size} catalog tables`);
 
-    const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants);
+    const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants, builtinConstants);
     idx.fileMtimes = mtimes;
 
     this.currentIndex = idx;

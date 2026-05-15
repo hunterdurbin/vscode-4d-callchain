@@ -55,11 +55,15 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   }
   const pluginByName = new Map<string, string>();
   for (const p of input.plugins) pluginByName.set(p.name.toLowerCase(), p.symbolId);
-  // Map from constant name → symbol id, populated from the Constant records
-  // appended into projectSymbols by buildSymbolIndex.
+  // Map from constant name → symbol id. Includes both user-defined constants
+  // and 4D built-in constants so bare references in code (e.g. `_Rules` or
+  // `Active`) resolve to whichever is defined.
   const constantsByName = new Map<string, string>();
   for (const s of projectSymbols) {
-    if (s.kind === SymbolKind.Constant) constantsByName.set(s.name, s.id);
+    if (s.kind === SymbolKind.Constant || s.kind === SymbolKind.BuiltinConstant) {
+      // User constants take precedence — already inserted if they exist.
+      if (!constantsByName.has(s.name)) constantsByName.set(s.name, s.id);
+    }
   }
 
   const findOrCreateBuiltin = (name: string): string => {
@@ -432,7 +436,8 @@ export function buildSymbolIndex(
   parsedFiles: ParsedFile[],
   plugins: { name: string; absolutePath: string }[],
   catalogTables: Set<string> = new Set(),
-  constants: { name: string; value?: string; type?: string; theme?: string; sourceFile: string }[] = []
+  constants: { name: string; value?: string; type?: string; theme?: string; sourceFile: string }[] = [],
+  builtinConstants: { name: string; value?: string; theme?: string; sourceFile: string }[] = []
 ): SymbolIndex {
   const allSymbols: SymbolRecord[] = [];
   for (const f of parsedFiles) {
@@ -446,8 +451,9 @@ export function buildSymbolIndex(
   }));
   for (const s of pluginSyms) allSymbols.push(s);
 
-  // Constants: name-only symbols with no edges. They populate the Symbols view
-  // but are intentionally never added as callees of method bodies.
+  // User-defined constants from Resources/Constants_*.xlf. Name-only symbols
+  // with no edges by default — refs are tracked separately via the ConstantRef
+  // hint and emitted only when the bare identifier matches a known constant.
   const seenConstants = new Set<string>();
   for (const c of constants) {
     const id = symbolIdFor(SymbolKind.Constant, c.name);
@@ -460,6 +466,25 @@ export function buildSymbolIndex(
       location: { uri: "file://" + c.sourceFile, line: 0 },
       constantValue: c.value,
       constantType: c.type,
+      constantTheme: c.theme
+    });
+  }
+
+  // 4D built-in constants from the tool4d / 4D installation's 4D_ConstantsEN.xlf.
+  // Kept under a separate kind so they don't clutter the user-constants group.
+  const seenBuiltinConstants = new Set<string>();
+  for (const c of builtinConstants) {
+    const id = symbolIdFor(SymbolKind.BuiltinConstant, c.name);
+    if (seenBuiltinConstants.has(id)) continue;
+    // Don't shadow a user constant of the same name.
+    if (seenConstants.has(symbolIdFor(SymbolKind.Constant, c.name))) continue;
+    seenBuiltinConstants.add(id);
+    allSymbols.push({
+      id,
+      name: c.name,
+      kind: SymbolKind.BuiltinConstant,
+      location: { uri: "file://" + c.sourceFile, line: 0 },
+      constantValue: c.value,
       constantTheme: c.theme
     });
   }

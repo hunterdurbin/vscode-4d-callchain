@@ -178,6 +178,11 @@
         "command": "callchain.toggleCallerFilter",
         "title": "Toggle caller filter (off → ≥1 → 0)",
         "icon": "$(call-incoming)"
+      },
+      {
+        "command": "callchain.toggleFlattenSymbols",
+        "title": "Toggle prefix folders (flat / grouped)",
+        "icon": "$(list-flat)"
       }
     ],
     "menus": {
@@ -253,6 +258,11 @@
           "command": "callchain.toggleCallerFilter",
           "when": "view == callchain.search",
           "group": "navigation@2"
+        },
+        {
+          "command": "callchain.toggleFlattenSymbols",
+          "when": "view == callchain.search",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -352,6 +362,12 @@
           "type": "boolean",
           "default": true,
           "description": "When a caller/callee has multiple call sites in the same file, show the source-line snippet next to the line number. Disable to show 'line N' only."
+        },
+        "callchain.builtinConstantsPaths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Optional absolute paths to a 4D 4D_ConstantsEN.xlf file. If empty, the extension auto-detects tool4d.app / 4D installations under /Applications."
         }
       }
     }

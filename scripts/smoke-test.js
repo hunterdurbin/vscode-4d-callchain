@@ -8,7 +8,7 @@ const path = require("path");
 const { discoverFiles, discoverPlugins, discoverCatalogTables } = require("../out/indexer/projectScanner");
 const { parseFile } = require("../out/indexer/fileParser");
 const { buildSymbolIndex } = require("../out/indexer/nameResolver");
-const { discoverConstants } = require("../out/indexer/constantsScanner");
+const { discoverConstants, discoverBuiltinConstants, DEFAULT_BUILTIN_CONSTANTS_PROBES } = require("../out/indexer/constantsScanner");
 
 const projectRoot = process.argv[2] || "/Users/hunterdurbin/src/4d/symphony";
 console.log(`Smoke-testing against ${projectRoot}`);
@@ -19,8 +19,12 @@ console.log(`Discovered ${files.length} .4dm files`);
 
 // Constants first so the parser can resolve bare-identifier references inline.
 const constants = discoverConstants(projectRoot);
-const constantsSet = new Set(constants.map((c) => c.name));
-console.log(`Discovered ${constants.length} constants`);
+const builtinConstants = discoverBuiltinConstants(DEFAULT_BUILTIN_CONSTANTS_PROBES);
+console.log(`Discovered ${constants.length} constants, ${builtinConstants.length} built-in constants`);
+const constantsSet = new Set([
+  ...constants.map((c) => c.name),
+  ...builtinConstants.map((c) => c.name)
+]);
 
 const parsed = [];
 for (let i = 0; i < files.length; i++) {
@@ -32,7 +36,7 @@ console.log(`Discovered ${plugins.length} plugins`);
 const catalogTables = discoverCatalogTables(projectRoot);
 console.log(`Discovered ${catalogTables.size} catalog tables`);
 
-const idx = buildSymbolIndex(projectRoot, parsed, plugins, catalogTables, constants);
+const idx = buildSymbolIndex(projectRoot, parsed, plugins, catalogTables, constants, builtinConstants);
 const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 console.log(`\nBuilt index in ${elapsed}s`);
 console.log(`  Total symbols: ${idx.symbols.length}`);
@@ -165,6 +169,17 @@ for (const probe of constSamples) {
   const callers = callersOf(c).length;
   assert(`  ≥${probe.minCallers} callers (constant-ref tracking)`, callers >= probe.minCallers, `${callers} callers`);
 }
+
+// ----- Built-in constants -----
+console.log(`\nBuilt-in constants:`);
+const isText = sym("BuiltinConstant", "Is text");
+const isReal = sym("BuiltinConstant", "Is real");
+const onLoad = sym("BuiltinConstant", "On Load");
+assert("BuiltinConstant 'Is text' exists", !!isText, isText ? `value=${isText.constantValue}` : undefined);
+assert("BuiltinConstant 'Is real' exists", !!isReal, isReal ? `value=${isReal.constantValue}` : undefined);
+assert("BuiltinConstant 'On Load' exists", !!onLoad, onLoad ? `value=${onLoad.constantValue}` : undefined);
+const builtinCount = idx.symbols.filter((s) => s.kind === "BuiltinConstant").length;
+assert("≥1000 built-in constants indexed", builtinCount >= 1000, `${builtinCount} indexed`);
 
 // ===== Summary =====
 console.log(`\n${"=".repeat(40)}`);

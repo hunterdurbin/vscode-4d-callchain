@@ -38,6 +38,7 @@ const ORDER: SymbolKind[] = [
   SymbolKind.TableObjectMethod,
   SymbolKind.CompilerMethod,
   SymbolKind.Constant,
+  SymbolKind.BuiltinConstant,
   SymbolKind.Plugin,
   SymbolKind.Builtin,
   SymbolKind.Unresolved
@@ -53,6 +54,8 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
   private parsedFilter: ParsedQuery = { fuzzy: "", excludes: [] };
   private sortMode: SortMode = "name";
   private callerCountFilter: CallerCountFilter = "off";
+  /** When true, every kind group expands directly to its symbols — no prefix sub-folders. */
+  private flattenPrefixes = false;
   /** Bump generation per group/prefix scope so right-click "collapse" forces fresh ids on descendants. */
   private readonly collapseBumps = new Map<string, number>();
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
@@ -63,6 +66,8 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
   readonly onDidChangeSort = this.sortChangedEmitter.event;
   private readonly callerFilterChangedEmitter = new vscode.EventEmitter<CallerCountFilter>();
   readonly onDidChangeCallerFilter = this.callerFilterChangedEmitter.event;
+  private readonly flattenChangedEmitter = new vscode.EventEmitter<boolean>();
+  readonly onDidChangeFlatten = this.flattenChangedEmitter.event;
   /** Cache symbol partitions per kind so getChildren stays O(1) after the first hit. */
   private readonly byKind = new Map<SymbolKind, SymbolRecord[]>();
   private readonly byKindAndPrefix = new Map<SymbolKind, Map<string, SymbolRecord[]>>();
@@ -77,6 +82,10 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
 
   get currentCallerFilter(): CallerCountFilter {
     return this.callerCountFilter;
+  }
+
+  get isFlat(): boolean {
+    return this.flattenPrefixes;
   }
 
   setFilter(query: string): void {
@@ -122,6 +131,13 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
       if (b) suffix += `:b${b}@${s}`;
     }
     return suffix;
+  }
+
+  /** Toggle prefix sub-folders on/off for every kind group. */
+  toggleFlatten(): void {
+    this.flattenPrefixes = !this.flattenPrefixes;
+    this.emitter.fire(undefined);
+    this.flattenChangedEmitter.fire(this.flattenPrefixes);
   }
 
   /** Cycle caller-count quick filter: off → withCallers (≥1) → noCallers (=0) → off → … */
@@ -206,7 +222,7 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     const callers = this.callerCount(node);
     item.description = callers > 0 ? `${baseDesc} · ▲ ${callers}` : baseDesc;
     item.iconPath = iconFor(node);
-    if (node.kind === SymbolKind.Constant) {
+    if (node.kind === SymbolKind.Constant || node.kind === SymbolKind.BuiltinConstant) {
       // Constants all "live" in the same XLF file — navigation there is useless.
       // Clicking pins the constant as the Callers root so the real-world value
       // (where it's used) shows up immediately.
@@ -241,7 +257,7 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     }
     if (isGroup(node)) {
       const items = this.itemsForKind(node.group.kind).filter((s) => this.matches(s));
-      if (items.length <= SUBGROUP_THRESHOLD) {
+      if (this.flattenPrefixes || items.length <= SUBGROUP_THRESHOLD) {
         return this.sortItems(items);
       }
       return this.partitionByPrefix(node.group.kind, items);
