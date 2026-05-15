@@ -95,7 +95,8 @@ export function extractCallSitesFromLine(
   strings: string[],
   fromSymbolId: string,
   lineNumber: number,
-  constantsSet?: Set<string>
+  constantsSet?: Set<string>,
+  localStrings?: Map<string, string>
 ): RawCallSite[] {
   const out: RawCallSite[] = [];
   const push = (hint: CallHint, expression: string) => {
@@ -152,14 +153,20 @@ export function extractCallSitesFromLine(
     const formName = strings[Number(m[1])];
     if (formName) push({ kind: "FormRef", formName }, m[0]);
   }
-  // Variable-form variants — the resolver maps $var → literal via the
-  // method's localStrings table.
-  if ((m = line.match(RE_OPEN_FORM_WINDOW_VAR)))  push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
-  if ((m = line.match(RE_DIALOG_FORM_VAR)))        push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
-  if ((m = line.match(RE_FORM_LOAD_VAR)))          push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
-  if ((m = line.match(RE_PRINT_FORM_VAR)))         push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
-  if ((m = line.match(RE_MODIFY_SELECTION_VAR)))   push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
-  if ((m = line.match(RE_DISPLAY_SELECTION_VAR)))  push({ kind: "FormRefDynamic", variable: m[1] }, m[0]);
+  // Variable-form variants — resolve `$var` against the method's local
+  // string-literal map AT THIS LINE so subsequent reassignments don't
+  // retroactively change earlier call sites. Drop silently if the
+  // variable hasn't been assigned a string literal yet.
+  const pushFormVar = (varName: string, raw: string) => {
+    const literal = localStrings?.get(varName);
+    if (literal) push({ kind: "FormRef", formName: literal }, raw);
+  };
+  if ((m = line.match(RE_OPEN_FORM_WINDOW_VAR)))   pushFormVar(m[1], m[0]);
+  if ((m = line.match(RE_DIALOG_FORM_VAR)))        pushFormVar(m[1], m[0]);
+  if ((m = line.match(RE_FORM_LOAD_VAR)))          pushFormVar(m[1], m[0]);
+  if ((m = line.match(RE_PRINT_FORM_VAR)))         pushFormVar(m[1], m[0]);
+  if ((m = line.match(RE_MODIFY_SELECTION_VAR)))   pushFormVar(m[1], m[0]);
+  if ((m = line.match(RE_DISPLAY_SELECTION_VAR)))  pushFormVar(m[1], m[0]);
 
   // --- cs.X.new(...) ---
   let re = new RegExp(RE_CS_NEW);

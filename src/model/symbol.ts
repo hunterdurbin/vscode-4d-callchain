@@ -96,7 +96,6 @@ export type CallHint =
   | { kind: "InterprocessRef"; name: string }
   | { kind: "ProjectMethodBare"; name: string }
   | { kind: "FormRef"; formName: string }
-  | { kind: "FormRefDynamic"; variable: string }
   | { kind: "CallWorker"; methodName: string }
   | { kind: "NewProcess"; methodName: string }
   | { kind: "ExecuteMethodLiteral"; methodName: string }

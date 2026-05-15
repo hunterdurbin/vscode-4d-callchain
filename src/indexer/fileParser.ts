@@ -253,7 +253,7 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
 
     if (!currentSymbolId) continue;
 
-    const sites = extractCallSitesFromLine(line, strings, currentSymbolId, i, constantsSet);
+    const sites = extractCallSitesFromLine(line, strings, currentSymbolId, i, constantsSet, currentStrings);
     for (const s of sites) rawCalls.push(s);
   }
 
