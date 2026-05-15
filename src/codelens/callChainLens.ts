@@ -36,7 +36,6 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
         out.push(...this.lensesForClass(s));
         continue;
       }
-      if (s.kind === SymbolKind.ClassConstructor) continue;
       const callerCount = graph.callers(s.id).length;
       const calleeCount = graph.callees(s.id).length;
       const range = new vscode.Range(s.location.line, 0, s.location.line, 1);
