@@ -232,11 +232,14 @@ if (lineItemsDesc) {
 console.log(`\nComponents:`);
 const componentSyms = idx.symbols.filter((s) => s.kind === "Component");
 assert("≥1 Component symbol indexed", componentSyms.length >= 1, `${componentSyms.length}`);
-const checkout = componentSyms.find((s) => s.name === "Checkout");
-if (checkout) {
-  const callers = callersOf(checkout).length;
-  assert("'Checkout' component has ≥1 caller", callers >= 1, `${callers} callers`);
-}
+const checkoutMethods = idx.symbols.filter(
+  (s) => s.kind === "ComponentMethod" && s.ownerComponent === "Checkout"
+);
+const checkoutCallerCount = checkoutMethods.reduce(
+  (n, m) => n + callersOf(m).length,
+  0
+);
+assert("Checkout has ≥1 component-method caller (aggregated)", checkoutCallerCount >= 1, `${checkoutCallerCount} edges across ${checkoutMethods.length} methods`);
 
 // ===== Summary =====
 console.log(`\n${"=".repeat(40)}`);
