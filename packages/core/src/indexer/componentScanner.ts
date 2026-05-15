@@ -2,6 +2,13 @@ import * as cp from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
+export interface DiscoveredComponentClassProp {
+  /** The class type this property holds, as it appears in classes.json. */
+  className: string;
+  /** Optional component the type comes from — empty means "current component". */
+  componentName: string;
+}
+
 export interface DiscoveredComponentClass {
   /** Class name as it appears in classes.json (e.g. "Testing", "Assert"). */
   name: string;
@@ -9,6 +16,8 @@ export interface DiscoveredComponentClass {
   functions: string[];
   /** True if classes.json records a `constructorID` for this class. */
   hasConstructor: boolean;
+  /** Property name -> declared class type (for chain resolution: $x.prop.method()). */
+  properties: Record<string, DiscoveredComponentClassProp>;
 }
 
 export interface DiscoveredComponent {
@@ -124,9 +133,43 @@ function readClassesFromZip(zipPath: string): DiscoveredComponentClass[] {
     const fnObj = entry.functions;
     const functions = fnObj && typeof fnObj === "object" ? Object.keys(fnObj) : [];
     const hasConstructor = typeof entry.constructorID === "number";
-    out.push({ name: className, functions, hasConstructor });
+    const properties: Record<string, DiscoveredComponentClassProp> = {};
+    const propsObj = entry.properties;
+    if (propsObj && typeof propsObj === "object") {
+      for (const propName of Object.keys(propsObj)) {
+        const p = propsObj[propName];
+        if (!p || typeof p !== "object") continue;
+        const propCls = typeof p.className === "string" ? p.className : "";
+        const propComp = typeof p.componentName === "string" ? p.componentName : "";
+        // Skip untyped properties and 4D built-in placeholder types.
+        if (!propCls || isBuiltinTypePlaceholder(propCls)) continue;
+        properties[propName] = { className: propCls, componentName: propComp };
+      }
+    }
+    out.push({ name: className, functions, hasConstructor, properties });
   }
   return out;
+}
+
+/**
+ * Some `properties` entries in classes.json use 4D's internal type names
+ * (`Class`, `Object`, `Function`, `Collection`, etc.) rather than a real
+ * user/component class. These can't be resolved further so we drop them.
+ */
+function isBuiltinTypePlaceholder(name: string): boolean {
+  switch (name) {
+    case "Class":
+    case "Object":
+    case "Function":
+    case "Collection":
+    case "Date":
+    case "Time":
+    case "Blob":
+    case "Picture":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function safeReaddir(p: string): string[] {

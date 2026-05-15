@@ -12,6 +12,12 @@ export interface ResolverInput {
   catalogTables: Set<string>;
   /** Method name → Component symbol id (from each component's methodAttributes.json). */
   componentByMethod?: Map<string, string>;
+  /**
+   * Component class property types, keyed by lowercase `cs.<ns>.<class>`.
+   * Each value maps a property name to the fully-qualified `cs.<ns>.<class>`
+   * type the property holds. Used by VarChainCall to walk `$x.prop.method()`.
+   */
+  componentClassPropsByNs?: Map<string, Map<string, string>>;
 }
 
 export interface ResolverOutput {
@@ -385,6 +391,38 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           pushEdge(findOrCreateUnresolved(`$${hint.variable}.${hint.method}`), CallKind.Dynamic, false);
           break;
         }
+        case "VarChainCall": {
+          // Walk `$var.prop1.prop2.method()` through the component-class property
+          // map. Pass 1 only resolves chains rooted in component classes; chains
+          // through user-project classes will be handled in Pass 2.
+          const locals = localTypes.get(call.fromSymbolId);
+          const startType = locals?.get(hint.variable);
+          const propsByNs = input.componentClassPropsByNs;
+          if (!startType || !propsByNs) {
+            pushEdge(findOrCreateUnresolved(`$${hint.variable}.${hint.path.join(".")}.${hint.method}`), CallKind.Dynamic, false);
+            break;
+          }
+          // Start type must be `cs.<ns>.<class>` form (pass 1 limitation).
+          let currentFq = startType.match(/^cs\.[\w_]+\.[\w_]+$/) ? startType : undefined;
+          if (currentFq) {
+            for (const step of hint.path) {
+              const props = propsByNs.get(currentFq!.toLowerCase());
+              const nextFq = props?.get(step);
+              if (!nextFq) { currentFq = undefined; break; }
+              currentFq = nextFq;
+            }
+          }
+          if (currentFq) {
+            const fnKey = `${currentFq}.${hint.method}`.toLowerCase();
+            const fn = classFunctions.get(fnKey);
+            if (fn) {
+              pushEdge(fn.id, CallKind.Static, true);
+              break;
+            }
+          }
+          pushEdge(findOrCreateUnresolved(`$${hint.variable}.${hint.path.join(".")}.${hint.method}`), CallKind.Dynamic, false);
+          break;
+        }
         case "CallWorker":
         case "NewProcess":
         case "ExecuteMethodLiteral": {
@@ -555,7 +593,12 @@ export function buildSymbolIndex(
     zipPath?: string;
     methods: string[];
     classStoreName?: string;
-    classes?: { name: string; functions: string[]; hasConstructor: boolean }[];
+    classes?: {
+      name: string;
+      functions: string[];
+      hasConstructor: boolean;
+      properties?: Record<string, { className: string; componentName: string }>;
+    }[];
   }[] = []
 ): SymbolIndex {
   const allSymbols: SymbolRecord[] = [];
@@ -719,6 +762,30 @@ export function buildSymbolIndex(
   // the specific ComponentMethod (not the bundle).
   const componentByMethod = componentMethodIdByName;
 
+  // Component class property → type map, keyed by `cs.<ns>.<class>` (lowercase).
+  // Each value maps a property name to its declared `cs.<ns>.<class>` type.
+  // Built lazily from component metadata so VarChainCall can step through
+  // `$x.prop.method()` chains.
+  const componentClassPropsByNs = new Map<string, Map<string, string>>();
+  for (const c of components) {
+    if (!c.classes || c.classes.length === 0) continue;
+    const ns = c.classStoreName ?? c.name;
+    // Build a lookup from `<classStoreName-or-componentDir>` → ns for cross-
+    // component property types (rare but supported).
+    for (const cls of c.classes) {
+      if (!cls.properties) continue;
+      const fqClass = `cs.${ns}.${cls.name}`.toLowerCase();
+      const map = new Map<string, string>();
+      for (const [propName, p] of Object.entries(cls.properties)) {
+        // Default to the current component's namespace when componentName is
+        // empty (the common case for intra-component property types).
+        const targetNs = p.componentName ? p.componentName : ns;
+        map.set(propName, `cs.${targetNs}.${p.className}`);
+      }
+      componentClassPropsByNs.set(fqClass, map);
+    }
+  }
+
   const { edges, unresolvedSymbols } = resolve(
     {
       files: parsedFiles,
@@ -728,7 +795,8 @@ export function buildSymbolIndex(
         commands: plugins[i]?.commands
       })),
       catalogTables,
-      componentByMethod
+      componentByMethod,
+      componentClassPropsByNs
     },
     allSymbols
   );

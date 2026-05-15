@@ -46,6 +46,10 @@ const RE_DS_BRACKET_CALL = /\bds\s*\[\s*([\w_]+)\s*\]\s*\.\s*([\w_]+)\s*\(/g;
 const RE_THIS_CALL= /\bThis\.([\w_]+)\s*\(/g;
 const RE_SUPER    = /\bSuper(?:\.([\w_]+))?\s*\(/g;
 const RE_VAR_CALL = /\$([\w_]+)\.([\w_]+)\s*\(/g;
+// `$var.prop1.prop2.method(` — chains of property accesses ending in a call.
+// At least one intermediate property; the first capture is the variable, the
+// second is the dotted path (`.prop1.prop2`), the third is the terminating method.
+const RE_VAR_CHAIN_CALL = /\$([\w_]+)((?:\.[\w_]+){1,})\.([\w_]+)\s*\(/g;
 
 // --- Property-access patterns (computed getters / setters) ---
 // Assignment forms: `:=` is plain set; `+=`/`-=`/`*=`/`/=` is compound (read + write).
@@ -237,9 +241,23 @@ export function extractCallSitesFromLine(
     push({ kind: "SuperCall", method: m[1] }, m[0]);
   }
 
+  // --- $var.prop1.prop2.method(...) — chained property access before the call.
+  // Tracked so the simpler RE_VAR_CALL doesn't double-emit a VarCall for the
+  // leftmost `$var.<segment>(` substring of the chain.
+  const consumedChainSpans: Array<[number, number]> = [];
+  re = new RegExp(RE_VAR_CHAIN_CALL);
+  while ((m = re.exec(line))) {
+    const variable = m[1];
+    const path = m[2].split(".").filter((p) => p.length > 0);
+    const method = m[3];
+    push({ kind: "VarChainCall", variable, path, method }, m[0]);
+    consumedChainSpans.push([m.index!, m.index! + m[0].length]);
+  }
+
   // --- $var.method(...) ---
   re = new RegExp(RE_VAR_CALL);
   while ((m = re.exec(line))) {
+    if (consumedChainSpans.some(([s, e]) => m!.index! >= s && m!.index! < e)) continue;
     push({ kind: "VarCall", variable: m[1], method: m[2] }, m[0]);
   }
 
