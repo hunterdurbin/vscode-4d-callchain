@@ -190,6 +190,19 @@ if (charQuote) {
 const onLoadRefs = onLoad ? callersOf(onLoad).length : 0;
 assert("'On Load' has ≥10 callers (multi-word ref)", onLoadRefs >= 10, `${onLoadRefs} callers`);
 
+// `[Goals]April` is classic-record field access, NOT a use of the `April`
+// built-in constant. After the lookbehind fix, the April constant should
+// not be polluted by these false matches.
+const april = sym("BuiltinConstant", "April");
+if (april) {
+  const callers = callersOf(april);
+  const goalsBSave = callers.find((e) => {
+    const f = idx.symbols.find((s) => s.id === e.fromId);
+    return f && f.name && f.name.includes("Inventory_SetGoals.bSave");
+  });
+  assert("`[Goals]April` field access NOT counted as April ref", !goalsBSave);
+}
+
 // ===== Summary =====
 console.log(`\n${"=".repeat(40)}`);
 console.log(`Probes: ${passed} passed, ${failed} failed`);

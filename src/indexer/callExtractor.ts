@@ -224,7 +224,9 @@ export function extractCallSitesFromLine(
   if (constantsSet && constantsSet.size > 0) {
     // Allow digit-start tokens (e.g. `4Q_TYPE_*`) — single-word constants are
     // matched against the set as-is regardless of leading char.
-    const RE_WORD = /(?<![.$\w\[])\w+\b/g;
+    // Exclude tokens preceded by `]` so classic-record syntax `[Table]Field`
+    // doesn't pick up Field as a constant (e.g. `[Goals]April`).
+    const RE_WORD = /(?<![.$\w\[\]])\w+\b/g;
     const positions: Array<{ word: string; start: number; end: number }> = [];
     let wm: RegExpExecArray | null;
     while ((wm = RE_WORD.exec(line))) {
