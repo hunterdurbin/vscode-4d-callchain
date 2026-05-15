@@ -56,6 +56,8 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
   private callerCountFilter: CallerCountFilter = "off";
   /** When true, every kind group expands directly to its symbols — no prefix sub-folders. */
   private flattenPrefixes = false;
+  /** Kinds for which the sub-folders are themes (Constant.theme / BuiltinConstant.theme) rather than name prefixes. */
+  private readonly themeGroupedKinds = new Set<SymbolKind>();
   /** Bump generation per group/prefix scope so right-click "collapse" forces fresh ids on descendants. */
   private readonly collapseBumps = new Map<string, number>();
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
@@ -140,6 +142,41 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     this.flattenChangedEmitter.fire(this.flattenPrefixes);
   }
 
+  /** True if this kind's sub-folders are themes (rather than name prefixes). */
+  isGroupedByTheme(kind: SymbolKind): boolean {
+    return this.themeGroupedKinds.has(kind);
+  }
+
+  /**
+   * Reset every interactive setting (filter, sort, caller-filter, flatten,
+   * theme grouping, collapse bumps) back to the default state and fire all
+   * change events so badges + context keys re-sync.
+   */
+  resetAll(): void {
+    this.filterQuery = "";
+    this.parsedFilter = { fuzzy: "", excludes: [] };
+    this.sortMode = "name";
+    this.callerCountFilter = "off";
+    this.flattenPrefixes = false;
+    this.themeGroupedKinds.clear();
+    this.collapseBumps.clear();
+    this.byKindAndPrefix.clear();
+    this.emitter.fire(undefined);
+    this.filterChangedEmitter.fire("");
+    this.sortChangedEmitter.fire("name");
+    this.callerFilterChangedEmitter.fire("off");
+    this.flattenChangedEmitter.fire(false);
+  }
+
+  /** Toggle theme-based sub-folder grouping for a specific kind. */
+  toggleGroupByTheme(kind: SymbolKind): void {
+    if (this.themeGroupedKinds.has(kind)) this.themeGroupedKinds.delete(kind);
+    else this.themeGroupedKinds.add(kind);
+    // Invalidate the partition cache for this kind so it rebuilds with the new key.
+    this.byKindAndPrefix.delete(kind);
+    this.emitter.fire(undefined);
+  }
+
   /** Cycle caller-count quick filter: off → withCallers (≥1) → noCallers (=0) → off → … */
   cycleCallerFilter(): void {
     this.callerCountFilter =
@@ -172,6 +209,12 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     return this.graph?.callers(s.id).length ?? 0;
   }
 
+  /** Bucket key for a symbol — theme if its kind is theme-grouped, else the name prefix. */
+  private groupKeyFor(s: SymbolRecord): string | undefined {
+    if (this.themeGroupedKinds.has(s.kind)) return s.constantTheme;
+    return prefixFor(s.name);
+  }
+
   /** Sort a list of symbols according to the current sort mode. */
   private sortItems(items: SymbolRecord[]): SymbolRecord[] {
     if (this.sortMode === "callersDesc" || this.sortMode === "callersAsc") {
@@ -195,12 +238,16 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
 
   getTreeItem(node: Node): vscode.TreeItem {
     if (isGroup(node)) {
-      const item = new vscode.TreeItem(`${node.group.label} (${node.count})`, vscode.TreeItemCollapsibleState.Collapsed);
+      const themed = this.themeGroupedKinds.has(node.group.kind);
+      const labelSuffix = themed ? " · by theme" : "";
+      const item = new vscode.TreeItem(`${node.group.label} (${node.count})${labelSuffix}`, vscode.TreeItemCollapsibleState.Collapsed);
       // Stable id so VS Code preserves expansion state across tree refreshes
       // (filter typing, sort changes, etc.).
-      item.id = `group:${node.group.kind}`;
+      item.id = `group:${node.group.kind}${themed ? ":theme" : ""}`;
       item.iconPath = new vscode.ThemeIcon("folder");
-      item.contextValue = "callchain.folder.group";
+      // Encode kind so per-kind context menus (Group by theme on Constants only)
+      // can match via the `when` clause.
+      item.contextValue = `callchain.folder.group.${node.group.kind}`;
       return item;
     }
     if (isPrefix(node)) {
@@ -214,9 +261,9 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     }
     const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.None);
     // Inherit bumps from both the symbol's kind group and its prefix folder.
-    const prefix = prefixFor(node.name);
+    const groupKey = this.groupKeyFor(node);
     const scopes = [`group:${node.kind}`];
-    if (prefix) scopes.push(`prefix:${node.kind}:${prefix}`);
+    if (groupKey) scopes.push(`prefix:${node.kind}:${groupKey}`);
     item.id = `sym:${node.id}${this.bumpSuffixFor(...scopes)}`;
     const baseDesc = descriptionFor(node);
     const callers = this.callerCount(node);
@@ -266,7 +313,7 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
       // Bypass the cached prefix map when filtering — caches are built off
       // the unfiltered set. Rebuild on the fly from the filter-matching items.
       const items = this.itemsForKind(node.symbolKind).filter((s) => this.matches(s));
-      const list = items.filter((s) => prefixFor(s.name) === node.prefix);
+      const list = items.filter((s) => this.groupKeyFor(s) === node.prefix);
       return this.sortItems(list);
     }
     return [];
@@ -288,15 +335,19 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
    * Build prefix → symbols map for a kind. Caches the unfiltered partition so
    * repeated expansion of the same group stays O(1); recomputes on the fly
    * when a filter is active (items already filtered upstream).
+   *
+   * When the kind is in `themeGroupedKinds`, the bucket key is the symbol's
+   * `constantTheme` instead of the name prefix.
    */
   private partitionByPrefix(kind: SymbolKind, items: SymbolRecord[]): Node[] {
     const filterActive = this.filterQuery.length > 0;
+    const byTheme = this.themeGroupedKinds.has(kind);
     let buckets = filterActive ? undefined : this.byKindAndPrefix.get(kind);
     if (!buckets) {
       buckets = new Map<string, SymbolRecord[]>();
       const orphans: SymbolRecord[] = [];
       for (const s of items) {
-        const p = prefixFor(s.name);
+        const p = byTheme ? s.constantTheme : prefixFor(s.name);
         if (p) {
           let arr = buckets.get(p);
           if (!arr) { arr = []; buckets.set(p, arr); }

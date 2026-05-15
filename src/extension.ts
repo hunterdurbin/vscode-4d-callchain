@@ -319,6 +319,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("callchain.toggleSymbolsSort", () => search.cycleSort()),
     vscode.commands.registerCommand("callchain.toggleCallerFilter", () => search.cycleCallerFilter()),
     vscode.commands.registerCommand("callchain.toggleFlattenSymbols", () => search.toggleFlatten()),
+    vscode.commands.registerCommand("callchain.contextGroupByTheme", (node: any) => {
+      if (node && node.kind === "group" && node.group?.kind) {
+        search.toggleGroupByTheme(node.group.kind);
+      }
+    }),
+    vscode.commands.registerCommand("callchain.resetSymbols", () => {
+      search.resetAll();
+      // resetAll fires filter/sort/caller-filter events; the existing
+      // listeners re-sync context keys + badge.
+    }),
     vscode.commands.registerCommand("callchain.collapseSubtree", (node: any) => {
       if (!node) return;
       // Folder nodes (groups + prefixes) only exist in the Symbols view.

@@ -140,6 +140,15 @@
         "title": "Collapse sub-folders"
       },
       {
+        "command": "callchain.contextGroupByTheme",
+        "title": "Group by theme / Group by name (toggle)"
+      },
+      {
+        "command": "callchain.resetSymbols",
+        "title": "Reset filters & sorting",
+        "icon": "$(discard)"
+      },
+      {
         "command": "callchain.filterCallers",
         "title": "Filter Callers…",
         "icon": "$(filter)"
@@ -263,6 +272,11 @@
           "command": "callchain.toggleFlattenSymbols",
           "when": "view == callchain.search",
           "group": "navigation@3"
+        },
+        {
+          "command": "callchain.resetSymbols",
+          "when": "view == callchain.search",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -305,6 +319,11 @@
           "command": "callchain.collapseSubtree",
           "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.(symbol|folder)/",
           "group": "collapse@1"
+        },
+        {
+          "command": "callchain.contextGroupByTheme",
+          "when": "view == callchain.search && (viewItem == callchain.folder.group.Constant || viewItem == callchain.folder.group.BuiltinConstant)",
+          "group": "view@1"
         }
       ]
     },
