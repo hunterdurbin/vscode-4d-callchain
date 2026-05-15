@@ -9,6 +9,7 @@ const { discoverFiles, discoverPlugins, discoverCatalogTables } = require("../ou
 const { parseFile } = require("../out/indexer/fileParser");
 const { buildSymbolIndex } = require("../out/indexer/nameResolver");
 const { discoverConstants, discoverBuiltinConstants, DEFAULT_BUILTIN_CONSTANTS_PROBES } = require("../out/indexer/constantsScanner");
+const { discoverVariables } = require("../out/indexer/variableScanner");
 
 const projectRoot = process.argv[2] || "/Users/hunterdurbin/src/4d/symphony";
 console.log(`Smoke-testing against ${projectRoot}`);
@@ -36,7 +37,9 @@ console.log(`Discovered ${plugins.length} plugins`);
 const catalogTables = discoverCatalogTables(projectRoot);
 console.log(`Discovered ${catalogTables.size} catalog tables`);
 
-const idx = buildSymbolIndex(projectRoot, parsed, plugins, catalogTables, constants, builtinConstants);
+const variables = discoverVariables(projectRoot);
+console.log(`Discovered ${variables.length} process/interprocess variables`);
+const idx = buildSymbolIndex(projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables);
 const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 console.log(`\nBuilt index in ${elapsed}s`);
 console.log(`  Total symbols: ${idx.symbols.length}`);
@@ -202,6 +205,15 @@ if (april) {
   });
   assert("`[Goals]April` field access NOT counted as April ref", !goalsBSave);
 }
+
+// ----- Process / Interprocess variables -----
+console.log(`\nVariables:`);
+const ipVars = idx.symbols.filter((s) => s.kind === "InterprocessVariable");
+const procVars = idx.symbols.filter((s) => s.kind === "ProcessVariable");
+assert("≥100 interprocess variables indexed", ipVars.length >= 100, `${ipVars.length}`);
+assert("≥10 process variables indexed", procVars.length >= 10, `${procVars.length}`);
+const alpAlph = idx.symbols.find((s) => s.kind === "InterprocessVariable" && s.name === "aALPAlph1");
+assert("<>aALPAlph1 indexed (compiler file decl)", !!alpAlph, alpAlph ? `type=${alpAlph.variableType}` : undefined);
 
 // ===== Summary =====
 console.log(`\n${"=".repeat(40)}`);

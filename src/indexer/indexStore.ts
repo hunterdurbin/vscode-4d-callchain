@@ -5,6 +5,7 @@ import { INDEX_VERSION, SymbolIndex } from "../model/symbol";
 import { CallGraph } from "../model/callGraph";
 import { discoverCatalogTables, discoverFiles, discoverPlugins } from "./projectScanner";
 import { DEFAULT_BUILTIN_CONSTANTS_PROBES, discoverBuiltinConstants, discoverConstants } from "./constantsScanner";
+import { discoverVariables } from "./variableScanner";
 import { parseFile } from "./fileParser";
 import { buildSymbolIndex } from "./nameResolver";
 
@@ -89,7 +90,10 @@ export class Indexer {
     const catalogTables = discoverCatalogTables(this.opts.projectRoot);
     this.opts.output.appendLine(`[Indexer] Discovered ${catalogTables.size} catalog tables`);
 
-    const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants, builtinConstants);
+    const variables = discoverVariables(this.opts.projectRoot);
+    this.opts.output.appendLine(`[Indexer] Discovered ${variables.length} process/interprocess variables`);
+
+    const idx = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables);
     idx.fileMtimes = mtimes;
 
     this.currentIndex = idx;

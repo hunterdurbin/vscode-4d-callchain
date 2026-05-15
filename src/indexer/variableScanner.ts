@@ -1,0 +1,174 @@
+import * as fs from "fs";
+import * as path from "path";
+
+export type VariableScope = "process" | "interprocess";
+
+export interface DiscoveredVariable {
+  name: string;
+  scope: VariableScope;
+  /** Friendly type label like "Text", "Longint", "Text array". */
+  type?: string;
+  sourceFile: string;
+  /** Zero-based line index of the declaration. */
+  line: number;
+}
+
+const TYPE_NAMES_C: Record<string, string> = {
+  C_TEXT: "Text",
+  C_LONGINT: "Longint",
+  C_INTEGER: "Integer",
+  C_REAL: "Real",
+  C_BOOLEAN: "Boolean",
+  C_DATE: "Date",
+  C_TIME: "Time",
+  C_OBJECT: "Object",
+  C_COLLECTION: "Collection",
+  C_POINTER: "Pointer",
+  C_PICTURE: "Picture",
+  C_BLOB: "Blob",
+  C_VARIANT: "Variant"
+};
+
+const ARRAY_TYPE_SUFFIX: Record<string, string> = {
+  TEXT: "Text array",
+  LONGINT: "Longint array",
+  INTEGER: "Integer array",
+  REAL: "Real array",
+  BOOLEAN: "Boolean array",
+  DATE: "Date array",
+  TIME: "Time array",
+  OBJECT: "Object array",
+  POINTER: "Pointer array",
+  PICTURE: "Picture array",
+  BLOB: "Blob array",
+  COLLECTION: "Collection array"
+};
+
+const RE_C_SINGLE   = /^(C_[A-Z]+)\(\s*(<>)?([A-Za-z_][\w_]*)\s*\)$/;
+const RE_ARRAY_DECL = /^ARRAY\s+([A-Z]+)\s*\(\s*(<>)?([A-Za-z_][\w_]*)\s*[;)]/;
+const RE_VAR_IP     = /^var\s+<>([A-Za-z_][\w_]*)\s*(?::\s*([\w.]+))?/;
+const RE_VAR_PROC   = /^var\s+([A-Za-z_][\w_]*)\s*(?::\s*([\w.]+))?/;
+
+/**
+ * Walk Methods/ and DatabaseMethods/ for legacy + modern process /
+ * interprocess variable declarations.
+ *
+ * Patterns matched (after stripping `//` comments and leading whitespace):
+ *   C_TEXT(name)              → process Text
+ *   C_TEXT(<>name)            → interprocess Text
+ *   C_TEXT(method; $1)        → SKIPPED (parameter typing for `method`)
+ *   ARRAY TEXT(name; 0)       → process Text array
+ *   ARRAY TEXT(<>name; 0)     → interprocess Text array
+ *   var <>name : Text         → interprocess Text
+ *   var name : Text           → process Text  (only when name has no `$` prefix)
+ *
+ * First occurrence wins; duplicates within or across files are deduped by
+ * `<scope>:<name>` key.
+ */
+export function discoverVariables(projectRoot: string): DiscoveredVariable[] {
+  const sourcesRoot = path.join(projectRoot, "Project", "Sources");
+  if (!fs.existsSync(sourcesRoot)) return [];
+
+  const seen = new Map<string, DiscoveredVariable>();
+  const record = (
+    name: string,
+    scope: VariableScope,
+    type: string | undefined,
+    sourceFile: string,
+    line: number
+  ) => {
+    const key = `${scope}:${name}`;
+    if (seen.has(key)) return;
+    seen.set(key, { name, scope, type, sourceFile, line });
+  };
+
+  const dirs = [
+    path.join(sourcesRoot, "Methods"),
+    path.join(sourcesRoot, "DatabaseMethods")
+  ];
+  for (const dir of dirs) {
+    walkDir(dir, (filePath) => {
+      if (!filePath.endsWith(".4dm")) return;
+      scanFile(filePath, record);
+    });
+  }
+  return [...seen.values()];
+}
+
+function scanFile(
+  filePath: string,
+  record: (n: string, s: VariableScope, t: string | undefined, f: string, line: number) => void
+): void {
+  let source: string;
+  try { source = fs.readFileSync(filePath, "utf8"); } catch { return; }
+  const lines = source.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    // Strip trailing `//` comment and leading/trailing whitespace.
+    const cleaned = raw.replace(/\/\/.*$/, "").trim();
+    if (!cleaned) continue;
+
+    // C_TYPE(name) — single bare/<> argument. Multi-arg forms like
+    // `C_TEXT(MyMethod; $1)` are parameter declarations; the single-arg
+    // regex won't match them, so they're naturally skipped.
+    let m = cleaned.match(RE_C_SINGLE);
+    if (m) {
+      const ctor = m[1];
+      const isIp = !!m[2];
+      const name = m[3];
+      const type = TYPE_NAMES_C[ctor] ?? ctor.replace(/^C_/, "");
+      record(name, isIp ? "interprocess" : "process", type, filePath, i);
+      continue;
+    }
+
+    // ARRAY TYPE(name; ...) or ARRAY TYPE(<>name; ...)
+    m = cleaned.match(RE_ARRAY_DECL);
+    if (m) {
+      const arrType = m[1];
+      const isIp = !!m[2];
+      const name = m[3];
+      const type = ARRAY_TYPE_SUFFIX[arrType] ?? `${arrType} array`;
+      record(name, isIp ? "interprocess" : "process", type, filePath, i);
+      continue;
+    }
+
+    // Modern `var <>name : Type` syntax.
+    m = cleaned.match(RE_VAR_IP);
+    if (m) {
+      record(m[1], "interprocess", m[2], filePath, i);
+      continue;
+    }
+
+    // `var name : Type` — process variable. Skip when name starts with `$`
+    // (handled by the leading char being captured already) or when it's a
+    // reserved keyword.
+    m = cleaned.match(RE_VAR_PROC);
+    if (m) {
+      const name = m[1];
+      if (RESERVED.has(name)) continue;
+      record(name, "process", m[2], filePath, i);
+      continue;
+    }
+  }
+}
+
+const RESERVED = new Set<string>([
+  "If","Else","End","For","While","Repeat","Until","Case","Begin","Use",
+  "Function","Class","Try","Catch","Throw","Return","True","False","Null",
+  "This","Super","cs","ds"
+]);
+
+function walkDir(dir: string, visit: (filePath: string) => void): void {
+  if (!fs.existsSync(dir)) return;
+  const stack = [dir];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(cur, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      const p = path.join(cur, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else visit(p);
+    }
+  }
+}

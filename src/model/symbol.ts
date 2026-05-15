@@ -15,6 +15,8 @@ export enum SymbolKind {
   Builtin = "Builtin",
   Constant = "Constant",
   BuiltinConstant = "BuiltinConstant",
+  ProcessVariable = "ProcessVariable",
+  InterprocessVariable = "InterprocessVariable",
   Unresolved = "Unresolved"
 }
 
@@ -59,6 +61,8 @@ export interface SymbolRecord {
   constantType?: string;
   /** For Constant symbols: 4D theme/group name if known. */
   constantTheme?: string;
+  /** For ProcessVariable / InterprocessVariable symbols: friendly type label. */
+  variableType?: string;
 }
 
 export interface RawCallSite {
@@ -114,7 +118,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 10;
+export const INDEX_VERSION = 11;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

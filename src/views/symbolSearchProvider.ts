@@ -37,6 +37,8 @@ const ORDER: SymbolKind[] = [
   SymbolKind.TableFormMethod,
   SymbolKind.TableObjectMethod,
   SymbolKind.CompilerMethod,
+  SymbolKind.InterprocessVariable,
+  SymbolKind.ProcessVariable,
   SymbolKind.Constant,
   SymbolKind.BuiltinConstant,
   SymbolKind.Plugin,

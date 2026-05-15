@@ -19,6 +19,8 @@ export function iconFor(s: SymbolRecord): vscode.ThemeIcon {
     case SymbolKind.Builtin:          return new vscode.ThemeIcon("symbol-keyword");
     case SymbolKind.Constant:         return new vscode.ThemeIcon("symbol-constant");
     case SymbolKind.BuiltinConstant:  return new vscode.ThemeIcon("symbol-numeric");
+    case SymbolKind.ProcessVariable:  return new vscode.ThemeIcon("symbol-variable");
+    case SymbolKind.InterprocessVariable: return new vscode.ThemeIcon("symbol-variable");
     case SymbolKind.Unresolved:       return new vscode.ThemeIcon("question");
     default:                          return new vscode.ThemeIcon("symbol-misc");
   }
@@ -40,6 +42,11 @@ export function descriptionFor(s: SymbolRecord): string {
     if (valueStr) return `= ${valueStr}`;
     if (theme) return theme;
     return "Builtin constant";
+  }
+  if (s.kind === SymbolKind.ProcessVariable || s.kind === SymbolKind.InterprocessVariable) {
+    const prefix = s.kind === SymbolKind.InterprocessVariable ? "<> · " : "";
+    if (s.variableType) return `${prefix}${s.variableType}`;
+    return s.kind === SymbolKind.InterprocessVariable ? "Interprocess" : "Process";
   }
   const suffix =
     s.kind === SymbolKind.ClassGetter ? " · get" :

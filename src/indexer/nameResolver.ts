@@ -437,7 +437,8 @@ export function buildSymbolIndex(
   plugins: { name: string; absolutePath: string }[],
   catalogTables: Set<string> = new Set(),
   constants: { name: string; value?: string; type?: string; theme?: string; sourceFile: string }[] = [],
-  builtinConstants: { name: string; value?: string; theme?: string; sourceFile: string }[] = []
+  builtinConstants: { name: string; value?: string; theme?: string; sourceFile: string }[] = [],
+  variables: { name: string; scope: "process" | "interprocess"; type?: string; sourceFile: string; line: number }[] = []
 ): SymbolIndex {
   const allSymbols: SymbolRecord[] = [];
   for (const f of parsedFiles) {
@@ -467,6 +468,24 @@ export function buildSymbolIndex(
       constantValue: c.value,
       constantType: c.type,
       constantTheme: c.theme
+    });
+  }
+
+  // Process + interprocess variables harvested from C_TYPE / ARRAY TYPE /
+  // `var` declarations across Methods/ and DatabaseMethods/. No edges — they
+  // populate the Symbols view so the user can browse the project's globals.
+  const seenVariables = new Set<string>();
+  for (const v of variables) {
+    const kind = v.scope === "interprocess" ? SymbolKind.InterprocessVariable : SymbolKind.ProcessVariable;
+    const id = symbolIdFor(kind, v.name);
+    if (seenVariables.has(id)) continue;
+    seenVariables.add(id);
+    allSymbols.push({
+      id,
+      name: v.name,
+      kind,
+      location: { uri: "file://" + v.sourceFile, line: v.line },
+      variableType: v.type
     });
   }
 
