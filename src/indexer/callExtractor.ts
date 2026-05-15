@@ -11,10 +11,16 @@ const RE_PROCESS_4D_TAGS = /\bProcess\s+4D\s+tags\s*\(/i;
 // Form-opening commands take a form name as a string argument. cleanLine
 // replaces string literals with `"\x01N\x01"` sentinels — the same convention
 // the CALL WORKER / EXECUTE METHOD patterns above rely on.
-const RE_OPEN_FORM_WINDOW = /\bOpen\s+form\s+window\s*\(\s*"\x01(\d+)\x01"/i;
-const RE_DIALOG_FORM      = /\bDIALOG\s*\(\s*"\x01(\d+)\x01"/i;
-const RE_FORM_LOAD        = /\bFORM\s+LOAD\s*\(\s*"\x01(\d+)\x01"/i;
-const RE_PRINT_FORM       = /\bPrint\s+form\s*\(\s*"\x01(\d+)\x01"/i;
+//
+// Several commands accept an optional `[TableName]` argument before the form
+// name, e.g. `DIALOG([Invoices]; "Commissions_Admin"; $formData)`. The
+// non-capturing group `(?:\[[^\]]+\]\s*;\s*)?` swallows it when present.
+const RE_OPEN_FORM_WINDOW   = /\bOpen\s+form\s+window\s*\(\s*"\x01(\d+)\x01"/i;
+const RE_DIALOG_FORM        = /\bDIALOG\s*\(\s*(?:\[[^\]]+\]\s*;\s*)?"\x01(\d+)\x01"/i;
+const RE_FORM_LOAD          = /\bFORM\s+LOAD\s*\(\s*(?:\[[^\]]+\]\s*;\s*)?"\x01(\d+)\x01"/i;
+const RE_PRINT_FORM         = /\bPrint\s+form\s*\(\s*(?:\[[^\]]+\]\s*;\s*)?"\x01(\d+)\x01"/i;
+const RE_MODIFY_SELECTION   = /\bMODIFY\s+SELECTION\s*\(\s*\[[^\]]+\]\s*;\s*"\x01(\d+)\x01"/i;
+const RE_DISPLAY_SELECTION  = /\bDISPLAY\s+SELECTION\s*\(\s*\[[^\]]+\]\s*;\s*"\x01(\d+)\x01"/i;
 
 // Static identifier-based patterns
 const RE_CS_NEW   = /\bcs\.([\w_]+)\.new\s*\(/g;
@@ -59,9 +65,11 @@ const RESERVED = new Set<string>([
   "ARRAY","ARRAY TEXT","ARRAY LONGINT","ARRAY REAL","ARRAY OBJECT",
   "OB","SET","GET",
   "CREATE","SAVE","DELETE","UNLOAD","LOAD","READ","WRITE","QUERY",
-  "ORDER","SELECT","SHOW","HIDE","COPY","MOVE","TRACE","ALERT",
-  "CONFIRM","REQUEST","BEEP","PAUSE","ABORT","DIALOG","Choose",
-  "Sum","Min","Max","Count","Average",
+  "ORDER","SELECT","SHOW","HIDE","COPY","MOVE","TRACE",
+  // ALERT, CONFIRM, REQUEST, BEEP, PAUSE, ABORT, DIALOG, Choose, Sum, Min,
+  // Max, Count, Average are all real 4D builtins. They must flow through
+  // the bare-name path so the resolver maps them to Builtin symbols and
+  // produces caller edges. Don't add them here.
   // Form constants commonly called like functions in some legacy code:
   "Form","FORM"
 ]);
@@ -124,6 +132,14 @@ export function extractCallSitesFromLine(
     if (formName) push({ kind: "FormRef", formName }, m[0]);
   }
   if ((m = line.match(RE_PRINT_FORM))) {
+    const formName = strings[Number(m[1])];
+    if (formName) push({ kind: "FormRef", formName }, m[0]);
+  }
+  if ((m = line.match(RE_MODIFY_SELECTION))) {
+    const formName = strings[Number(m[1])];
+    if (formName) push({ kind: "FormRef", formName }, m[0]);
+  }
+  if ((m = line.match(RE_DISPLAY_SELECTION))) {
     const formName = strings[Number(m[1])];
     if (formName) push({ kind: "FormRef", formName }, m[0]);
   }
