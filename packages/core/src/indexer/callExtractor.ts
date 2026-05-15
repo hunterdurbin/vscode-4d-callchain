@@ -50,6 +50,8 @@ const RE_VAR_CALL = /\$([\w_]+)\.([\w_]+)\s*\(/g;
 // At least one intermediate property; the first capture is the variable, the
 // second is the dotted path (`.prop1.prop2`), the third is the terminating method.
 const RE_VAR_CHAIN_CALL = /\$([\w_]+)((?:\.[\w_]+){1,})\.([\w_]+)\s*\(/g;
+// `This.prop1.prop2.method(` — analogous chain starting from the current class.
+const RE_THIS_CHAIN_CALL = /\bThis((?:\.[\w_]+){1,})\.([\w_]+)\s*\(/g;
 
 // --- Property-access patterns (computed getters / setters) ---
 // Assignment forms: `:=` is plain set; `+=`/`-=`/`*=`/`/=` is compound (read + write).
@@ -229,9 +231,22 @@ export function extractCallSitesFromLine(
     push({ kind: "DsBracketCall", ident: m[1], method: m[2] }, m[0]);
   }
 
+  // --- This.prop1.prop2.method(...) — chain starting from the current class.
+  // Same dance as the $var-chain case: extract first, then guard the simpler
+  // ThisCall pattern below from double-emitting.
+  const consumedThisChainSpans: Array<[number, number]> = [];
+  re = new RegExp(RE_THIS_CHAIN_CALL);
+  while ((m = re.exec(line))) {
+    const path = m[1].split(".").filter((p) => p.length > 0);
+    const method = m[2];
+    push({ kind: "ThisChainCall", path, method }, m[0]);
+    consumedThisChainSpans.push([m.index!, m.index! + m[0].length]);
+  }
+
   // --- This.method(...) ---
   re = new RegExp(RE_THIS_CALL);
   while ((m = re.exec(line))) {
+    if (consumedThisChainSpans.some(([s, e]) => m!.index! >= s && m!.index! < e)) continue;
     push({ kind: "ThisCall", method: m[1] }, m[0]);
   }
 

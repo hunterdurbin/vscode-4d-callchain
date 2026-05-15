@@ -23,12 +23,25 @@ export interface ParsedFile {
     extends?: string;
     flavor: ClassFlavor;
   };
+  /**
+   * Property/getter types for the file's class, used by the chain resolver
+   * to walk `$x.prop.method()` patterns. Keyed by property/getter name;
+   * value is the declared type string (e.g. `cs.Foo`, `cs.NS.Bar`, `Text`).
+   * Only populated for class files.
+   */
+  classPropertyTypes?: Map<string, string>;
 }
 
 const CLASS_HEADER = /^\s*Class\s+extends\s+([\w.]+)/i;
 const FUNCTION_DECL = /^\s*(local\s+|shared\s+)?Function(\s+(get|set))?\s+([\w_]+)\s*\(/i;
 const CONSTRUCTOR_DECL = /^\s*Class\s+constructor\b/i;
 const PROPERTY_DECL = /^\s*property\s+([\w_]+)/i;
+const PROPERTY_DECL_TYPED = /^\s*property\s+([\w_]+)\s*:\s*([\w.]+)/i;
+// Function decl with a return-type annotation: `Function foo(...) : Type`.
+// Captures the closing `)` + `:` so we can pull the type. Tolerates multi-line
+// signatures by extracting from the same physical line (multi-line decls are
+// uncommon for getters specifically).
+const FUNCTION_RETURN_TYPE = /\)\s*:\s*([\w.]+)/;
 const VAR_DECL = /\bvar\s+\$([\w_]+)\s*:\s*([\w.]+)/g;
 const ASSIGN_NEW = /\$([\w_]+)\s*:=\s*cs\.([\w_]+)\.new\s*\(/g;
 const ASSIGN_DS_QUERY = /\$([\w_]+)\s*:=\s*ds\.([\w_]+)\.(query|all|fromCollection|new|orderBy)/g;
@@ -60,6 +73,7 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
   const rawCalls: RawCallSite[] = [];
   const localTypes = new Map<string, Map<string, string>>();
   const localStrings = new Map<string, Map<string, string>>();
+  const classPropertyTypes = new Map<string, string>();
   let classInfo: ParsedFile["classInfo"];
 
   // ---------- Symbol creation ----------
@@ -194,6 +208,12 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
           scope: scope ?? "public",
           location: { uri: fileUri, line: i }
         };
+        // For typed getters, capture the return type as the property's type
+        // for chain resolution: `Function get foo() : cs.Bar` -> {foo -> cs.Bar}.
+        if (accessor === "get") {
+          const retMatch = rawLine.match(FUNCTION_RETURN_TYPE);
+          if (retMatch) classPropertyTypes.set(name, retMatch[1]);
+        }
         symbols.push(sym);
         currentSymbolId = sym.id;
         currentLocals = new Map();
@@ -218,7 +238,10 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
       }
       const propMatch = rawLine.match(PROPERTY_DECL);
       if (propMatch) {
-        // Properties are not callable but we record nothing extra here.
+        // Record the property's declared type for chain resolution.
+        // `property foo : cs.Bar` -> {foo -> cs.Bar}.
+        const typedMatch = rawLine.match(PROPERTY_DECL_TYPED);
+        if (typedMatch) classPropertyTypes.set(typedMatch[1], typedMatch[2]);
         continue;
       }
     }
@@ -276,7 +299,15 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
     for (const s of sites) rawCalls.push(s);
   }
 
-  return { file, symbols, rawCalls, localTypes, localStrings, classInfo };
+  return {
+    file,
+    symbols,
+    rawCalls,
+    localTypes,
+    localStrings,
+    classInfo,
+    classPropertyTypes: classPropertyTypes.size > 0 ? classPropertyTypes : undefined
+  };
 }
 
 /**

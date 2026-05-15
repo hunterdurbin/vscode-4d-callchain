@@ -98,6 +98,7 @@ export type CallHint =
   | { kind: "SuperCall"; method?: string }
   | { kind: "VarCall"; variable: string; method: string }
   | { kind: "VarChainCall"; variable: string; path: string[]; method: string }
+  | { kind: "ThisChainCall"; path: string[]; method: string }
   | { kind: "ThisGet"; property: string }
   | { kind: "ThisSet"; property: string }
   | { kind: "VarGet"; variable: string; property: string }
@@ -136,7 +137,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 18;
+export const INDEX_VERSION = 19;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

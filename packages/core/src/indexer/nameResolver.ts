@@ -18,6 +18,12 @@ export interface ResolverInput {
    * type the property holds. Used by VarChainCall to walk `$x.prop.method()`.
    */
   componentClassPropsByNs?: Map<string, Map<string, string>>;
+  /**
+   * Project class property types, keyed by lowercase class name. Each value
+   * maps a property/getter name to its declared type string (`cs.Foo`,
+   * `cs.NS.Bar`, or a primitive that won't be resolvable further).
+   */
+  projectClassPropsByName?: Map<string, Map<string, string>>;
 }
 
 export interface ResolverOutput {
@@ -200,6 +206,50 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
     const tableCls = classByName.get(tableName.toLowerCase());
     if (tableCls) return tableCls.name;
     return undefined;
+  };
+
+  /**
+   * Normalize a type string captured from a `var`/`property`/param declaration
+   * into a canonical chain-walker form:
+   *   - `cs.<NS>.<Class>` → kept as-is (component class)
+   *   - `cs.<Class>` → `<Class>` (project class)
+   *   - bare `<Class>` → `<Class>` (project class)
+   *   - everything else (`Text`, `Integer`, `Object`, `Collection`, ...) → undefined
+   */
+  const normalizeType = (type: string | undefined): string | undefined => {
+    if (!type) return undefined;
+    if (/^cs\.[\w_]+\.[\w_]+$/.test(type)) return type;
+    const csMatch = type.match(/^cs\.([\w_]+)$/);
+    if (csMatch) return classByName.has(csMatch[1].toLowerCase()) ? csMatch[1] : undefined;
+    if (classByName.has(type.toLowerCase())) return type;
+    return undefined;
+  };
+
+  /** Step one property/getter on the current type; return the next normalized type or undefined. */
+  const stepProperty = (type: string, prop: string): string | undefined => {
+    // Component class — look up in componentClassPropsByNs.
+    if (/^cs\.[\w_]+\.[\w_]+$/.test(type)) {
+      const next = input.componentClassPropsByNs?.get(type.toLowerCase())?.get(prop);
+      return next ? normalizeType(next) : undefined;
+    }
+    // Project class — walk the inheritance chain looking for the property.
+    let cur: string | undefined = type;
+    const visited = new Set<string>();
+    while (cur && !visited.has(cur.toLowerCase())) {
+      visited.add(cur.toLowerCase());
+      const next = input.projectClassPropsByName?.get(cur.toLowerCase())?.get(prop);
+      if (next) return normalizeType(next);
+      cur = classByName.get(cur.toLowerCase())?.extendsClass;
+    }
+    return undefined;
+  };
+
+  /** Resolve `<type>.<method>` to a ClassFunction symbol, or undefined. */
+  const resolveMethodOnType = (type: string, method: string): SymbolRecord | undefined => {
+    if (/^cs\.[\w_]+\.[\w_]+$/.test(type)) {
+      return classFunctions.get(`${type}.${method}`.toLowerCase());
+    }
+    return resolveOnClassChain(type, method);
   };
 
   // Variable type → class name (or undefined). Used by VarGet/VarSet/VarCall.
@@ -391,30 +441,43 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           pushEdge(findOrCreateUnresolved(`$${hint.variable}.${hint.method}`), CallKind.Dynamic, false);
           break;
         }
+        case "ThisChainCall": {
+          // Walk `This.prop1.prop2.method()` starting from the current class.
+          if (!className) {
+            pushEdge(findOrCreateUnresolved(`This.${hint.path.join(".")}.${hint.method}`), CallKind.Dynamic, false);
+            break;
+          }
+          let currentType: string | undefined = className;
+          for (const step of hint.path) {
+            if (!currentType) break;
+            currentType = stepProperty(currentType, step);
+          }
+          if (currentType) {
+            const fn = resolveMethodOnType(currentType, hint.method);
+            if (fn) {
+              pushEdge(fn.id, CallKind.Static, true);
+              break;
+            }
+          }
+          pushEdge(findOrCreateUnresolved(`This.${hint.path.join(".")}.${hint.method}`), CallKind.Dynamic, false);
+          break;
+        }
         case "VarChainCall": {
-          // Walk `$var.prop1.prop2.method()` through the component-class property
-          // map. Pass 1 only resolves chains rooted in component classes; chains
-          // through user-project classes will be handled in Pass 2.
+          // Walk `$var.prop1.prop2.method()` through component-class properties
+          // (pass 1) and/or user-class properties + typed getters (pass 2).
           const locals = localTypes.get(call.fromSymbolId);
           const startType = locals?.get(hint.variable);
-          const propsByNs = input.componentClassPropsByNs;
-          if (!startType || !propsByNs) {
+          if (!startType) {
             pushEdge(findOrCreateUnresolved(`$${hint.variable}.${hint.path.join(".")}.${hint.method}`), CallKind.Dynamic, false);
             break;
           }
-          // Start type must be `cs.<ns>.<class>` form (pass 1 limitation).
-          let currentFq = startType.match(/^cs\.[\w_]+\.[\w_]+$/) ? startType : undefined;
-          if (currentFq) {
-            for (const step of hint.path) {
-              const props = propsByNs.get(currentFq!.toLowerCase());
-              const nextFq = props?.get(step);
-              if (!nextFq) { currentFq = undefined; break; }
-              currentFq = nextFq;
-            }
+          let currentType: string | undefined = normalizeType(startType);
+          for (const step of hint.path) {
+            if (!currentType) break;
+            currentType = stepProperty(currentType, step);
           }
-          if (currentFq) {
-            const fnKey = `${currentFq}.${hint.method}`.toLowerCase();
-            const fn = classFunctions.get(fnKey);
+          if (currentType) {
+            const fn = resolveMethodOnType(currentType, hint.method);
             if (fn) {
               pushEdge(fn.id, CallKind.Static, true);
               break;
@@ -786,6 +849,20 @@ export function buildSymbolIndex(
     }
   }
 
+  // Project class property/getter types harvested from each parsed class file.
+  // Keyed by lowercase class name; the inner map carries property/getter -> type.
+  const projectClassPropsByName = new Map<string, Map<string, string>>();
+  for (const parsed of parsedFiles) {
+    if (!parsed.classInfo || !parsed.classPropertyTypes) continue;
+    const key = parsed.classInfo.name.toLowerCase();
+    const existing = projectClassPropsByName.get(key);
+    if (existing) {
+      for (const [p, t] of parsed.classPropertyTypes) existing.set(p, t);
+    } else {
+      projectClassPropsByName.set(key, new Map(parsed.classPropertyTypes));
+    }
+  }
+
   const { edges, unresolvedSymbols } = resolve(
     {
       files: parsedFiles,
@@ -796,7 +873,8 @@ export function buildSymbolIndex(
       })),
       catalogTables,
       componentByMethod,
-      componentClassPropsByNs
+      componentClassPropsByNs,
+      projectClassPropsByName
     },
     allSymbols
   );
