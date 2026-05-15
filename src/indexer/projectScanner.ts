@@ -171,6 +171,8 @@ export function discoverCatalogTables(projectRoot: string): Set<string> {
 export interface DiscoveredPlugin {
   name: string;
   absolutePath: string;
+  /** Command names exported by this plugin (parsed from manifest.json). */
+  commands: string[];
 }
 
 export function discoverPlugins(projectRoot: string): DiscoveredPlugin[] {
@@ -178,12 +180,40 @@ export function discoverPlugins(projectRoot: string): DiscoveredPlugin[] {
   if (!fs.existsSync(pluginsRoot)) return [];
   const out: DiscoveredPlugin[] = [];
   for (const entry of safeReaddir(pluginsRoot)) {
-    if (entry.endsWith(".bundle")) {
-      out.push({
-        name: entry.replace(/\.bundle$/, ""),
-        absolutePath: path.join(pluginsRoot, entry)
-      });
-    }
+    if (!entry.endsWith(".bundle")) continue;
+    const bundle = path.join(pluginsRoot, entry);
+    out.push({
+      name: entry.replace(/\.bundle$/, ""),
+      absolutePath: bundle,
+      commands: readPluginCommands(bundle)
+    });
+  }
+  return out;
+}
+
+/**
+ * Parse `<bundle>/Contents/Resources/manifest.json` for the plugin's exported
+ * commands. Each manifest entry looks like
+ *   { "theme": "IC TCP/IP", "syntax": "TCP_Open(&S;&I;&L;&I):I" }
+ * The command name is everything before the first `(`.
+ */
+function readPluginCommands(bundlePath: string): string[] {
+  const manifest = path.join(bundlePath, "Contents", "Resources", "manifest.json");
+  if (!fs.existsSync(manifest)) return [];
+  let doc: any;
+  try {
+    let raw = fs.readFileSync(manifest, "utf8");
+    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+    doc = JSON.parse(raw);
+  } catch { return []; }
+  const entries: any[] = Array.isArray(doc?.commands) ? doc.commands : [];
+  const out: string[] = [];
+  for (const e of entries) {
+    const syntax = typeof e?.syntax === "string" ? e.syntax : "";
+    if (!syntax) continue;
+    const paren = syntax.indexOf("(");
+    const name = (paren > 0 ? syntax.slice(0, paren) : syntax).trim();
+    if (name) out.push(name);
   }
   return out;
 }

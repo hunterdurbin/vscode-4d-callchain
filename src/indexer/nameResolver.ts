@@ -7,7 +7,7 @@ const PLUGIN_PREFIXES: string[] = (builtinsData as any).pluginCommandPrefixes ??
 
 export interface ResolverInput {
   files: ParsedFile[];
-  plugins: { name: string; symbolId: string }[];
+  plugins: { name: string; symbolId: string; commands?: string[] }[];
   /** Catalog table names from `Project/Sources/Catalog/Tables/*.json`. */
   catalogTables: Set<string>;
 }
@@ -55,6 +55,17 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   }
   const pluginByName = new Map<string, string>();
   for (const p of input.plugins) pluginByName.set(p.name.toLowerCase(), p.symbolId);
+  // Command name → plugin symbol id, populated from each plugin's manifest.
+  // Bare-name / multi-word matches consult this BEFORE falling back to the
+  // generic Builtin bucket so plugin commands (HTTP Get, TCP_Open, etc.)
+  // attribute callers to the actual Plugin symbol.
+  const commandToPlugin = new Map<string, string>();
+  for (const p of input.plugins) {
+    if (!p.commands) continue;
+    for (const cmd of p.commands) {
+      if (!commandToPlugin.has(cmd)) commandToPlugin.set(cmd, p.symbolId);
+    }
+  }
   // Map from constant/process-variable name → symbol id. Constants and
   // process variables share the bare-identifier syntax so they go through the
   // same resolver path; user constants take precedence on name collisions.
@@ -216,7 +227,7 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
 
       switch (hint.kind) {
         case "BareName": {
-          // Order: project method by name → builtin → unresolved
+          // Order: project method by name → plugin command → builtin → unresolved
           const matches = byName.get(hint.name.toLowerCase()) ?? [];
           const method = matches.find(
             (s) =>
@@ -225,10 +236,12 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           );
           if (method) {
             pushEdge(method.id, CallKind.Static, true);
+          } else if (commandToPlugin.has(hint.name)) {
+            pushEdge(commandToPlugin.get(hint.name)!, CallKind.Static, true);
           } else if (BUILTIN_SET.has(hint.name)) {
             pushEdge(findOrCreateBuiltin(hint.name), CallKind.Static, true);
           } else if (PLUGIN_PREFIXES.some((p) => hint.name.startsWith(p))) {
-            // Plugin-like (e.g. HTTP_Get) — classify as builtin/plugin
+            // Plugin-like name (legacy prefix heuristic) — classify as builtin
             pushEdge(findOrCreateBuiltin(hint.name), CallKind.Static, true);
           } else {
             pushEdge(findOrCreateUnresolved(hint.name), CallKind.Dynamic, false);
@@ -236,7 +249,9 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           break;
         }
         case "BuiltinChain": {
-          if (BUILTIN_SET.has(hint.name)) {
+          if (commandToPlugin.has(hint.name)) {
+            pushEdge(commandToPlugin.get(hint.name)!, CallKind.Static, true);
+          } else if (BUILTIN_SET.has(hint.name)) {
             pushEdge(findOrCreateBuiltin(hint.name), CallKind.Static, true);
           }
           break;
@@ -470,7 +485,7 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
 export function buildSymbolIndex(
   projectRoot: string,
   parsedFiles: ParsedFile[],
-  plugins: { name: string; absolutePath: string }[],
+  plugins: { name: string; absolutePath: string; commands?: string[] }[],
   catalogTables: Set<string> = new Set(),
   constants: { name: string; value?: string; type?: string; theme?: string; sourceFile: string }[] = [],
   builtinConstants: { name: string; value?: string; theme?: string; sourceFile: string }[] = [],
@@ -547,7 +562,11 @@ export function buildSymbolIndex(
   const { edges, unresolvedSymbols } = resolve(
     {
       files: parsedFiles,
-      plugins: pluginSyms.map((s) => ({ name: s.name, symbolId: s.id })),
+      plugins: pluginSyms.map((s, i) => ({
+        name: s.name,
+        symbolId: s.id,
+        commands: plugins[i]?.commands
+      })),
       catalogTables
     },
     allSymbols

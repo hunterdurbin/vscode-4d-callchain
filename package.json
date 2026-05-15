@@ -2,7 +2,7 @@
   "name": "vscode-4d-callchain",
   "displayName": "4D Call Chain Explorer",
   "description": "Explore call chains in 4D v21 projects: methods, class functions, plugins. Tree + graph views, test integration.",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "publisher": "hunterdurbin",
   "engines": {
     "vscode": "^1.85.0"
