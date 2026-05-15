@@ -8,6 +8,13 @@ const RE_EXEC_METHOD_VAR = /\bEXECUTE\s+METHOD\s*\(\s*\$([\w_]+)/i;
 const RE_EXEC_IN_SUBFORM = /\bEXECUTE\s+METHOD\s+IN\s+SUBFORM\s*\(\s*"(\d+)"\s*;\s*"(\d+)"/i;
 const RE_FORMULA_FROM_STR= /\bFormula\s+from\s+string\s*\(\s*"(\d+)"/i;
 const RE_PROCESS_4D_TAGS = /\bProcess\s+4D\s+tags\s*\(/i;
+// Form-opening commands take a form name as a string argument. cleanLine
+// replaces string literals with `"\x01N\x01"` sentinels — the same convention
+// the CALL WORKER / EXECUTE METHOD patterns above rely on.
+const RE_OPEN_FORM_WINDOW = /\bOpen\s+form\s+window\s*\(\s*"\x01(\d+)\x01"/i;
+const RE_DIALOG_FORM      = /\bDIALOG\s*\(\s*"\x01(\d+)\x01"/i;
+const RE_FORM_LOAD        = /\bFORM\s+LOAD\s*\(\s*"\x01(\d+)\x01"/i;
+const RE_PRINT_FORM       = /\bPrint\s+form\s*\(\s*"\x01(\d+)\x01"/i;
 
 // Static identifier-based patterns
 const RE_CS_NEW   = /\bcs\.([\w_]+)\.new\s*\(/g;
@@ -103,6 +110,22 @@ export function extractCallSitesFromLine(
   if ((m = line.match(RE_FORMULA_FROM_STR))) {
     const body = strings[Number(m[1])];
     if (body) push({ kind: "Formula", body }, m[0]);
+  }
+  if ((m = line.match(RE_OPEN_FORM_WINDOW))) {
+    const formName = strings[Number(m[1])];
+    if (formName) push({ kind: "FormRef", formName }, m[0]);
+  }
+  if ((m = line.match(RE_DIALOG_FORM))) {
+    const formName = strings[Number(m[1])];
+    if (formName) push({ kind: "FormRef", formName }, m[0]);
+  }
+  if ((m = line.match(RE_FORM_LOAD))) {
+    const formName = strings[Number(m[1])];
+    if (formName) push({ kind: "FormRef", formName }, m[0]);
+  }
+  if ((m = line.match(RE_PRINT_FORM))) {
+    const formName = strings[Number(m[1])];
+    if (formName) push({ kind: "FormRef", formName }, m[0]);
   }
 
   // --- cs.X.new(...) ---

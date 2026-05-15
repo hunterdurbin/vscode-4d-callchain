@@ -108,7 +108,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => coverage
   );
   context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider({ pattern: "**/*.4dm" }, lensProvider)
+    vscode.languages.registerCodeLensProvider({ pattern: "**/*.{4dm,4DForm}" }, lensProvider)
   );
 
   // Wire indexer → views

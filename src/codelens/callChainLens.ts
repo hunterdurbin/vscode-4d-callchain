@@ -19,7 +19,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
   }
 
   provideCodeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
-    if (!doc.uri.path.endsWith(".4dm")) return [];
+    if (!doc.uri.path.endsWith(".4dm") && !doc.uri.path.endsWith(".4DForm")) return [];
     const graph = this.graphGetter();
     if (!graph) return [];
 

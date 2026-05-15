@@ -77,6 +77,20 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
       interprocessByName.set(s.name, s.id);
     }
   }
+  // Project-wide Form symbols (TableForm names are scoped per table so
+  // identifying them from a bare string is ambiguous — fall back if a
+  // project-level Form matches).
+  const formsByName = new Map<string, string>();
+  for (const s of projectSymbols) {
+    if (s.kind === SymbolKind.Form && !formsByName.has(s.name)) {
+      formsByName.set(s.name, s.id);
+    }
+  }
+  for (const s of projectSymbols) {
+    if (s.kind === SymbolKind.TableForm && !formsByName.has(s.name)) {
+      formsByName.set(s.name, s.id);
+    }
+  }
 
   const findOrCreateBuiltin = (name: string): string => {
     const id = symbolIdFor(SymbolKind.Builtin, name);
@@ -417,6 +431,11 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
         }
         case "InterprocessRef": {
           const id = interprocessByName.get(hint.name);
+          if (id) pushEdge(id, CallKind.Static, true);
+          break;
+        }
+        case "FormRef": {
+          const id = formsByName.get(hint.formName);
           if (id) pushEdge(id, CallKind.Static, true);
           break;
         }

@@ -10,6 +10,8 @@ export function iconFor(s: SymbolRecord): vscode.ThemeIcon {
     case SymbolKind.ClassConstructor: return new vscode.ThemeIcon("symbol-constructor");
     case SymbolKind.ClassGetter:      return new vscode.ThemeIcon("arrow-small-right");
     case SymbolKind.ClassSetter:      return new vscode.ThemeIcon("arrow-small-left");
+    case SymbolKind.Form:
+    case SymbolKind.TableForm:        return new vscode.ThemeIcon("window");
     case SymbolKind.FormMethod:
     case SymbolKind.TableFormMethod:  return new vscode.ThemeIcon("preview");
     case SymbolKind.FormObjectMethod:

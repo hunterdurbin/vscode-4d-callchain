@@ -122,14 +122,20 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
       location: { uri: fileUri, line: 0 }
     });
   } else if (file.category === "formDefinition" || file.category === "tableFormDefinition") {
-    // .4DForm files are JSON — the dataSource/expression string values are
-    // mini 4D expressions referencing variables, class fns, etc. Attribute
-    // the edges to the matching FormMethod / TableFormMethod symbol so users
-    // see the form as a caller of the referenced symbol.
-    const ownerKind = file.category === "formDefinition" ? SymbolKind.FormMethod : SymbolKind.TableFormMethod;
-    const ownerName = `${file.containerName ?? "Form"}.method`;
-    const ownerId = symbolIdFor(ownerKind, ownerName);
-    extractFormDataSourceCalls(source, ownerId, constantsSet, rawCalls);
+    // The form file is JSON — give it its own first-class symbol so the
+    // file lights up with CodeLens / cursor-tracker / Symbols-view entries
+    // independently of its `method.4dm` companion. dataSource/expression
+    // refs are attributed to this Form symbol (NOT FormMethod).
+    const kind = file.category === "formDefinition" ? SymbolKind.Form : SymbolKind.TableForm;
+    const formName = file.containerName ?? "Form";
+    const formSym: SymbolRecord = {
+      id: symbolIdFor(kind, formName),
+      name: formName,
+      kind,
+      location: { uri: fileUri, line: 0 }
+    };
+    symbols.push(formSym);
+    extractFormDataSourceCalls(source, formSym.id, constantsSet, rawCalls);
     return { file, symbols, rawCalls, localTypes };
   }
 

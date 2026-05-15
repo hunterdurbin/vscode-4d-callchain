@@ -40,7 +40,8 @@ export class CursorTracker {
       this.emit(undefined);
       return;
     }
-    if (editor.document.languageId !== "4d" && !editor.document.uri.path.endsWith(".4dm")) {
+    const filePath = editor.document.uri.path;
+    if (editor.document.languageId !== "4d" && !filePath.endsWith(".4dm") && !filePath.endsWith(".4DForm")) {
       this.emit(undefined);
       return;
     }

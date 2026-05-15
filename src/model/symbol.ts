@@ -6,8 +6,10 @@ export enum SymbolKind {
   ClassConstructor = "ClassConstructor",
   ClassGetter = "ClassGetter",
   ClassSetter = "ClassSetter",
+  Form = "Form",
   FormMethod = "FormMethod",
   FormObjectMethod = "FormObjectMethod",
+  TableForm = "TableForm",
   TableFormMethod = "TableFormMethod",
   TableObjectMethod = "TableObjectMethod",
   DatabaseMethod = "DatabaseMethod",
@@ -93,6 +95,7 @@ export type CallHint =
   | { kind: "ConstantRef"; name: string }
   | { kind: "InterprocessRef"; name: string }
   | { kind: "ProjectMethodBare"; name: string }
+  | { kind: "FormRef"; formName: string }
   | { kind: "CallWorker"; methodName: string }
   | { kind: "NewProcess"; methodName: string }
   | { kind: "ExecuteMethodLiteral"; methodName: string }
@@ -119,7 +122,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 11;
+export const INDEX_VERSION = 12;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {
