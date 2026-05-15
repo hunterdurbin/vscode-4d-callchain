@@ -56,8 +56,16 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
   private callerCountFilter: CallerCountFilter = "off";
   /** When true, every kind group expands directly to its symbols — no prefix sub-folders. */
   private flattenPrefixes = false;
-  /** Kinds for which the sub-folders are themes (Constant.theme / BuiltinConstant.theme) rather than name prefixes. */
-  private readonly themeGroupedKinds = new Set<SymbolKind>();
+  /**
+   * Kinds for which the sub-folders are themes (Constant.theme /
+   * BuiltinConstant.theme) rather than name prefixes. Defaults include both
+   * constant kinds since their XLF themes are far more useful than prefix
+   * fragments; user can right-click → Group by theme to toggle off.
+   */
+  private readonly themeGroupedKinds = new Set<SymbolKind>([
+    SymbolKind.Constant,
+    SymbolKind.BuiltinConstant
+  ]);
   /** Bump generation per group/prefix scope so right-click "collapse" forces fresh ids on descendants. */
   private readonly collapseBumps = new Map<string, number>();
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
@@ -158,7 +166,11 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     this.sortMode = "name";
     this.callerCountFilter = "off";
     this.flattenPrefixes = false;
+    // Restore the default theme-grouping for constant kinds (matches what the
+    // user gets on a fresh tree).
     this.themeGroupedKinds.clear();
+    this.themeGroupedKinds.add(SymbolKind.Constant);
+    this.themeGroupedKinds.add(SymbolKind.BuiltinConstant);
     this.collapseBumps.clear();
     this.byKindAndPrefix.clear();
     this.emitter.fire(undefined);
