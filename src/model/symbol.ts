@@ -14,6 +14,7 @@ export enum SymbolKind {
   TableObjectMethod = "TableObjectMethod",
   DatabaseMethod = "DatabaseMethod",
   Plugin = "Plugin",
+  PluginCommand = "PluginCommand",
   Component = "Component",
   Builtin = "Builtin",
   Constant = "Constant",
@@ -66,6 +67,8 @@ export interface SymbolRecord {
   constantTheme?: string;
   /** For ProcessVariable / InterprocessVariable symbols: friendly type label. */
   variableType?: string;
+  /** For PluginCommand symbols: name of the Plugin bundle the command belongs to. */
+  ownerPlugin?: string;
 }
 
 export interface RawCallSite {
@@ -123,7 +126,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 13;
+export const INDEX_VERSION = 14;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

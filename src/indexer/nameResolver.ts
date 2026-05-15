@@ -57,15 +57,13 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   }
   const pluginByName = new Map<string, string>();
   for (const p of input.plugins) pluginByName.set(p.name.toLowerCase(), p.symbolId);
-  // Command name → plugin symbol id, populated from each plugin's manifest.
-  // Bare-name / multi-word matches consult this BEFORE falling back to the
-  // generic Builtin bucket so plugin commands (HTTP Get, TCP_Open, etc.)
-  // attribute callers to the actual Plugin symbol.
+  // Command name → PluginCommand symbol id (each command from each plugin's
+  // manifest is its own first-class symbol). Bare-name / multi-word matches
+  // consult this BEFORE the generic Builtin fallback.
   const commandToPlugin = new Map<string, string>();
-  for (const p of input.plugins) {
-    if (!p.commands) continue;
-    for (const cmd of p.commands) {
-      if (!commandToPlugin.has(cmd)) commandToPlugin.set(cmd, p.symbolId);
+  for (const s of projectSymbols) {
+    if (s.kind === SymbolKind.PluginCommand && !commandToPlugin.has(s.name)) {
+      commandToPlugin.set(s.name, s.id);
     }
   }
   // Map from constant/process-variable name → symbol id. Constants and
@@ -507,6 +505,27 @@ export function buildSymbolIndex(
     location: { uri: "file://" + p.absolutePath, line: 0 }
   }));
   for (const s of pluginSyms) allSymbols.push(s);
+
+  // PluginCommand symbols — one per command in each plugin's manifest.
+  // The resolver routes call edges to these instead of the bundle-level
+  // Plugin symbol so each command surfaces its own caller list.
+  const pluginCommandIdByName = new Map<string, string>();
+  for (let i = 0; i < plugins.length; i++) {
+    const p = plugins[i];
+    if (!p.commands) continue;
+    for (const cmd of p.commands) {
+      const id = symbolIdFor(SymbolKind.PluginCommand, cmd);
+      if (pluginCommandIdByName.has(cmd)) continue;
+      pluginCommandIdByName.set(cmd, id);
+      allSymbols.push({
+        id,
+        name: cmd,
+        kind: SymbolKind.PluginCommand,
+        location: { uri: "file://" + p.absolutePath, line: 0 },
+        ownerPlugin: p.name
+      });
+    }
+  }
 
   // Components (compiled .4dbase bundles). Each becomes one symbol whose
   // location points at the bundle folder; the resolver maps every method

@@ -44,6 +44,7 @@ const ORDER: SymbolKind[] = [
   SymbolKind.Constant,
   SymbolKind.BuiltinConstant,
   SymbolKind.Plugin,
+  SymbolKind.PluginCommand,
   SymbolKind.Component,
   SymbolKind.Builtin,
   SymbolKind.Unresolved
@@ -223,12 +224,36 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
   }
 
   private callerCount(s: SymbolRecord): number {
+    if (s.kind === SymbolKind.Plugin) {
+      // Bundle has no direct edges — aggregate caller counts of its commands.
+      return this.commandsForPlugin(s.name).reduce(
+        (n, c) => n + (this.graph?.callers(c.id).length ?? 0),
+        0
+      );
+    }
     return this.graph?.callers(s.id).length ?? 0;
+  }
+
+  /** Cached list of PluginCommand symbols belonging to a given plugin bundle. */
+  private readonly commandsByPlugin = new Map<string, SymbolRecord[]>();
+  private commandsForPlugin(pluginName: string): SymbolRecord[] {
+    let cached = this.commandsByPlugin.get(pluginName);
+    if (!cached) {
+      cached = [];
+      if (this.graph) {
+        for (const s of this.graph.allSymbols()) {
+          if (s.kind === SymbolKind.PluginCommand && s.ownerPlugin === pluginName) cached.push(s);
+        }
+      }
+      this.commandsByPlugin.set(pluginName, cached);
+    }
+    return cached;
   }
 
   /** Bucket key for a symbol — theme if its kind is theme-grouped, else the name prefix. */
   private groupKeyFor(s: SymbolRecord): string | undefined {
     if (this.themeGroupedKinds.has(s.kind)) return s.constantTheme;
+    if (s.kind === SymbolKind.PluginCommand) return s.ownerPlugin;
     return prefixFor(s.name);
   }
 
@@ -250,6 +275,7 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     this.graph = graph;
     this.byKind.clear();
     this.byKindAndPrefix.clear();
+    this.commandsByPlugin.clear();
     this.emitter.fire(undefined);
   }
 
@@ -276,7 +302,14 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
       item.contextValue = "callchain.folder.prefix";
       return item;
     }
-    const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.None);
+    // Plugin bundle entries are collapsible — expanding shows the PluginCommand
+    // children parsed from the bundle's manifest. Everything else stays a leaf.
+    const collapsible = node.kind === SymbolKind.Plugin
+      ? (this.commandsForPlugin(node.name).length > 0
+          ? vscode.TreeItemCollapsibleState.Collapsed
+          : vscode.TreeItemCollapsibleState.None)
+      : vscode.TreeItemCollapsibleState.None;
+    const item = new vscode.TreeItem(node.name, collapsible);
     // Inherit bumps from both the symbol's kind group and its prefix folder.
     const groupKey = this.groupKeyFor(node);
     const scopes = [`group:${node.kind}`];
@@ -332,6 +365,11 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
       const items = this.itemsForKind(node.symbolKind).filter((s) => this.matches(s));
       const list = items.filter((s) => this.groupKeyFor(s) === node.prefix);
       return this.sortItems(list);
+    }
+    // Plugin bundle leaf → expand to its PluginCommand children.
+    if (node.kind === SymbolKind.Plugin) {
+      const commands = this.commandsForPlugin(node.name).filter((s) => this.matches(s));
+      return this.sortItems(commands);
     }
     return [];
   }
