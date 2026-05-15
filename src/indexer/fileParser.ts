@@ -121,6 +121,16 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
       kind: SymbolKind.DatabaseMethod,
       location: { uri: fileUri, line: 0 }
     });
+  } else if (file.category === "formDefinition" || file.category === "tableFormDefinition") {
+    // .4DForm files are JSON — the dataSource/expression string values are
+    // mini 4D expressions referencing variables, class fns, etc. Attribute
+    // the edges to the matching FormMethod / TableFormMethod symbol so users
+    // see the form as a caller of the referenced symbol.
+    const ownerKind = file.category === "formDefinition" ? SymbolKind.FormMethod : SymbolKind.TableFormMethod;
+    const ownerName = `${file.containerName ?? "Form"}.method`;
+    const ownerId = symbolIdFor(ownerKind, ownerName);
+    extractFormDataSourceCalls(source, ownerId, constantsSet, rawCalls);
+    return { file, symbols, rawCalls, localTypes };
   }
 
   // ---------- Inner functions (class only) + collect call sites ----------
@@ -216,6 +226,44 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
   }
 
   return { file, symbols, rawCalls, localTypes, classInfo };
+}
+
+/**
+ * Form-definition files are JSON. The keys below carry short 4D expressions
+ * — typically a single identifier (process variable name) or a member-access
+ * chain into the form context. Walk the JSON and run the existing extractor
+ * on each value so the referenced symbols become callees of the form.
+ */
+const FORM_EXPR_KEYS = new Set([
+  "dataSource",
+  "expression",
+  "variableCalculation",
+  "columnDataSource",
+  "methodName"
+]);
+
+function extractFormDataSourceCalls(
+  source: string,
+  ownerId: string,
+  constantsSet: Set<string> | undefined,
+  rawCalls: RawCallSite[]
+): void {
+  let doc: any;
+  try { doc = JSON.parse(source); } catch { return; }
+  const visit = (node: any) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { for (const c of node) visit(c); return; }
+    for (const [key, value] of Object.entries(node)) {
+      if (typeof value === "string" && FORM_EXPR_KEYS.has(key)) {
+        const { text, strings } = cleanLine(value);
+        const sites = extractCallSitesFromLine(text, strings, ownerId, 0, constantsSet);
+        for (const s of sites) rawCalls.push(s);
+      } else if (value && typeof value === "object") {
+        visit(value);
+      }
+    }
+  };
+  visit(doc);
 }
 
 function classifyFlavor(className: string, extendsClass: string): ClassFlavor {

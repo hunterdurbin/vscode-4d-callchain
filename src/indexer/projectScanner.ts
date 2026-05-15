@@ -12,7 +12,9 @@ export interface DiscoveredFile {
     | "formObjectMethod"
     | "tableFormMethod"
     | "tableObjectMethod"
-    | "databaseMethod";
+    | "databaseMethod"
+    | "formDefinition"        // Forms/<name>/form.4DForm JSON
+    | "tableFormDefinition";  // TableForms/<id>/<name>/form.4DForm JSON
   containerName?: string;        // e.g. form name or class name
   ownerTableId?: string;
 }
@@ -65,6 +67,15 @@ export function discoverFiles(projectRoot: string, opts: ScanOptions): Discovere
           containerName: formName
         });
       }
+      const formDefFile = path.join(formDir, "form.4DForm");
+      if (fs.existsSync(formDefFile)) {
+        out.push({
+          absolutePath: formDefFile,
+          relativePath: path.relative(projectRoot, formDefFile),
+          category: "formDefinition",
+          containerName: formName
+        });
+      }
       const objMethods = path.join(formDir, "ObjectMethods");
       if (fs.existsSync(objMethods)) {
         walkDir(objMethods, opts, (p) => {
@@ -95,6 +106,16 @@ export function discoverFiles(projectRoot: string, opts: ScanOptions): Discovere
             absolutePath: methodFile,
             relativePath: path.relative(projectRoot, methodFile),
             category: "tableFormMethod",
+            containerName: formName,
+            ownerTableId: tableId
+          });
+        }
+        const formDefFile = path.join(formDir, "form.4DForm");
+        if (fs.existsSync(formDefFile)) {
+          out.push({
+            absolutePath: formDefFile,
+            relativePath: path.relative(projectRoot, formDefFile),
+            category: "tableFormDefinition",
             containerName: formName,
             ownerTableId: tableId
           });
