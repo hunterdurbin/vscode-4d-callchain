@@ -16,6 +16,7 @@ export enum SymbolKind {
   Plugin = "Plugin",
   PluginCommand = "PluginCommand",
   Component = "Component",
+  ComponentMethod = "ComponentMethod",
   Builtin = "Builtin",
   Constant = "Constant",
   BuiltinConstant = "BuiltinConstant",
@@ -69,6 +70,8 @@ export interface SymbolRecord {
   variableType?: string;
   /** For PluginCommand symbols: name of the Plugin bundle the command belongs to. */
   ownerPlugin?: string;
+  /** For ComponentMethod symbols: name of the Component bundle the method belongs to. */
+  ownerComponent?: string;
 }
 
 export interface RawCallSite {
@@ -126,7 +129,7 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 14;
+export const INDEX_VERSION = 15;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

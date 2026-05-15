@@ -20,6 +20,7 @@ export function iconFor(s: SymbolRecord): vscode.ThemeIcon {
     case SymbolKind.Plugin:           return new vscode.ThemeIcon("plug");
     case SymbolKind.PluginCommand:    return new vscode.ThemeIcon("symbol-method");
     case SymbolKind.Component:        return new vscode.ThemeIcon("package");
+    case SymbolKind.ComponentMethod:  return new vscode.ThemeIcon("symbol-method");
     case SymbolKind.Builtin:          return new vscode.ThemeIcon("symbol-keyword");
     case SymbolKind.Constant:         return new vscode.ThemeIcon("symbol-constant");
     case SymbolKind.BuiltinConstant:  return new vscode.ThemeIcon("symbol-numeric");
@@ -49,6 +50,9 @@ export function descriptionFor(s: SymbolRecord): string {
   }
   if (s.kind === SymbolKind.PluginCommand) {
     return s.ownerPlugin ? `${s.ownerPlugin}` : "Plugin command";
+  }
+  if (s.kind === SymbolKind.ComponentMethod) {
+    return s.ownerComponent ? `${s.ownerComponent}` : "Component method";
   }
   if (s.kind === SymbolKind.ProcessVariable || s.kind === SymbolKind.InterprocessVariable) {
     const prefix = s.kind === SymbolKind.InterprocessVariable ? "<> · " : "";

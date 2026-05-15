@@ -527,9 +527,10 @@ export function buildSymbolIndex(
     }
   }
 
-  // Components (compiled .4dbase bundles). Each becomes one symbol whose
-  // location points at the bundle folder; the resolver maps every method
-  // name listed in the component's methodAttributes.json back to this id.
+  // Components (compiled .4dbase bundles). Each gets a Component bundle
+  // symbol (display root) plus one ComponentMethod symbol per exposed method
+  // listed in methodAttributes.json. The resolver routes call edges to the
+  // ComponentMethod so individual methods own their own caller list.
   const componentSyms = components.map((c) => ({
     id: symbolIdFor(SymbolKind.Component, c.name),
     name: c.name,
@@ -537,6 +538,21 @@ export function buildSymbolIndex(
     location: { uri: "file://" + c.bundlePath, line: 0 }
   }));
   for (const s of componentSyms) allSymbols.push(s);
+  const componentMethodIdByName = new Map<string, string>();
+  for (const c of components) {
+    for (const m of c.methods) {
+      const id = symbolIdFor(SymbolKind.ComponentMethod, m);
+      if (componentMethodIdByName.has(m)) continue;
+      componentMethodIdByName.set(m, id);
+      allSymbols.push({
+        id,
+        name: m,
+        kind: SymbolKind.ComponentMethod,
+        location: { uri: "file://" + c.bundlePath, line: 0 },
+        ownerComponent: c.name
+      });
+    }
+  }
 
   // User-defined constants from Resources/Constants_*.xlf. Name-only symbols
   // with no edges by default — refs are tracked separately via the ConstantRef
@@ -594,16 +610,10 @@ export function buildSymbolIndex(
     });
   }
 
-  // Map each component method name → component symbol id. The resolver
-  // consults this AFTER project methods but BEFORE plugin/builtin so a
-  // bare `MyComponentMethod()` call attributes to the Component bundle.
-  const componentByMethod = new Map<string, string>();
-  for (let i = 0; i < components.length; i++) {
-    const id = componentSyms[i].id;
-    for (const m of components[i].methods) {
-      if (!componentByMethod.has(m)) componentByMethod.set(m, id);
-    }
-  }
+  // The resolver consults componentMethodIdByName AFTER project methods
+  // but BEFORE plugin/builtin — bare `MyComponentMethod()` attributes to
+  // the specific ComponentMethod (not the bundle).
+  const componentByMethod = componentMethodIdByName;
 
   const { edges, unresolvedSymbols } = resolve(
     {
