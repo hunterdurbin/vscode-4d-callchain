@@ -337,6 +337,43 @@ describe("tokenize", () => {
     findOne(toks, "builtinGlobal", 0, "$x:=".length);
   });
 
+  it("`{bCheckPaid: True}` — key is property, value is keyword", () => {
+    const toks = tokenize("{bCheckPaid: True}");
+    findOne(toks, "operator", 0, 0);                        // {
+    findOne(toks, "property", 0, 1);                        // bCheckPaid
+    findOne(toks, "operator", 0, "{bCheckPaid".length);     // :
+    findOne(toks, "keyword",  0, "{bCheckPaid: ".length);   // True
+    findOne(toks, "operator", 0, "{bCheckPaid: True".length); // }
+    expect(toks.find((t) => t.kind === "type")).toBeUndefined();
+  });
+
+  it("`{myProperty: \"value\"; myProperty2: 200.20}` — multiple keys", () => {
+    const src = '{myProperty: "value"; myProperty2: 200.20}';
+    const toks = tokenize(src);
+    findOne(toks, "property", 0, 1);                                 // myProperty
+    findOne(toks, "string",   0, "{myProperty: ".length);            // "value"
+    findOne(toks, "operator", 0, '{myProperty: "value"'.length);     // ;
+    findOne(toks, "property", 0, '{myProperty: "value"; '.length);   // myProperty2
+    findOne(toks, "number",   0, '{myProperty: "value"; myProperty2: '.length); // 200.20
+  });
+
+  it("property keys don't fire on type annotations (`var $x : Object`)", () => {
+    const toks = tokenize("var $x : Object");
+    // $x is localVar, NOT property
+    findOne(toks, "localVar", 0, 4);
+    expect(toks.find((t) => t.kind === "property")).toBeUndefined();
+    // Object stays as type
+    findOne(toks, "type", 0, "var $x : ".length);
+  });
+
+  it("property-key separator doesn't open a type slot", () => {
+    const toks = tokenize("{key: cs.Foo}");
+    findOne(toks, "property",      0, 1);
+    findOne(toks, "builtinGlobal", 0, "{key: ".length);
+    findOne(toks, "property",      0, "{key: cs.".length);
+    expect(toks.find((t) => t.kind === "type")).toBeUndefined();
+  });
+
   it("parens and braces emit operator tokens", () => {
     const toks = tokenize("foo({1; 2})");
     findOne(toks, "operator", 0, 3);  // (

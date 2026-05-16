@@ -147,6 +147,10 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
     // operator/punctuation other than `.` or `:`) is consumed.
     let expectingType = false;
     let expectingProperty = false;
+    // Set when the identifier branch tags an object-literal property key
+    // (`{bCheckPaid: ...}`). Tells the next `:` to behave as a separator
+    // instead of opening a type-annotation context.
+    let propertyKeyColonPending = false;
 
     if (inBlockComment) {
       const end = line.indexOf("*/");
@@ -185,8 +189,21 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
         if (next === "=") {
           expectingType = false;
           expectingProperty = false;
+          propertyKeyColonPending = false;
           out.push({ line: lineIdx, startChar: i, length: 2, kind: "operator" });
           i += 2;
+          continue;
+        }
+        // Object-literal separator (`{key: value}`) — emit the colon but do
+        // NOT open a type-annotation context. The flag is set by the
+        // identifier branch when it tags the preceding identifier as a
+        // property key.
+        if (propertyKeyColonPending) {
+          propertyKeyColonPending = false;
+          expectingType = false;
+          expectingProperty = false;
+          out.push({ line: lineIdx, startChar: i, length: 1, kind: "operator" });
+          i++;
           continue;
         }
         expectingType = true;
@@ -466,7 +483,24 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
 
         if (SINGLE_WORD_KEYWORDS.has(word)) {
           out.push({ line: lineIdx, startChar: i, length: j - i, kind: "keyword" });
-        } else if (processVariables && processVariables.has(word)) {
+          i = j;
+          continue;
+        }
+
+        // Object-literal property key: bare identifier immediately followed
+        // by `:` (and not `:=` / `::`). Example: `{bCheckPaid: True}` — both
+        // `bCheckPaid` and a subsequent `myProperty2` in
+        // `{myProperty: "value"; myProperty2: 200.20}` are property names.
+        // Wins over `processVar` so a process variable named like a key
+        // still colors as property in this slot.
+        if (isPropertyKeyColon(line, j)) {
+          propertyKeyColonPending = true;
+          out.push({ line: lineIdx, startChar: i, length: j - i, kind: "property" });
+          i = j;
+          continue;
+        }
+
+        if (processVariables && processVariables.has(word)) {
           out.push({ line: lineIdx, startChar: i, length: j - i, kind: "processVar" });
         } else {
           out.push({ line: lineIdx, startChar: i, length: j - i, kind: "identifier" });
@@ -493,6 +527,21 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
   }
 
   return out;
+}
+
+/**
+ * Look ahead from `j` (end of an identifier) and decide whether the next
+ * non-whitespace char is `:` acting as an object-literal property separator.
+ * Excludes `:=` (assignment) and `::` (rare; not really 4D syntax but cheap
+ * to guard against).
+ */
+function isPropertyKeyColon(line: string, j: number): boolean {
+  let k = j;
+  while (k < line.length && (line[k] === " " || line[k] === "\t")) k++;
+  if (line[k] !== ":") return false;
+  if (line[k + 1] === "=") return false;
+  if (line[k + 1] === ":") return false;
+  return true;
 }
 
 /**

@@ -13,6 +13,7 @@
     { "include": "#local-vars" },
     { "include": "#interprocess-vars" },
     { "include": "#table-field" },
+    { "include": "#property-key" },
     { "include": "#directives" },
     { "include": "#control-keywords" },
     { "include": "#declaration-keywords" },
@@ -110,6 +111,12 @@
           }
         }
       ]
+    },
+    "property-key": {
+      "match": "([A-Za-z_][\\w]*)[ \\t]*(?=:(?![=:]))",
+      "captures": {
+        "1": { "name": "variable.other.member.property.4d" }
+      }
     },
     "directives": {
       "match": "^[ \\t]*(#(?:DECLARE|PROJECT[ \\t]+METHOD|PROPERTIES))\\b",
