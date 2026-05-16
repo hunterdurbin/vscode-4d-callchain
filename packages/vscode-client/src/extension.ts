@@ -2,6 +2,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { Indexer, SymbolKind } from "@4d/core";
 import type { SymbolRecord } from "@4d/core";
+import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from "vscode-languageclient/node";
 import { CallTreeProvider } from "./views/callTreeProvider";
 import { SymbolSearchProvider } from "./views/symbolSearchProvider";
 import { CursorTracker } from "./views/cursorTracker";
@@ -11,6 +12,8 @@ import { delegateToScottHarris, isScottHarrisInstalled, runTests } from "./testi
 import { TestResultsWatcher } from "./testing/resultsWatcher";
 import { CoverageReport, computeCoverage } from "./testing/coverage";
 import { CallChainLensProvider } from "./codelens/callChainLens";
+
+let ideClient: LanguageClient | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel("4D Call Chain");
@@ -379,10 +382,66 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (vscode.workspace.getConfiguration("callchain").get<boolean>("autoIndexOnStartup", true)) {
     indexer.load().catch((err) => output.appendLine(`[Indexer] failed: ${err}`));
   }
+
+  // Spawn the IDE-features LSP server (hover today; completion / diagnostics
+  // / semanticTokens later). Runs in its own process and indexes the same
+  // workspace independently, sharing the on-disk cache file written by the
+  // in-process call-chain indexer above.
+  try {
+    ideClient = startIdeServer(context, output, exclusions, builtinConstantsPaths);
+    context.subscriptions.push({ dispose: () => { void ideClient?.stop(); } });
+  } catch (err) {
+    output.appendLine(`[IDE] Failed to start ide-server: ${err}`);
+  }
 }
 
-export function deactivate(): void {
-  // Nothing — disposables registered with context.subscriptions are auto-disposed.
+export async function deactivate(): Promise<void> {
+  if (ideClient) {
+    await ideClient.stop();
+    ideClient = undefined;
+  }
+}
+
+/**
+ * Bootstrap the @4d/ide-server LSP client. The server bin resolves through
+ * the workspace symlink — `require.resolve('@4d/ide-server/dist/bin.js')`
+ * gives us the absolute path regardless of how the extension was packaged.
+ */
+function startIdeServer(
+  context: vscode.ExtensionContext,
+  output: vscode.OutputChannel,
+  exclusions: string[],
+  builtinConstantsPaths: string[]
+): LanguageClient {
+  const serverModule = require.resolve("@4d/ide-server/dist/bin.js");
+  output.appendLine(`[IDE] Spawning ide-server at ${serverModule}`);
+
+  const serverOptions: ServerOptions = {
+    run: { module: serverModule, transport: TransportKind.ipc },
+    debug: {
+      module: serverModule,
+      transport: TransportKind.ipc,
+      options: { execArgv: ["--nolazy", "--inspect=6010"] }
+    }
+  };
+
+  const clientOptions: LanguageClientOptions = {
+    documentSelector: [{ language: "4d" }, { pattern: "**/*.4dm" }],
+    initializationOptions: { exclusions, builtinConstantsPaths },
+    synchronize: {
+      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.4dm")
+    },
+    outputChannel: output
+  };
+
+  const client = new LanguageClient(
+    "4dIdeServer",
+    "4D IDE Server",
+    serverOptions,
+    clientOptions
+  );
+  void client.start();
+  return client;
 }
 
 function resolveProjectRoot(): string | undefined {
