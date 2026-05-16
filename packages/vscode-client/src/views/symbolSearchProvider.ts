@@ -55,6 +55,13 @@ const KIND_LABELS: Partial<Record<SymbolKind, string>> = {
   [SymbolKind.TableBuiltin]: "Table Builtin"
 };
 
+/** Kinds that should bucket flat-folder children by their owner field. */
+const OWNER_GROUPED_KINDS = new Set<SymbolKind>([
+  SymbolKind.PluginCommand,
+  SymbolKind.ComponentMethod,
+  SymbolKind.TableBuiltin
+]);
+
 /** Groups above this size are sub-divided by prefix. Smaller groups stay flat. */
 const SUBGROUP_THRESHOLD = 100;
 
@@ -508,11 +515,11 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
   private partitionByPrefix(kind: SymbolKind, items: SymbolRecord[]): Node[] {
     const filterActive = this.filterQuery.length > 0;
     const byTheme = this.themeGroupedKinds.has(kind);
-    // Kinds with an explicit owner field (TableBuiltin → ownerTable) bucket by
-    // that owner rather than by a name prefix. Singleton demotion is skipped
-    // for them too — a table with just one builtin call still deserves its
-    // own folder.
-    const byOwner = kind === SymbolKind.TableBuiltin;
+    // Kinds with an explicit owner field (PluginCommand → ownerPlugin,
+    // ComponentMethod → ownerComponent, TableBuiltin → ownerTable) bucket
+    // by that owner rather than by a name prefix. Singleton demotion is
+    // skipped too — an owner with one entry still deserves its own folder.
+    const byOwner = OWNER_GROUPED_KINDS.has(kind);
     let buckets = filterActive ? undefined : this.byKindAndPrefix.get(kind);
     if (!buckets) {
       buckets = new Map<string, SymbolRecord[]>();
