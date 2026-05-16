@@ -80,14 +80,8 @@ const MOD_INTERPROCESS    = 1 << 4;
 const MOD_PROCESS         = 1 << 5;
 const MOD_LOCAL           = 1 << 6;
 
-// Several TYPE_* / MOD_* constants are declared in the legend above but
-// aren't bound to any emitter today (TextMate handles those lex kinds, or
-// they're reserved). Suppress the unused-locals warnings rather than drop
-// them — keeping the constants documents the legend index order.
-void TYPE_PARAMETER; void TYPE_KEYWORD; void TYPE_TABLE; void TYPE_FIELD;
-void TYPE_COMMENT; void TYPE_STRING; void TYPE_NUMBER; void TYPE_OPERATOR;
+// `TYPE_ERROR` is reserved for future unresolved/error decoration.
 void TYPE_ERROR;
-void MOD_LOCAL;
 
 export const SEMANTIC_TOKENS_LEGEND: SemanticTokensLegend = {
   tokenTypes: [...TOKEN_TYPES],
@@ -202,26 +196,28 @@ function lexTokenToToken(lt: LexToken): Token | undefined {
 
 // Lex kind → (type, modifiers).
 //
-// Only kinds that the TextMate grammar can't classify on its own are emitted
-// to the LSP semantic-token stream — broadcasting a broad semantic scope like
-// `keyword.operator` for `(` would override the more specific TextMate scope
-// `punctuation.section.arguments.begin.bracket.round.4d` that the official 4D
-// extension (and themes designed for it) use to color it.
-//
-// Kinds intentionally NOT in this map (handled by TextMate):
-//   keyword, comment, string, number, operator,
-//   localVar, parameter, interprocessVar,
-//   tableRef, fieldRef, type, property
-//
-// Kinds that depend on the index or multi-word/multi-identifier matching
-// (which TextMate can't do well) are emitted:
+// Every lex kind that lights up a recognizable visual class is emitted so that
+// stock themes (which usually color the STANDARD semantic-token types and the
+// matching TextMate scopes) have something to bind to. The TextMate grammar's
+// fine-grained `.4d` scopes still flow through too — themes that target them
+// win on specificity, while themes that don't fall back to the standard
+// semantic scopes via `contributes.semanticTokenScopes`.
 const LEX_KIND_TO_TOKEN: Partial<Record<LexTokenKind, { typeIdx: number; modifiers: number }>> = {
-  // Process / interprocess variables — set membership is index-dependent.
+  keyword:         { typeIdx: TYPE_KEYWORD,   modifiers: 0 },
+  string:          { typeIdx: TYPE_STRING,    modifiers: 0 },
+  number:          { typeIdx: TYPE_NUMBER,    modifiers: 0 },
+  comment:         { typeIdx: TYPE_COMMENT,   modifiers: 0 },
+  localVar:        { typeIdx: TYPE_VARIABLE,  modifiers: MOD_LOCAL },
+  parameter:       { typeIdx: TYPE_PARAMETER, modifiers: 0 },
+  interprocessVar: { typeIdx: TYPE_VARIABLE,  modifiers: MOD_INTERPROCESS },
   processVar:      { typeIdx: TYPE_VARIABLE,  modifiers: MOD_PROCESS },
-  // `cs` / `ds` / `Storage` / `Form` — known builtin globals.
+  tableRef:        { typeIdx: TYPE_TABLE,     modifiers: 0 },
+  fieldRef:        { typeIdx: TYPE_FIELD,     modifiers: 0 },
+  type:            { typeIdx: TYPE_TYPE,      modifiers: 0 },
+  operator:        { typeIdx: TYPE_OPERATOR,  modifiers: 0 },
   builtinGlobal:   { typeIdx: TYPE_METHOD,    modifiers: MOD_DEFAULT_LIBRARY },
-  // Multi-word + single-word builtin commands from builtins.json.
-  builtinCommand:  { typeIdx: TYPE_METHOD,    modifiers: MOD_DEFAULT_LIBRARY }
+  builtinCommand:  { typeIdx: TYPE_METHOD,    modifiers: MOD_DEFAULT_LIBRARY },
+  property:        { typeIdx: TYPE_PROPERTY,  modifiers: 0 }
 };
 
 /**
