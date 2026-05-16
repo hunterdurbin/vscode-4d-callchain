@@ -1,0 +1,215 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "4D",
+  "scopeName": "source.4dm",
+  "fileTypes": ["4dm"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#date-literals" },
+    { "include": "#time-literals" },
+    { "include": "#numbers" },
+    { "include": "#parameters" },
+    { "include": "#local-vars" },
+    { "include": "#interprocess-vars" },
+    { "include": "#table-field" },
+    { "include": "#directives" },
+    { "include": "#control-keywords" },
+    { "include": "#declaration-keywords" },
+    { "include": "#modifier-keywords" },
+    { "include": "#language-constants" },
+    { "include": "#language-variables" },
+    { "include": "#builtin-globals" },
+    { "include": "#type-annotation" },
+    { "include": "#member-access" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.4d",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.4d",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.4d",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.4d",
+              "match": "\"\""
+            },
+            {
+              "name": "constant.character.escape.4d",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "date-literals": {
+      "name": "constant.other.date.4d",
+      "match": "!\\d{1,4}[-/]\\d{1,2}[-/]\\d{1,4}!"
+    },
+    "time-literals": {
+      "name": "constant.other.time.4d",
+      "match": "\\?\\d{1,2}:\\d{1,2}(?::\\d{1,2})?\\?"
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.4d",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.4d",
+          "match": "\\b\\d+(\\.\\d+)?([eE][-+]?\\d+)?\\b"
+        }
+      ]
+    },
+    "parameters": {
+      "name": "variable.parameter.4d",
+      "match": "\\$\\d+(?![A-Za-z_0-9])"
+    },
+    "local-vars": {
+      "name": "variable.other.local.4d",
+      "match": "\\$[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "interprocess-vars": {
+      "name": "variable.other.interprocess.4d",
+      "match": "<>[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "table-field": {
+      "patterns": [
+        {
+          "match": "(?<![\\w])(\\[)([A-Za-z_][\\w]*)(\\])([A-Za-z_][\\w]*)",
+          "captures": {
+            "1": { "name": "punctuation.section.brackets.begin.4d" },
+            "2": { "name": "entity.name.tag.table.4d" },
+            "3": { "name": "punctuation.section.brackets.end.4d" },
+            "4": { "name": "variable.other.member.4d" }
+          }
+        },
+        {
+          "match": "(?<![\\w])(\\[)([A-Za-z_][\\w]*)(\\])",
+          "captures": {
+            "1": { "name": "punctuation.section.brackets.begin.4d" },
+            "2": { "name": "entity.name.tag.table.4d" },
+            "3": { "name": "punctuation.section.brackets.end.4d" }
+          }
+        }
+      ]
+    },
+    "directives": {
+      "match": "^[ \\t]*(#(?:DECLARE|PROJECT[ \\t]+METHOD|PROPERTIES))\\b",
+      "captures": {
+        "1": { "name": "keyword.control.directive.4d" }
+      }
+    },
+    "control-keywords": {
+      "name": "keyword.control.4d",
+      "match": "(?i)\\b(?:End[ \\t]+for[ \\t]+each|End[ \\t]+for|End[ \\t]+while|End[ \\t]+if|End[ \\t]+case|End[ \\t]+try|End[ \\t]+use|End[ \\t]+SQL[ \\t]+Without|End[ \\t]+SQL|Else[ \\t]+if|Case[ \\t]+of|For[ \\t]+each|Begin[ \\t]+SQL|If|Else|For|While|Repeat|Until|Case|End|Try|Catch|Throw|Return|Break|Continue|Use)\\b"
+    },
+    "declaration-keywords": {
+      "name": "storage.type.4d",
+      "match": "(?i)\\b(?:Class[ \\t]+constructor|Class[ \\t]+extends|End[ \\t]+function|End[ \\t]+class|Function|Class)\\b"
+    },
+    "modifier-keywords": {
+      "name": "storage.modifier.4d",
+      "match": "(?i)\\b(?:var|property|local|shared|new|extends)\\b"
+    },
+    "language-constants": {
+      "name": "constant.language.4d",
+      "match": "(?i)\\b(?:True|False|Null)\\b"
+    },
+    "language-variables": {
+      "name": "variable.language.4d",
+      "match": "(?i)\\b(?:This|Super)\\b"
+    },
+    "builtin-globals": {
+      "name": "support.variable.4d",
+      "match": "(?i)\\b(?:cs|ds|Storage|Form)\\b"
+    },
+    "type-annotation": {
+      "match": "(:)(?!=)[ \\t]*([A-Za-z_][\\w]*(?:\\.[A-Za-z_][\\w]*)*)",
+      "captures": {
+        "1": { "name": "keyword.operator.type-annotation.4d" },
+        "2": { "name": "entity.name.type.4d" }
+      }
+    },
+    "member-access": {
+      "match": "(\\.)([A-Za-z_][\\w]*)",
+      "captures": {
+        "1": { "name": "punctuation.accessor.4d" },
+        "2": { "name": "variable.other.member.4d" }
+      }
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.4d",
+          "match": ":="
+        },
+        {
+          "name": "keyword.operator.arrow.4d",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.comparison.4d",
+          "match": ">=|<=|#|=|<|>"
+        },
+        {
+          "name": "keyword.operator.arithmetic.4d",
+          "match": "[-+*/]"
+        },
+        {
+          "name": "keyword.operator.concat.4d",
+          "match": "&"
+        },
+        {
+          "name": "keyword.operator.bitwise.4d",
+          "match": "\\|"
+        },
+        {
+          "name": "keyword.operator.pointer.4d",
+          "match": "\\^"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.parens.begin.bracket.round.4d",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.section.parens.end.bracket.round.4d",
+          "match": "\\)"
+        },
+        {
+          "name": "punctuation.section.braces.begin.4d",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.section.braces.end.4d",
+          "match": "\\}"
+        },
+        {
+          "name": "punctuation.separator.4d",
+          "match": ";"
+        }
+      ]
+    }
+  }
+}
