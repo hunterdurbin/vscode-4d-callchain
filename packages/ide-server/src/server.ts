@@ -15,6 +15,7 @@ import { Indexer } from "@4d/core";
 
 import { ServerState } from "./state";
 import { registerHoverHandler } from "./handlers/hover";
+import { registerCompletionHandler } from "./handlers/completion";
 
 interface InitOptions {
   exclusions?: string[];
@@ -46,7 +47,11 @@ export function startServer(): void {
     return {
       capabilities: {
         textDocumentSync: TextDocumentSyncKind.Incremental,
-        hoverProvider: true
+        hoverProvider: true,
+        completionProvider: {
+          triggerCharacters: ["."],
+          resolveProvider: true
+        }
       }
     };
   });
@@ -87,6 +92,7 @@ export function startServer(): void {
   });
 
   registerHoverHandler(state, connection, documents);
+  registerCompletionHandler(state, connection, documents);
 
   documents.listen(connection);
   connection.listen();
