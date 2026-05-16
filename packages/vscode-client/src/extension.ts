@@ -14,6 +14,7 @@ import { CoverageReport, computeCoverage } from "./testing/coverage";
 import { CallChainLensProvider } from "./codelens/callChainLens";
 
 let ideClient: LanguageClient | undefined;
+let lspClient: LanguageClient | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel("4D Call Chain");
@@ -383,6 +384,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     indexer.load().catch((err) => output.appendLine(`[Indexer] failed: ${err}`));
   }
 
+  // Spawn the call-chain LSP server. Provides go-to-def, find-references,
+  // workspace symbol, document symbol, and call hierarchy via standard LSP
+  // methods — VSCode's native UIs (F12, Shift+F12, Peek Call Hierarchy) will
+  // pick these up automatically once the document selector matches.
+  try {
+    lspClient = startLanguageServer(context, output, exclusions, builtinConstantsPaths);
+    context.subscriptions.push({ dispose: () => { void lspClient?.stop(); } });
+  } catch (err) {
+    output.appendLine(`[LSP] Failed to start language-server: ${err}`);
+  }
+
   // Spawn the IDE-features LSP server (hover today; completion / diagnostics
   // / semanticTokens later). Runs in its own process and indexes the same
   // workspace independently, sharing the on-disk cache file written by the
@@ -396,10 +408,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export async function deactivate(): Promise<void> {
-  if (ideClient) {
-    await ideClient.stop();
-    ideClient = undefined;
-  }
+  await Promise.all([
+    ideClient?.stop(),
+    lspClient?.stop()
+  ]);
+  ideClient = undefined;
+  lspClient = undefined;
+}
+
+/**
+ * Bootstrap the @4d/language-server LSP client. Hosts the standard
+ * navigation methods (definition / references / workspaceSymbol /
+ * documentSymbol / callHierarchy).
+ */
+function startLanguageServer(
+  _context: vscode.ExtensionContext,
+  output: vscode.OutputChannel,
+  exclusions: string[],
+  builtinConstantsPaths: string[]
+): LanguageClient {
+  const serverModule = require.resolve("@4d/language-server/dist/bin.js");
+  output.appendLine(`[LSP] Spawning language-server at ${serverModule}`);
+  const serverOptions: ServerOptions = {
+    run: { module: serverModule, transport: TransportKind.ipc },
+    debug: {
+      module: serverModule,
+      transport: TransportKind.ipc,
+      options: { execArgv: ["--nolazy", "--inspect=6011"] }
+    }
+  };
+  const clientOptions: LanguageClientOptions = {
+    documentSelector: [{ language: "4d" }, { pattern: "**/*.4dm" }],
+    initializationOptions: { exclusions, builtinConstantsPaths },
+    synchronize: {
+      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.4dm")
+    },
+    outputChannel: output
+  };
+  const client = new LanguageClient(
+    "4dLanguageServer",
+    "4D Language Server",
+    serverOptions,
+    clientOptions
+  );
+  void client.start();
+  return client;
 }
 
 /**
