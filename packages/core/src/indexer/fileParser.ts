@@ -62,6 +62,28 @@ const DECLARE_PARAMS = /#DECLARE\s*\(([^)]*)\)(?:\s*->\s*\$[\w_]+\s*:\s*([\w.]+)
 // `$var := "literal"` — track for intra-method form-name resolution.
 const ASSIGN_STRING_LITERAL = /\$([\w_]+)\s*:=\s*"\x01(\d+)\x01"/g;
 
+/**
+ * Given a position pointing at an opening `(`, return true when a `.<method>(`
+ * style chain follows the matching `)`. Used by the assignment trackers so
+ * we don't mis-type a variable when the RHS is something like
+ * `cs.Foo.new(...).fromConfig(...)` — the actual return type is whatever
+ * `fromConfig` produces, not Foo itself.
+ */
+function isAssignmentChained(line: string, openParenIdx: number): boolean {
+  if (line[openParenIdx] !== "(") return false;
+  let depth = 1;
+  let p = openParenIdx + 1;
+  while (p < line.length && depth > 0) {
+    const c = line[p];
+    if (c === "(") depth++;
+    else if (c === ")") depth--;
+    p++;
+  }
+  if (depth !== 0) return false;
+  while (p < line.length && line[p] === " ") p++;
+  return line[p] === ".";
+}
+
 export function parseFile(file: DiscoveredFile, projectRootUri: string, constantsSet?: Set<string>): ParsedFile {
   let source: string;
   try {
@@ -269,19 +291,28 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
     }
     ASSIGN_NEW.lastIndex = 0;
     while ((vmatch = ASSIGN_NEW.exec(line))) {
+      // Skip if the .new(...) is followed by a chained call; we can't infer
+      // the final return type without resolver context.
+      if (isAssignmentChained(line, vmatch.index + vmatch[0].length - 1)) continue;
       currentLocals.set(vmatch[1], `cs.${vmatch[2]}`);
     }
     ASSIGN_DS_NEW.lastIndex = 0;
     while ((vmatch = ASSIGN_DS_NEW.exec(line))) {
+      if (isAssignmentChained(line, vmatch.index + vmatch[0].length - 1)) continue;
       // ds.Foo.new() / .get() → single entity, share the bracket convention.
       currentLocals.set(vmatch[1], `dsTable:${vmatch[2]}`);
     }
     ASSIGN_DS_QUERY.lastIndex = 0;
     while ((vmatch = ASSIGN_DS_QUERY.exec(line))) {
+      // ASSIGN_DS_QUERY doesn't capture the `(`, so we have to find the next
+      // `(` after the match and start walking from there.
+      const openParen = line.indexOf("(", vmatch.index + vmatch[0].length - 1);
+      if (openParen !== -1 && isAssignmentChained(line, openParen)) continue;
       currentLocals.set(vmatch[1], `entitySelectionOf:${vmatch[2]}`);
     }
     ASSIGN_DS_BRACKET_NEW.lastIndex = 0;
     while ((vmatch = ASSIGN_DS_BRACKET_NEW.exec(line))) {
+      if (isAssignmentChained(line, vmatch.index + vmatch[0].length - 1)) continue;
       // Strip leading underscore from the constant identifier. Final mapping to
       // the actual class happens in the resolver (catalog-validated).
       const tableName = vmatch[2].replace(/^_/, "");
@@ -289,6 +320,8 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
     }
     ASSIGN_DS_BRACKET_QUERY.lastIndex = 0;
     while ((vmatch = ASSIGN_DS_BRACKET_QUERY.exec(line))) {
+      const openParen = line.indexOf("(", vmatch.index + vmatch[0].length - 1);
+      if (openParen !== -1 && isAssignmentChained(line, openParen)) continue;
       const tableName = vmatch[2].replace(/^_/, "");
       currentLocals.set(vmatch[1], `dsTableSelection:${tableName}`);
     }
