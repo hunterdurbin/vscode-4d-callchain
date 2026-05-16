@@ -16,6 +16,7 @@ import { Indexer } from "@4d/core";
 import { ServerState } from "./state";
 import { registerHoverHandler } from "./handlers/hover";
 import { registerCompletionHandler } from "./handlers/completion";
+import { registerSignatureHelpHandler } from "./handlers/signatureHelp";
 
 interface InitOptions {
   exclusions?: string[];
@@ -51,6 +52,10 @@ export function startServer(): void {
         completionProvider: {
           triggerCharacters: ["."],
           resolveProvider: true
+        },
+        signatureHelpProvider: {
+          triggerCharacters: ["(", ";", ","],
+          retriggerCharacters: [";", ","]
         }
       }
     };
@@ -93,6 +98,7 @@ export function startServer(): void {
 
   registerHoverHandler(state, connection, documents);
   registerCompletionHandler(state, connection, documents);
+  registerSignatureHelpHandler(state, connection, documents);
 
   documents.listen(connection);
   connection.listen();

@@ -8,20 +8,21 @@
  *   "double-quoted strings" with escaped quotes via doubling
  *
  * Returns the sanitized text plus the list of string literals removed
- * (so callers like CALL WORKER can recover the original method name).
+ * (so callers like CALL WORKER can recover the original method name) and a
+ * `cols` array that maps each output character back to its position in
+ * `input` (length is text.length + 1 so exclusive end positions translate too).
  */
-export function cleanLine(input: string): { text: string; strings: string[] } {
+export function cleanLine(input: string): { text: string; strings: string[]; cols: number[] } {
   const strings: string[] = [];
   let out = "";
+  const cols: number[] = [];
   let i = 0;
   while (i < input.length) {
     const ch = input[i];
     if (ch === "/" && input[i + 1] === "/") {
-      // Rest is comment
       break;
     }
     if (ch === "/" && input[i + 1] === "*") {
-      // Skip to end of block comment on this line; if it doesn't end, stop
       const end = input.indexOf("*/", i + 2);
       if (end === -1) break;
       i = end + 2;
@@ -41,21 +42,32 @@ export function cleanLine(input: string): { text: string; strings: string[] } {
         j++;
       }
       strings.push(lit);
-      out += `"${strings.length - 1}"`;
+      const placeholder = `"${strings.length - 1}"`;
+      // Map placeholder chars back to the original string range so callers
+      // recovering identifier columns can land within the literal:
+      //   opening "  → input pos of opening quote (i)
+      //   digit(s)   → input pos just inside the string (i+1)
+      //   closing "  → input pos of closing quote (j)
+      cols.push(i);
+      for (let p = 1; p < placeholder.length - 1; p++) cols.push(i + 1);
+      cols.push(j);
+      out += placeholder;
       i = j + 1;
       continue;
     }
+    cols.push(i);
     out += ch;
     i++;
   }
-  return { text: out, strings };
+  cols.push(i);
+  return { text: out, strings, cols };
 }
 
 /**
  * Recover a quoted string by sentinel index from cleanLine output.
  */
 export function recoverString(text: string, strings: string[], match: string): string | null {
-  const m = match.match(/(\d+)/);
+  const m = match.match(/(\d+)/);
   if (!m) return null;
   const idx = Number(m[1]);
   return strings[idx] ?? null;

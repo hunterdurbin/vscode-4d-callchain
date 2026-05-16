@@ -19,6 +19,11 @@ import { registerDefinitionHandler } from "./handlers/definition";
 import { registerReferencesHandler } from "./handlers/references";
 import { registerCallHierarchyHandlers } from "./handlers/callHierarchy";
 import { registerCustomHandlers } from "./handlers/custom";
+import { registerFoldingHandler } from "./handlers/folding";
+import { registerSelectionRangeHandler } from "./handlers/selectionRange";
+import { registerDocumentHighlightHandler } from "./handlers/documentHighlight";
+import { registerDiagnostics } from "./handlers/diagnostics";
+import { registerSemanticTokensHandler, SEMANTIC_TOKENS_LEGEND } from "./handlers/semanticTokens";
 
 interface InitOptions {
   exclusions?: string[];
@@ -47,10 +52,20 @@ export function startServer(): void {
         workspaceSymbolProvider: true,
         definitionProvider: true,
         referencesProvider: true,
-        callHierarchyProvider: true
+        callHierarchyProvider: true,
+        foldingRangeProvider: true,
+        selectionRangeProvider: true,
+        documentHighlightProvider: true,
+        semanticTokensProvider: {
+          legend: SEMANTIC_TOKENS_LEGEND,
+          full: { delta: false },
+          range: true
+        }
       }
     };
   });
+
+  const diagnostics = registerDiagnostics(state);
 
   connection.onInitialized(async () => {
     if (!state.projectRoot) {
@@ -71,20 +86,29 @@ export function startServer(): void {
 
     try {
       await state.indexer.load();
+      diagnostics.publishForAllSymbols();
     } catch (err) {
       connection.console.error(`[Server] Indexer failed: ${err}`);
     }
   });
 
-  connection.onDidChangeWatchedFiles((params) => {
+  connection.onDidChangeWatchedFiles(async (params) => {
     if (!state.indexer) return;
     for (const change of params.changes) {
-      if (change.type === FileChangeType.Deleted) {
-        // Still trigger; the indexer will skip on missing files anyway.
-      }
       const fsPath = URI.parse(change.uri).fsPath;
-      void state.indexer.patchFile(fsPath);
+      if (change.type === FileChangeType.Deleted) {
+        diagnostics.clearForFile(change.uri);
+      }
+      await state.indexer.patchFile(fsPath);
+      diagnostics.publishForFile(change.uri);
     }
+  });
+
+  documents.onDidSave((e) => {
+    diagnostics.publishForFile(e.document.uri);
+  });
+  documents.onDidOpen((e) => {
+    diagnostics.publishForFile(e.document.uri);
   });
 
   registerSymbolHandlers(state, connection);
@@ -92,6 +116,10 @@ export function startServer(): void {
   registerReferencesHandler(state, connection, documents);
   registerCallHierarchyHandlers(state, connection, documents);
   registerCustomHandlers(state, connection);
+  registerFoldingHandler(connection, documents);
+  registerSelectionRangeHandler(connection, documents);
+  registerDocumentHighlightHandler(state, connection, documents);
+  registerSemanticTokensHandler(state, connection);
 
   documents.listen(connection);
   connection.listen();

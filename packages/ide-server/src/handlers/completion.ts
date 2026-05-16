@@ -11,7 +11,18 @@ import {
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
 import * as path from "path";
-import { CallGraph, SymbolKind, SymbolRecord } from "@4d/core";
+import {
+  BUILTIN_TYPE_API,
+  CallGraph,
+  PARAM_ENTITY,
+  PARAM_SELECTION,
+  SymbolKind,
+  SymbolRecord,
+  findEnclosingFunction,
+  inferLocals,
+  normalizeLocalType,
+  splitBuiltin
+} from "@4d/core";
 import { ServerState } from "../state";
 
 const MAX_FREE = 200;
@@ -44,7 +55,8 @@ interface FreeContext { kind: "free"; prefix: string; }
 interface ThisContext { kind: "this"; }
 interface CsContext { kind: "cs"; first: string; }
 interface CsNsContext { kind: "csns"; namespace: string; className: string; }
-type Context = FreeContext | ThisContext | CsContext | CsNsContext | undefined;
+interface VarContext { kind: "var"; variable: string; }
+type Context = FreeContext | ThisContext | CsContext | CsNsContext | VarContext | undefined;
 
 /** Parse the line text up to the cursor and figure out what's being typed. */
 function parseContext(linePrefix: string): Context {
@@ -55,6 +67,8 @@ function parseContext(linePrefix: string): Context {
   if (cs) return { kind: "cs", first: cs[1] };
   const thisDot = linePrefix.match(/\bThis\.$/);
   if (thisDot) return { kind: "this" };
+  const varDot = linePrefix.match(/\$([\w_]+)\.$/);
+  if (varDot) return { kind: "var", variable: varDot[1] };
 
   // Free identifier — the prefix is the word being typed (alphanumerics +
   // underscore, but not crossing a `.` or `$`).
@@ -108,6 +122,58 @@ function toItem(s: SymbolRecord): CompletionItem {
     detail: detail(s),
     data: { id: s.id }
   };
+}
+
+/**
+ * Produce completion items for a typed receiver — `$x.` where `$x` is of
+ * type `normalizedType`. Dispatches on the type's shape:
+ *   - `cs.<NS>.<Class>` → component-class members
+ *   - bare `<ProjectClass>` → project class members (inherited included)
+ *   - `EntitySelection<T>` / `Entity<T>` / `Collection` / etc. → builtin API
+ */
+function membersForType(graph: CallGraph, normalizedType: string): CompletionItem[] {
+  // Component class.
+  if (/^cs\.[\w_]+\.[\w_]+$/.test(normalizedType)) {
+    const ownerLc = normalizedType.toLowerCase();
+    const out: CompletionItem[] = [];
+    for (const s of graph.allSymbols()) {
+      if (s.ownerClass?.toLowerCase() !== ownerLc) continue;
+      if (!CLASS_MEMBER_KINDS.has(s.kind)) continue;
+      out.push(toItem(s));
+      if (out.length >= MAX_MEMBERS) break;
+    }
+    return out;
+  }
+  // Project class — membersOfClass already walks inheritance.
+  const projectClass = graph
+    .byName(normalizedType.replace(/<.*>$/, ""))
+    .find((s) => s.kind === SymbolKind.Class);
+  if (projectClass) {
+    return membersOfClass(graph, projectClass.name).map(toItem);
+  }
+  // Builtin type — enumerate BUILTIN_TYPE_API entries for the base.
+  const parts = splitBuiltin(normalizedType);
+  const base = parts?.base ?? normalizedType;
+  const api = BUILTIN_TYPE_API[base];
+  if (!api) return [];
+  const out: CompletionItem[] = [];
+  for (const [methodName, ret] of Object.entries(api)) {
+    if (!methodName) continue;
+    out.push({
+      label: methodName,
+      kind: CompletionItemKind.Method,
+      detail: prettyBuiltinReturn(base, parts?.param, ret),
+      data: { id: `Builtin:${base}.${methodName}` }
+    });
+  }
+  return out;
+}
+
+function prettyBuiltinReturn(base: string, param: string | undefined, ret: string): string {
+  if (ret === "") return base;
+  if (ret === PARAM_ENTITY) return param ?? `Entity<${base}>`;
+  if (ret === PARAM_SELECTION) return param ? `EntitySelection<${param}>` : "EntitySelection";
+  return ret;
 }
 
 /** Walk inheritance chain on the graph; collect member symbols matching kinds. */
@@ -212,6 +278,17 @@ export function registerCompletionHandler(
       const className = classFromUri(params.textDocument.uri);
       if (!className) return [];
       return membersOfClass(graph, className).map(toItem);
+    }
+
+    if (ctx.kind === "var") {
+      // Locate the enclosing function and infer `$var` types from its body.
+      const source = doc.getText();
+      const scope = findEnclosingFunction(source, params.position.line);
+      const locals = inferLocals(source, scope.startLine, scope.endLine);
+      const rawType = locals.get(ctx.variable);
+      const normalized = normalizeLocalType(rawType);
+      if (!normalized) return [];
+      return membersForType(graph, normalized);
     }
 
     // Free completion.

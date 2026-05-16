@@ -81,6 +81,13 @@ export interface SymbolRecord {
   ownerComponent?: string;
   /** For TableForm / TableFormMethod / TableObjectMethod: name of the parent table (disambiguates same-named forms across tables). */
   ownerTable?: string;
+  /** For function / method / constructor symbols: declared parameters in source order. */
+  params?: SymbolParam[];
+}
+
+export interface SymbolParam {
+  name: string;
+  type?: string;
 }
 
 export interface RawCallSite {
@@ -89,6 +96,10 @@ export interface RawCallSite {
   raw: string;
   expression: string;
   hint?: CallHint;
+  /** Zero-based column of the callee identifier (start). Optional. */
+  column?: number;
+  /** Zero-based column of the callee identifier (exclusive end). */
+  endColumn?: number;
 }
 
 export type CallHint =
@@ -133,6 +144,10 @@ export interface CallEdge {
   line: number;
   raw: string;
   resolved: boolean;
+  /** Zero-based column of the callee identifier on `line`, when known. */
+  column?: number;
+  /** Zero-based exclusive end column of the callee identifier. */
+  endColumn?: number;
 }
 
 export interface SymbolIndex {
@@ -155,7 +170,7 @@ export interface ChainStep {
   isCall: boolean;
 }
 
-export const INDEX_VERSION = 24;
+export const INDEX_VERSION = 25;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

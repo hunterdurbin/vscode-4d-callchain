@@ -1,9 +1,23 @@
 import * as fs from "fs";
 import * as path from "path";
-import { ClassFlavor, FileLocation, RawCallSite, SymbolKind, SymbolRecord, symbolIdFor } from "../model/symbol";
+import { ClassFlavor, FileLocation, RawCallSite, SymbolKind, SymbolParam, SymbolRecord, symbolIdFor } from "../model/symbol";
 import { DiscoveredFile } from "./projectScanner";
 import { extractCallSitesFromLine } from "./callExtractor";
 import { stripBlockComments, cleanLine } from "../util/textCleanup";
+
+/**
+ * Parse a `Function foo($a : T; $b; $c : U)` parameter list. Tolerates params
+ * without a declared type (Position-only `$a`). Returns an ordered list.
+ */
+function parseParamList(paramText: string): SymbolParam[] {
+  const out: SymbolParam[] = [];
+  for (const raw of paramText.split(";")) {
+    const m = raw.match(/\$([\w_]+)\s*(?::\s*([\w.]+))?/);
+    if (!m) continue;
+    out.push(m[2] ? { name: m[1], type: m[2] } : { name: m[1] });
+  }
+  return out;
+}
 
 export interface ParsedFile {
   file: DiscoveredFile;
@@ -61,6 +75,34 @@ const ASSIGN_DS_BRACKET_QUERY = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\
 const DECLARE_PARAMS = /#DECLARE\s*\(([^)]*)\)(?:\s*->\s*\$[\w_]+\s*:\s*([\w.]+))?/;
 // `$var := "literal"` — track for intra-method form-name resolution.
 const ASSIGN_STRING_LITERAL = /\$([\w_]+)\s*:=\s*"\x01(\d+)\x01"/g;
+// Legacy `C_<TYPE>($a; $b; ...)` declarations — see the body loop for
+// continuation handling. Each var receives a canonical type so chain
+// resolution treats e.g. `$col.push()` as a Collection builtin.
+
+function parenBalance(s: string): number {
+  let n = 0;
+  for (const c of s) {
+    if (c === "(") n++;
+    else if (c === ")") n--;
+  }
+  return n;
+}
+
+function canonicalCType(type: string): string | undefined {
+  const t = type.toUpperCase();
+  switch (t) {
+    case "LONGINT": case "INTEGER": case "REAL": case "NUMERIC": return "Number";
+    case "TEXT": case "STRING": case "ALPHA": return "Text";
+    case "BOOLEAN": return "Boolean";
+    case "DATE": return "Date";
+    case "TIME": return "Time";
+    case "BLOB": return "Blob";
+    case "PICTURE": return "Picture";
+    case "OBJECT": return "Object";
+    case "COLLECTION": return "Collection";
+    default: return undefined;
+  }
+}
 
 /**
  * Given a position pointing at an opening `(`, return true when a `.<method>(`
@@ -205,8 +247,10 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
 
   // ---------- Inner functions (class only) + collect call sites ----------
   // We track "the symbol whose body we are currently in" so call sites
-  // are attributed correctly.
-  let currentSymbolId = symbols[0]?.id;
+  // are attributed correctly. `currentSym` is the same record by reference so
+  // late discoveries (e.g. `#DECLARE` inside the body) can mutate it.
+  let currentSym: SymbolRecord | undefined = symbols[0];
+  let currentSymbolId = currentSym?.id;
   let currentLocals = new Map<string, string>();
   let currentStrings = new Map<string, string>();
   if (currentSymbolId) {
@@ -216,7 +260,7 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
-    const { text: line, strings } = cleanLine(rawLine);
+    const { text: line, strings, cols } = cleanLine(rawLine);
 
     if (file.category === "class") {
       const ctor = CONSTRUCTOR_DECL.test(rawLine);
@@ -259,6 +303,7 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
           }
         }
         symbols.push(sym);
+        currentSym = sym;
         currentSymbolId = sym.id;
         currentLocals = new Map();
         currentStrings = new Map();
@@ -271,10 +316,12 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
         if (openParen !== -1) {
           const closeParen = rawLine.indexOf(")", openParen);
           const paramText = closeParen !== -1 ? rawLine.slice(openParen + 1, closeParen) : rawLine.slice(openParen + 1);
-          const paramRe = /\$([\w_]+)\s*:\s*([\w.]+)/g;
-          let pm: RegExpExecArray | null;
-          while ((pm = paramRe.exec(paramText))) {
-            currentLocals.set(pm[1], pm[2]);
+          const params = parseParamList(paramText);
+          if (params.length > 0) {
+            sym.params = params;
+            for (const p of params) {
+              if (p.type) currentLocals.set(p.name, p.type);
+            }
           }
         }
         // Continue — the function-decl line itself may also contain #DECLARE params via a different line
@@ -342,21 +389,65 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
       if (value !== undefined) currentStrings.set(vmatch[1], value);
     }
 
+    // Legacy `C_<TYPE>($a; $b; ...)` declarations — common in pre-v18 4D code.
+    // The argument list often continues across multiple lines via `\`, so we
+    // detect the opening pattern and forward-scan to balance the parens before
+    // applying the regex.
+    const ctypeOpen = line.match(/\bC_(LONGINT|INTEGER|REAL|NUMERIC|TEXT|STRING|ALPHA|BOOLEAN|DATE|TIME|BLOB|PICTURE|OBJECT|COLLECTION|POINTER|VARIANT)\s*\(/i);
+    if (ctypeOpen) {
+      const canon = canonicalCType(ctypeOpen[1]);
+      // Accumulate text until parens balance (or EOF).
+      let buf = line;
+      let j = i + 1;
+      while (parenBalance(buf) > 0 && j < lines.length) {
+        buf += " " + cleanLine(lines[j]).text;
+        j++;
+      }
+      // Now extract vars across the buffered C_TYPE block.
+      if (canon) {
+        const blockMatch = buf.match(/\bC_\w+\s*\(([^)]*)\)/i);
+        if (blockMatch) {
+          for (const part of blockMatch[1].split(/[;,]/)) {
+            const vm = part.match(/\$([\w_]+)/);
+            if (vm) currentLocals.set(vm[1], canon);
+          }
+        }
+      }
+    }
+
     // #DECLARE parameter types
     const dec = line.match(DECLARE_PARAMS);
     if (dec) {
       const paramText = dec[1];
-      const paramRe = /\$([\w_]+)\s*:\s*([\w.]+)/g;
-      let pm: RegExpExecArray | null;
-      while ((pm = paramRe.exec(paramText))) {
-        currentLocals.set(pm[1], pm[2]);
+      const params = parseParamList(paramText);
+      for (const p of params) {
+        if (p.type) currentLocals.set(p.name, p.type);
+      }
+      // Persist on the current symbol if it doesn't already have params
+      // (e.g. ProjectMethod file-level symbols, or class functions declared
+      // with an empty `(...)` and a follow-up #DECLARE).
+      if (currentSym && (!currentSym.params || currentSym.params.length === 0) && params.length > 0) {
+        currentSym.params = params;
       }
     }
 
     if (!currentSymbolId) continue;
 
     const sites = extractCallSitesFromLine(line, strings, currentSymbolId, i, constantsSet, currentStrings);
-    for (const s of sites) rawCalls.push(s);
+    // Translate cleaned-line columns → raw-line columns via the `cols` map.
+    // Columns from extractCallSitesFromLine reference positions in the cleaned
+    // line; downstream LSP features need source-file positions.
+    for (const s of sites) {
+      if (s.column !== undefined) {
+        const c = cols[s.column];
+        s.column = c !== undefined ? c : s.column;
+      }
+      if (s.endColumn !== undefined) {
+        const e = cols[s.endColumn];
+        s.endColumn = e !== undefined ? e : s.endColumn;
+      }
+      rawCalls.push(s);
+    }
   }
 
   return {
@@ -398,6 +489,10 @@ function extractFormDataSourceCalls(
     if (Array.isArray(node)) { for (const c of node) visit(c); return; }
     for (const [key, value] of Object.entries(node)) {
       if (typeof value === "string" && FORM_EXPR_KEYS.has(key)) {
+        // Form JSON expressions live at synthetic line 0; columns are not
+        // meaningful here, so emit cleaned-line columns as-is (they only feed
+        // semantic-token/diagnostic ranges, which downstream code guards on
+        // `column !== undefined` and falls back to whole-line ranges).
         const { text, strings } = cleanLine(value);
         const sites = extractCallSitesFromLine(text, strings, ownerId, 0, constantsSet);
         for (const s of sites) rawCalls.push(s);

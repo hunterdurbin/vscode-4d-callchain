@@ -15,10 +15,12 @@ export {
 export type {
   FileLocation,
   SymbolRecord,
+  SymbolParam,
   RawCallSite,
   CallHint,
   CallEdge,
-  SymbolIndex
+  SymbolIndex,
+  ChainStep
 } from "./model/symbol";
 
 export type { Logger } from "./util/logger";
@@ -29,3 +31,14 @@ export type { Disposable } from "./util/emitter";
 export { fuzzyMatch, parseFilterQuery } from "./util/fuzzy";
 export type { ParsedQuery } from "./util/fuzzy";
 export { cleanLine, stripBlockComments, recoverString } from "./util/textCleanup";
+export { scanBlocks } from "./util/blockScanner";
+export type { Block, BlockKind } from "./util/blockScanner";
+export {
+  BUILTIN_TYPE_API,
+  BUILTIN_TYPE_BASES,
+  PARAM_ENTITY,
+  PARAM_SELECTION,
+  splitBuiltin
+} from "./indexer/builtinTypeApi";
+export type { BuiltinReturn } from "./indexer/builtinTypeApi";
+export { inferLocals, normalizeLocalType, findEnclosingFunction } from "./indexer/localInference";

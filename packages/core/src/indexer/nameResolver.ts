@@ -12,6 +12,17 @@ import {
 const BUILTIN_SET = new Set<string>((builtinsData as any).commands);
 const PLUGIN_PREFIXES: string[] = (builtinsData as any).pluginCommandPrefixes ?? [];
 
+// Legacy 4D type-declaration commands that pre-date the typed-`var` syntax.
+// They live outside the modern command catalog but are still valid in v21 and
+// appear in nearly every legacy file. Without this fallback, diagnostics
+// would flag tens of thousands of `C_LONGINT(...)` / `C_TEXT(...)` lines.
+const LEGACY_TYPE_COMMANDS = [
+  "C_LONGINT", "C_INTEGER", "C_TEXT", "C_STRING", "C_REAL", "C_BOOLEAN",
+  "C_DATE", "C_TIME", "C_BLOB", "C_PICTURE", "C_OBJECT", "C_COLLECTION",
+  "C_POINTER", "C_GRAPH", "C_VARIANT", "ARRAY", "VARIABLE"
+];
+for (const cmd of LEGACY_TYPE_COMMANDS) BUILTIN_SET.add(cmd);
+
 export interface ResolverInput {
   files: ParsedFile[];
   plugins: { name: string; symbolId: string; commands?: string[] }[];
@@ -374,21 +385,40 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   /**
    * Map a chain-walker type string to its implicit builtin base (if any).
    * Project classes inherit Entity / EntitySelection / DataClass behaviour
-   * based on their `classFlavor` so a `$entity.save()` call routes to
+   * from their inheritance chain so a `$entity.save()` call routes to
    * `Builtin:Entity.save` instead of a per-class synthetic symbol.
+   *
+   * Walks the full `extends` chain — a class `MyEntity extends BaseEntity
+   * extends Entity` correctly resolves to `Entity`. Stops at the first class
+   * whose flavor is set OR whose `extendsClass` literal is a builtin name.
    */
   const builtinBaseOf = (type: string): string | undefined => {
     const parts = splitBuiltin(type);
     if (parts && BUILTIN_TYPE_BASES.has(parts.base)) return parts.base;
-    const cls = classByName.get(type.toLowerCase());
-    if (!cls) return undefined;
-    switch (cls.classFlavor) {
-      case ClassFlavor.Entity: return "Entity";
-      case ClassFlavor.EntitySelection: return "EntitySelection";
-      case ClassFlavor.DataClass: return "DataClass";
-      case ClassFlavor.DataStore: return "DataClass";
-      default: return undefined;
+    let cur: string | undefined = type;
+    const visited = new Set<string>();
+    while (cur && !visited.has(cur.toLowerCase())) {
+      visited.add(cur.toLowerCase());
+      const cls = classByName.get(cur.toLowerCase());
+      if (!cls) return undefined;
+      switch (cls.classFlavor) {
+        case ClassFlavor.Entity: return "Entity";
+        case ClassFlavor.EntitySelection: return "EntitySelection";
+        case ClassFlavor.DataClass: return "DataClass";
+        case ClassFlavor.DataStore: return "DataClass";
+        default: break;
+      }
+      // Also catch the case where the immediate `extends` literal is itself
+      // a builtin name — classifyFlavor only sets the flavor for direct
+      // extends; intermediate user classes leave it Generic.
+      const ec = cls.extendsClass;
+      if (ec === "Entity") return "Entity";
+      if (ec === "EntitySelection") return "EntitySelection";
+      if (ec === "DataClass") return "DataClass";
+      if (ec === "DataStore" || ec === "DataStoreImplementation") return "DataClass";
+      cur = ec;
     }
+    return undefined;
   };
 
   /**
@@ -472,7 +502,9 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           callKind: kind,
           line: call.line,
           raw: call.expression,
-          resolved
+          resolved,
+          column: call.column,
+          endColumn: call.endColumn
         });
       };
 
@@ -585,6 +617,14 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
             const fn = resolveOnClassChain(className, hint.method);
             if (fn) {
               pushEdge(fn.id, fn.ownerClass === className ? CallKind.Static : CallKind.Inherited, true);
+              break;
+            }
+            // Fall back to the builtin API for flavored classes:
+            // `Entity.save`, `EntitySelection.query`, `DataClass.new`, etc.
+            // (`resolveMethodOrBuiltin` consults classFlavor via builtinBaseOf.)
+            const hit = resolveMethodOrBuiltin(className, hint.method);
+            if (hit) {
+              pushEdge(hit.id, CallKind.Static, true);
               break;
             }
           }
