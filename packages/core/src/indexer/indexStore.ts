@@ -75,11 +75,13 @@ export class Indexer {
     const variables = discoverVariables(this.opts.projectRoot);
     this.opts.logger.info(`[Indexer] Discovered ${variables.length} process/interprocess variables`);
     // Bare-identifier lookup set: constants + process variables. Interprocess
-    // variables are matched via the `<>name` regex, not the bare path.
+    // variables are matched via the `<>name` regex, not the bare path. 4D is
+    // case-insensitive for identifiers so the set holds lowercase entries and
+    // callExtractor compares against `candidate.toLowerCase()`.
     const constantsSet = new Set<string>([
-      ...constants.map((c) => c.name),
-      ...builtinConstants.map((c) => c.name),
-      ...variables.filter((v) => v.scope === "process").map((v) => v.name)
+      ...constants.map((c) => c.name.toLowerCase()),
+      ...builtinConstants.map((c) => c.name.toLowerCase()),
+      ...variables.filter((v) => v.scope === "process").map((v) => v.name.toLowerCase())
     ]);
 
     const parsed = [];

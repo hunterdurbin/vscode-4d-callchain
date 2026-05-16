@@ -25,10 +25,11 @@ const constants = discoverConstants(projectRoot);
 const builtinConstants = discoverBuiltinConstants(DEFAULT_BUILTIN_CONSTANTS_PROBES);
 const variables = discoverVariables(projectRoot);
 console.log(`Discovered ${constants.length} constants, ${builtinConstants.length} built-in constants, ${variables.length} variables`);
+// 4D identifiers are case-insensitive — match indexStore's lowercase-keyed set.
 const constantsSet = new Set([
-  ...constants.map((c) => c.name),
-  ...builtinConstants.map((c) => c.name),
-  ...variables.filter((v) => v.scope === "process").map((v) => v.name)
+  ...constants.map((c) => c.name.toLowerCase()),
+  ...builtinConstants.map((c) => c.name.toLowerCase()),
+  ...variables.filter((v) => v.scope === "process").map((v) => v.name.toLowerCase())
 ]);
 
 const parsed = [];

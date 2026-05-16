@@ -474,7 +474,7 @@ export function extractCallSitesFromLine(
         }
         if (!contiguous) continue;
         const candidate = positions.slice(i, i + len).map((p) => p.word).join(" ");
-        if (constantsSet.has(candidate)) {
+        if (constantsSet.has(candidate.toLowerCase())) {
           matchedLen = len;
           matchedName = candidate;
           break;

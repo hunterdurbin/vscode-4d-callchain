@@ -77,7 +77,11 @@ export function discoverVariables(projectRoot: string): DiscoveredVariable[] {
     sourceFile: string,
     line: number
   ) => {
-    const key = `${scope}:${name}`;
+    // 4D identifiers are case-insensitive — collapse `doRefresh` and
+    // `DOREFRESH` into a single variable record. First occurrence wins
+    // for the display casing (Compiler_*.4dm runs first, so its names
+    // take precedence over inline uses).
+    const key = `${scope}:${name.toLowerCase()}`;
     if (seen.has(key)) return;
     seen.set(key, { name, scope, type, sourceFile, line });
   };

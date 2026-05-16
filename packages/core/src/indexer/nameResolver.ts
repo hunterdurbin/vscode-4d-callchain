@@ -104,15 +104,19 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   // Map from constant/process-variable name → symbol id. Constants and
   // process variables share the bare-identifier syntax so they go through the
   // same resolver path; user constants take precedence on name collisions.
+  // 4D identifiers are case-insensitive so all keys are lowercased; callers
+  // must do the same on lookup.
   const constantsByName = new Map<string, string>();
   for (const s of projectSymbols) {
     if (s.kind === SymbolKind.Constant || s.kind === SymbolKind.BuiltinConstant) {
-      if (!constantsByName.has(s.name)) constantsByName.set(s.name, s.id);
+      const key = s.name.toLowerCase();
+      if (!constantsByName.has(key)) constantsByName.set(key, s.id);
     }
   }
   for (const s of projectSymbols) {
-    if (s.kind === SymbolKind.ProcessVariable && !constantsByName.has(s.name)) {
-      constantsByName.set(s.name, s.id);
+    if (s.kind === SymbolKind.ProcessVariable) {
+      const key = s.name.toLowerCase();
+      if (!constantsByName.has(key)) constantsByName.set(key, s.id);
     }
   }
   // Interprocess variables are matched separately because their canonical
@@ -120,7 +124,7 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   const interprocessByName = new Map<string, string>();
   for (const s of projectSymbols) {
     if (s.kind === SymbolKind.InterprocessVariable) {
-      interprocessByName.set(s.name, s.id);
+      interprocessByName.set(s.name.toLowerCase(), s.id);
     }
   }
   // Project-wide Form symbols (TableForm names are scoped per table so
@@ -759,7 +763,7 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           // Also count this as a usage of the bracket identifier (typically
           // a table-name constant like `_Rules`) so the constant's caller
           // tree includes every ds[_X] site.
-          const cid = constantsByName.get(hint.ident);
+          const cid = constantsByName.get(hint.ident.toLowerCase());
           if (cid) pushEdge(cid, CallKind.Static, true);
           // Strip the conventional leading underscore (`_Rules` → `Rules`)
           // then verify the table exists in the catalog.
@@ -783,7 +787,7 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           break;
         }
         case "DsBracketCall": {
-          const cid = constantsByName.get(hint.ident);
+          const cid = constantsByName.get(hint.ident.toLowerCase());
           if (cid) pushEdge(cid, CallKind.Static, true);
           const table = hint.ident.replace(/^_/, "");
           if (!input.catalogTables.has(table)) {
@@ -803,12 +807,12 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           // Only emit if the bare identifier resolves to a known constant or
           // process variable. Drop silently otherwise — most identifiers in
           // method bodies are local helpers, not globals.
-          const id = constantsByName.get(hint.name);
+          const id = constantsByName.get(hint.name.toLowerCase());
           if (id) pushEdge(id, CallKind.Static, true);
           break;
         }
         case "InterprocessRef": {
-          const id = interprocessByName.get(hint.name);
+          const id = interprocessByName.get(hint.name.toLowerCase());
           if (id) pushEdge(id, CallKind.Static, true);
           break;
         }
