@@ -148,7 +148,7 @@ export interface ChainStep {
   isCall: boolean;
 }
 
-export const INDEX_VERSION = 20;
+export const INDEX_VERSION = 21;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

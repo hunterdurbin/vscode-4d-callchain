@@ -51,7 +51,10 @@ const PROPERTY_DECL_TYPED = /^\s*property\s+([\w_]+)\s*:\s*([\w.]+)/i;
 const FUNCTION_RETURN_TYPE = /\)\s*:\s*([\w.]+)/;
 const VAR_DECL = /\bvar\s+\$([\w_]+)\s*:\s*([\w.]+)/g;
 const ASSIGN_NEW = /\$([\w_]+)\s*:=\s*cs\.([\w_]+)\.new\s*\(/g;
-const ASSIGN_DS_QUERY = /\$([\w_]+)\s*:=\s*ds\.([\w_]+)\.(query|all|fromCollection|new|orderBy)/g;
+// `ds.Foo.new(...)` returns a single entity, NOT a selection — separated so
+// the chain resolver can route .save() / .drop() / etc. correctly.
+const ASSIGN_DS_NEW = /\$([\w_]+)\s*:=\s*ds\.([\w_]+)\.(new|get)\s*\(/g;
+const ASSIGN_DS_QUERY = /\$([\w_]+)\s*:=\s*ds\.([\w_]+)\.(query|all|fromCollection|orderBy|newSelection)/g;
 // Bracket-access: $x:=ds[_Table].new() → cs.Table[Entity]; .get/.first → entity; .query/.all → selection.
 const ASSIGN_DS_BRACKET_NEW = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\s*(new|get|first|last)\s*\(/g;
 const ASSIGN_DS_BRACKET_QUERY = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\s*(query|all|fromCollection|orderBy)/g;
@@ -267,6 +270,11 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
     ASSIGN_NEW.lastIndex = 0;
     while ((vmatch = ASSIGN_NEW.exec(line))) {
       currentLocals.set(vmatch[1], `cs.${vmatch[2]}`);
+    }
+    ASSIGN_DS_NEW.lastIndex = 0;
+    while ((vmatch = ASSIGN_DS_NEW.exec(line))) {
+      // ds.Foo.new() / .get() → single entity, share the bracket convention.
+      currentLocals.set(vmatch[1], `dsTable:${vmatch[2]}`);
     }
     ASSIGN_DS_QUERY.lastIndex = 0;
     while ((vmatch = ASSIGN_DS_QUERY.exec(line))) {

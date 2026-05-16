@@ -1,6 +1,13 @@
-import { CallEdge, CallKind, INDEX_VERSION, RawCallSite, SymbolIndex, SymbolKind, SymbolRecord, symbolIdFor } from "../model/symbol";
+import { CallEdge, CallKind, ClassFlavor, INDEX_VERSION, RawCallSite, SymbolIndex, SymbolKind, SymbolRecord, symbolIdFor } from "../model/symbol";
 import { ParsedFile } from "./fileParser";
 import builtinsData from "../model/builtins.json";
+import {
+  BUILTIN_TYPE_API,
+  BUILTIN_TYPE_BASES,
+  PARAM_ENTITY,
+  PARAM_SELECTION,
+  splitBuiltin
+} from "./builtinTypeApi";
 
 const BUILTIN_SET = new Set<string>((builtinsData as any).commands);
 const PLUGIN_PREFIXES: string[] = (builtinsData as any).pluginCommandPrefixes ?? [];
@@ -216,18 +223,48 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
 
   /**
    * Normalize a type string captured from a `var`/`property`/param declaration
-   * into a canonical chain-walker form:
-   *   - `cs.<NS>.<Class>` → kept as-is (component class)
-   *   - `cs.<Class>` → `<Class>` (project class)
-   *   - bare `<Class>` → `<Class>` (project class)
-   *   - everything else (`Text`, `Integer`, `Object`, `Collection`, ...) → undefined
+   * into a canonical chain-walker form. Resolved forms:
+   *   - `cs.<NS>.<Class>` (component class — unchanged)
+   *   - `<ClassName>` (project class — bare name)
+   *   - `EntitySelection<EntityClass>` (parametric ORDA selection)
+   *   - `Collection`, `Object`, `Date`, `Time`, `Number`, `Text`, `Boolean`,
+   *     `Picture`, `Blob`, `Formula` (canonical builtin scalars / containers)
+   *   - `undefined` for unknown / not chainable types
    */
   const normalizeType = (type: string | undefined): string | undefined => {
     if (!type) return undefined;
     if (/^cs\.[\w_]+\.[\w_]+$/.test(type)) return type;
     const csMatch = type.match(/^cs\.([\w_]+)$/);
-    if (csMatch) return classByName.has(csMatch[1].toLowerCase()) ? csMatch[1] : undefined;
+    if (csMatch) {
+      const name = csMatch[1];
+      if (classByName.has(name.toLowerCase())) return name;
+      return undefined;
+    }
+    // ORDA selection tokens emitted by fileParser.
+    const esMatch = type.match(/^entitySelectionOf:([\w_]+)$/) ?? type.match(/^dsTableSelection:([\w_]+)$/);
+    if (esMatch) {
+      const entityCls = classForTable(esMatch[1]) ?? esMatch[1];
+      return `EntitySelection<${entityCls}>`;
+    }
+    // ORDA entity tokens — ds[_Foo].new()/.get()/.first()/.last() and ds.Foo.new()/.get().
+    const dsTable = type.match(/^dsTable:([\w_]+)$/);
+    if (dsTable) {
+      return classForTable(dsTable[1]) ?? (classByName.has(dsTable[1].toLowerCase()) ? dsTable[1] : undefined);
+    }
+    // Already-canonical parametric form (propagated through a chain step).
+    if (/^EntitySelection<[\w_]+>$/.test(type)) return type;
+    // Project class.
     if (classByName.has(type.toLowerCase())) return type;
+    // Primitive 4D types — fold to the bases the builtin API indexes on.
+    const primMap: Record<string, string> = {
+      Integer: "Number", Longint: "Number", Real: "Number", Numeric: "Number", Number: "Number",
+      Alpha: "Text", Text: "Text", String: "Text",
+      Boolean: "Boolean", Bool: "Boolean",
+      Date: "Date", Time: "Time",
+      Collection: "Collection", Object: "Object",
+      Picture: "Picture", Blob: "Blob", Formula: "Formula"
+    };
+    if (primMap[type]) return primMap[type];
     return undefined;
   };
 
@@ -252,30 +289,111 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
 
   /**
    * Step one method-call on the current type; return the method's return type
-   * (normalized) or undefined. Falls back to property/getter lookup so an
-   * expression like `$x.foo()` resolves even when foo is a typed getter.
-   * Component classes have no usable return-type metadata from classes.json
-   * today — they return undefined.
+   * (normalized) or undefined. Sources, in order:
+   *   1. Project class function return types (Pass 3 user-class metadata)
+   *   2. Typed getters acting like methods (`$x.foo()` when foo is a getter)
+   *   3. Built-in type API (Collection, ORDA, Date, ...)
    */
   const stepMethodReturn = (type: string, method: string): string | undefined => {
+    // Component classes have no usable return-type metadata from classes.json today.
     if (/^cs\.[\w_]+\.[\w_]+$/.test(type)) return undefined;
+    // Class-based: walk inheritance.
     let cur: string | undefined = type;
     const visited = new Set<string>();
     while (cur && !visited.has(cur.toLowerCase())) {
       visited.add(cur.toLowerCase());
       const ret = input.projectClassMethodReturnsByName?.get(cur.toLowerCase())?.get(method);
       if (ret) return normalizeType(ret);
-      // Typed getter as a method call (`$x.foo()` when foo is a getter).
       const propType = input.projectClassPropsByName?.get(cur.toLowerCase())?.get(method);
       if (propType) return normalizeType(propType);
       cur = classByName.get(cur.toLowerCase())?.extendsClass;
     }
+    // Builtin types (Collection, EntitySelection<T>, Object, ...).
+    const builtinRet = stepBuiltinReturn(type, method);
+    if (builtinRet !== undefined) return normalizeType(builtinRet);
     return undefined;
+  };
+
+  /**
+   * Look up `<typeBase>.<method>` in the built-in API table. Resolves
+   * parametric sentinels (PARAM_ENTITY / PARAM_SELECTION) against the
+   * parameter carried by the input type (e.g. `EntitySelection<Foo>` →
+   * Foo on first(), `EntitySelection<Foo>` on query()). For project
+   * classes with a flavored base (Entity/EntitySelection/DataClass) the
+   * parameter is the class name itself.
+   */
+  const stepBuiltinReturn = (type: string, method: string): string | undefined => {
+    const parts = splitBuiltin(type);
+    let base = parts && BUILTIN_TYPE_BASES.has(parts.base) ? parts.base : undefined;
+    let param = parts?.param;
+    if (!base) {
+      const flavorBase = builtinBaseOf(type);
+      if (flavorBase) {
+        base = flavorBase;
+        // Project Entity class → param is the class itself (so .getSelection()
+        // returns `EntitySelection<<EntityClass>>`).
+        param = type;
+      }
+    }
+    if (!base) return undefined;
+    const api = BUILTIN_TYPE_API[base];
+    if (!api) return undefined;
+    const ret = api[method];
+    if (ret === undefined || ret === "") return undefined;
+    if (ret === PARAM_ENTITY) return param;
+    if (ret === PARAM_SELECTION) return param ? `EntitySelection<${param}>` : "EntitySelection";
+    return ret;
+  };
+
+  /**
+   * Map a chain-walker type string to its implicit builtin base (if any).
+   * Project classes inherit Entity / EntitySelection / DataClass behaviour
+   * based on their `classFlavor` so a `$entity.save()` call routes to
+   * `Builtin:Entity.save` instead of a per-class synthetic symbol.
+   */
+  const builtinBaseOf = (type: string): string | undefined => {
+    const parts = splitBuiltin(type);
+    if (parts && BUILTIN_TYPE_BASES.has(parts.base)) return parts.base;
+    const cls = classByName.get(type.toLowerCase());
+    if (!cls) return undefined;
+    switch (cls.classFlavor) {
+      case ClassFlavor.Entity: return "Entity";
+      case ClassFlavor.EntitySelection: return "EntitySelection";
+      case ClassFlavor.DataClass: return "DataClass";
+      case ClassFlavor.DataStore: return "DataClass";
+      default: return undefined;
+    }
+  };
+
+  /**
+   * Synthetic Builtin symbol id for a `<typeBase>.<method>` call. Used as
+   * the fallback edge target when a method call resolves to a builtin
+   * type's API rather than to a user/component class function.
+   */
+  const builtinMethodName = (type: string, method: string): string | undefined => {
+    const base = builtinBaseOf(type);
+    if (!base) return undefined;
+    const api = BUILTIN_TYPE_API[base];
+    if (!api || api[method] === undefined) return undefined;
+    return `${base}.${method}`;
   };
 
   /** Render a chain path for an unresolved-edge label: ".foo().bar" etc. */
   const pathLabel = (path: { name: string; isCall: boolean }[]): string =>
     path.map((s) => (s.isCall ? `${s.name}()` : s.name)).join(".");
+
+  /**
+   * Attempt to attribute `<type>.<method>` to a real ClassFunction symbol
+   * first; on miss, fall back to a Builtin synthetic symbol if the type
+   * has an entry in BUILTIN_TYPE_API. Returns undefined if nothing matches.
+   */
+  const resolveMethodOrBuiltin = (type: string, method: string): { id: string; resolved: boolean } | undefined => {
+    const fn = resolveMethodOnType(type, method);
+    if (fn) return { id: fn.id, resolved: true };
+    const bname = builtinMethodName(type, method);
+    if (bname) return { id: findOrCreateBuiltin(bname), resolved: true };
+    return undefined;
+  };
 
   /** Resolve `<type>.<method>` to a ClassFunction symbol, or undefined. */
   const resolveMethodOnType = (type: string, method: string): SymbolRecord | undefined => {
@@ -461,7 +579,21 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
         }
         case "VarCall": {
           const locals = localTypes.get(call.fromSymbolId);
-          const targetClass = classFromVarType(locals?.get(hint.variable));
+          const rawType = locals?.get(hint.variable);
+          // First try the canonical chain-walker form so EntitySelection<T>,
+          // Collection, etc. land on their builtin API entry.
+          const canon = normalizeType(rawType);
+          if (canon) {
+            const hit = resolveMethodOrBuiltin(canon, hint.method);
+            if (hit) {
+              pushEdge(hit.id, CallKind.Static, true);
+              break;
+            }
+          }
+          // Legacy fallback: classFromVarType returns the bare class name and
+          // tolerates `cs.<X>` shapes the canonical normaliser drops; preserve
+          // the previous behaviour of attributing to a synthetic Builtin on miss.
+          const targetClass = classFromVarType(rawType);
           if (targetClass) {
             const fn = resolveOnClassChain(targetClass, hint.method);
             if (fn) {
@@ -489,9 +621,9 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
             currentType = step.isCall ? stepMethodReturn(currentType, step.name) : stepProperty(currentType, step.name);
           }
           if (currentType) {
-            const fn = resolveMethodOnType(currentType, hint.method);
-            if (fn) {
-              pushEdge(fn.id, CallKind.Static, true);
+            const hit = resolveMethodOrBuiltin(currentType, hint.method);
+            if (hit) {
+              pushEdge(hit.id, CallKind.Static, true);
               break;
             }
           }
@@ -514,9 +646,9 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
             currentType = step.isCall ? stepMethodReturn(currentType, step.name) : stepProperty(currentType, step.name);
           }
           if (currentType) {
-            const fn = resolveMethodOnType(currentType, hint.method);
-            if (fn) {
-              pushEdge(fn.id, CallKind.Static, true);
+            const hit = resolveMethodOrBuiltin(currentType, hint.method);
+            if (hit) {
+              pushEdge(hit.id, CallKind.Static, true);
               break;
             }
           }
@@ -566,10 +698,21 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
         }
         case "VarGet": {
           const locals = localTypes.get(call.fromSymbolId);
-          const target = classFromVarType(locals?.get(hint.variable));
-          if (!target) break;
-          const g = resolveGetterOnChain(target, hint.property);
-          if (g) pushEdge(g.id, CallKind.Static, true);
+          const rawType = locals?.get(hint.variable);
+          const target = classFromVarType(rawType);
+          if (target) {
+            const g = resolveGetterOnChain(target, hint.property);
+            if (g) {
+              pushEdge(g.id, CallKind.Static, true);
+              break;
+            }
+          }
+          // Builtin-type properties (e.g. `$col.length` on Collection).
+          const canon = normalizeType(rawType);
+          if (canon) {
+            const bname = builtinMethodName(canon, hint.property);
+            if (bname) pushEdge(findOrCreateBuiltin(bname), CallKind.Static, true);
+          }
           break;
         }
         case "VarSet": {
