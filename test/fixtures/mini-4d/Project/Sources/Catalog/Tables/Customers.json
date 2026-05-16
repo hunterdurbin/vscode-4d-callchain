@@ -1,0 +1,8 @@
+{
+  "@id": "2",
+  "@name": "Customers",
+  "fields": {
+    "Name": { "type": "Text" },
+    "Email": { "type": "Text" }
+  }
+}

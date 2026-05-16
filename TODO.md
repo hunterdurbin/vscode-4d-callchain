@@ -42,8 +42,8 @@ Effort estimates: **XS** < 30 min · **S** ~1 hr · **M** ~half-day · **L** ~1�
 
 | # | Item | Effort | Notes |
 |---|---|---|---|
-| 18 | Real test suite | M | Currently just smoke scripts. Move to vitest/mocha with assertions on specific symbol/edge counts. |
-| 19 | CI | S | Lint + smoke against a fixture 4D project on each push. Need a small fixture committed somewhere. |
+| 18 | ~~Real test suite~~ ✅ | M | vitest. `test/unit/*` runs anywhere (no fixture). `test/indexer/*`, `test/lsp/*`, `test/ide/*` self-skip unless `FOURD_TEST_PROJECT` is set (defaults to `test/fixtures/mini-4d`). Shared `SymbolIndex` per worker via `isolate:false` keeps the full suite under 6s on the mini-fixture (~5 min on Symphony). |
+| 19 | CI (workflow) — fixture done ✅, CI workflow pending | S | Fixture: `test/fixtures/mini-4d/` — ~50 hand-crafted `.4dm`/`.4DForm`/`.json`/`.xlf` files exercising every parser pattern in `callExtractor.ts` + `fileParser.ts`. Each file has a `// LOCKS:` header naming the regression it pins. Deterministic specs at `test/indexer/mini-{counts,resolution,form}.test.ts` assert exact symbol/edge counts. Set `FOURD_TEST_PROJECT=/path/to/symphony` to run against a real volume project. **Remaining**: GitHub Actions/GitLab CI workflow file. |
 
 ## Cleanup / debt
 

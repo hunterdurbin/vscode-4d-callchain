@@ -5,3 +5,9 @@ packages/*/dist/
 *.vsix
 .DS_Store
 .vscode-test/
+
+# Indexer cache — written by the LSP/IDE server into each project's
+# .vscode/. Never check it in (committed copies invalidate when
+# INDEX_VERSION bumps and confuse fixture-based tests).
+.vscode/callchain-index.json
+test/fixtures/**/.vscode/

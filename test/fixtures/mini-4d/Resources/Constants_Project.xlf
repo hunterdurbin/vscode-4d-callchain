@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" xmlns:d4="http://www.4d.com/xliff">
+  <file source-language="en" datatype="plaintext" original="Constants_Project">
+    <body>
+      <group resname="themes">
+        <trans-unit id="thm_1" resname="theme-tables">
+          <source>Tables</source>
+        </trans-unit>
+        <trans-unit id="thm_2" resname="theme-workers">
+          <source>Workers</source>
+        </trans-unit>
+        <trans-unit id="thm_3" resname="theme-modules">
+          <source>Modules</source>
+        </trans-unit>
+        <trans-unit id="thm_4" resname="theme-audit">
+          <source>Audit</source>
+        </trans-unit>
+      </group>
+      <group d4:groupName="theme-tables">
+        <trans-unit id="k_0001" d4:value="Rules:S">
+          <source>_Rules</source>
+        </trans-unit>
+      </group>
+      <group d4:groupName="theme-workers">
+        <trans-unit id="k_0010" d4:value="1:L">
+          <source>Worker_Backend</source>
+        </trans-unit>
+        <trans-unit id="k_0011" d4:value="2:L">
+          <source>Worker_Frontend</source>
+        </trans-unit>
+      </group>
+      <group d4:groupName="theme-modules">
+        <trans-unit id="k_0020" d4:value="Invoices:S">
+          <source>MODULE_INVOICES</source>
+        </trans-unit>
+      </group>
+      <group d4:groupName="theme-audit">
+        <trans-unit id="k_0030" d4:value="audit_credit_cards:S">
+          <source>4Q_TYPE_AuditCreditCards</source>
+        </trans-unit>
+      </group>
+    </body>
+  </file>
+</xliff>

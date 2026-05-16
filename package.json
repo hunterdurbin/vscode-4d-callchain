@@ -11,10 +11,16 @@
   "scripts": {
     "build": "npm run build -w @4d/core && npm run build -w @4d/language-server && npm run build -w @4d/ide-server && npm run compile -w vscode-4d-callchain",
     "watch": "npm run watch -w vscode-4d-callchain",
-    "build-builtins": "node ./scripts/build-builtins.js"
+    "build-builtins": "node ./scripts/build-builtins.js",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run test/unit",
+    "test:integration": "vitest run test/indexer test/lsp test/ide"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
   }
 }

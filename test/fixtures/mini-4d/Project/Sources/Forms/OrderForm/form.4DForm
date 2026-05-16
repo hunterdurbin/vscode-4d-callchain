@@ -1,0 +1,21 @@
+{
+  "windowTitle": "Order Form",
+  "pages": [
+    {
+      "objects": {
+        "customerInput": {
+          "type": "input",
+          "dataSource": "[Customers]Name"
+        },
+        "totalDisplay": {
+          "type": "input",
+          "expression": "GetTotal()"
+        },
+        "submitBtn": {
+          "type": "button",
+          "methodName": "BtnClick"
+        }
+      }
+    }
+  ]
+}
