@@ -3,4 +3,3 @@
 //        symbol of kind DatabaseMethod (NOT ProjectMethod).
 
 DispatchedMethod
-$0:=True

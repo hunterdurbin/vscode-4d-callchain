@@ -4,6 +4,6 @@
 
 #DECLARE($s : Text)
 
+var $a; $b : Number
 $a:=Length($s)
 $b:=MyLength($s)
-$0:=$a+$b

@@ -21,5 +21,5 @@ Function getConfig($key : Text) : cs.Result
   End if
 
 Function setConfig($key : Text; $value : Variant)
+  // No declared return type → no `$0:=`. Side-effect only.
   This.cache.set($key; $value)
-  $0:=This

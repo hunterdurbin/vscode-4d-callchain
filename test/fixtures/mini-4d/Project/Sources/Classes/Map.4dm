@@ -9,5 +9,5 @@ Function get($key : Text) : Variant
   $0:=This.entries[$key]
 
 Function set($key : Text; $value : Variant)
+  // No declared return type → no `$0:=`. Side-effect only.
   This.entries[$key]:=$value
-  $0:=This

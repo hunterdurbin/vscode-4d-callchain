@@ -8,7 +8,7 @@
 //     Rules.save ClassFunction.
 
 Function _createActiveRule()
+  // Test-flavor class function — procedure-style, no return.
   var $eRule : cs.Rules
   $eRule:=ds[_Rules].new()
   $eRule.save()
-  $0:=$eRule

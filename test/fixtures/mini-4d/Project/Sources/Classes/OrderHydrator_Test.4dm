@@ -7,8 +7,8 @@
 //        line — locking in that resolution path.
 
 Function test_getNormalizedInvoiceFromDatastore()
+  // Test-flavor class function — procedure-style, no return value.
   var $hydrator : cs.OrderHydrator
   $hydrator:=cs.OrderHydrator.new()
   var $result : cs.NormalizedOrder
   $result:=$hydrator.getNormalizedInvoiceFromDatastore(42)
-  $0:=$result

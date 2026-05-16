@@ -7,5 +7,5 @@
 // the April BuiltinConstant's caller count (it lit up in caller-count filters).
 
 If ([Goals]April>0)
-  $0:=[Goals]April
+  ALERT(String([Goals]April))
 End if

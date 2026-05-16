@@ -8,7 +8,8 @@
 Class extends Entity
 
 Function save()
-  $0:=True
+  // No declared return type → side-effect only. Body intentionally empty.
+  This.touched:=True
 
 Function load()
-  $0:=True
+  This.touched:=False

@@ -4,4 +4,3 @@
 If (<>aALPAlph1>0)
   <>aBraintreeReady:=True
 End if
-$0:=<>aALPAlph1

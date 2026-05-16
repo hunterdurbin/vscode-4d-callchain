@@ -4,11 +4,14 @@
 //        are covered too — the tokenizer tries 1..5 word matches per start
 //        position.
 
+var $quote : Text
+var $v : Variant
+
 If (FORM Event code=On Load)
-  $0:="form loaded"
+  ALERT("form loaded")
 End if
 
 $quote:=Char Quote
 If (Type($v)=Is text)
-  $0:=$v
+  ALERT($v)
 End if
