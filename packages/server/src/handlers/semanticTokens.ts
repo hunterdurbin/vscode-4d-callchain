@@ -80,9 +80,14 @@ const MOD_INTERPROCESS    = 1 << 4;
 const MOD_PROCESS         = 1 << 5;
 const MOD_LOCAL           = 1 << 6;
 
-// `TYPE_ERROR` is reserved for future unresolved/error decoration. Suppress
-// the unused-symbol warning until a caller uses it.
+// Several TYPE_* / MOD_* constants are declared in the legend above but
+// aren't bound to any emitter today (TextMate handles those lex kinds, or
+// they're reserved). Suppress the unused-locals warnings rather than drop
+// them — keeping the constants documents the legend index order.
+void TYPE_PARAMETER; void TYPE_KEYWORD; void TYPE_TABLE; void TYPE_FIELD;
+void TYPE_COMMENT; void TYPE_STRING; void TYPE_NUMBER; void TYPE_OPERATOR;
 void TYPE_ERROR;
+void MOD_LOCAL;
 
 export const SEMANTIC_TOKENS_LEGEND: SemanticTokensLegend = {
   tokenTypes: [...TOKEN_TYPES],
@@ -195,28 +200,28 @@ function lexTokenToToken(lt: LexToken): Token | undefined {
   };
 }
 
-// Lex kind → (type, modifiers). Identifier is intentionally absent — the
-// symbol-aware pass handles resolved identifiers with higher fidelity.
+// Lex kind → (type, modifiers).
+//
+// Only kinds that the TextMate grammar can't classify on its own are emitted
+// to the LSP semantic-token stream — broadcasting a broad semantic scope like
+// `keyword.operator` for `(` would override the more specific TextMate scope
+// `punctuation.section.arguments.begin.bracket.round.4d` that the official 4D
+// extension (and themes designed for it) use to color it.
+//
+// Kinds intentionally NOT in this map (handled by TextMate):
+//   keyword, comment, string, number, operator,
+//   localVar, parameter, interprocessVar,
+//   tableRef, fieldRef, type, property
+//
+// Kinds that depend on the index or multi-word/multi-identifier matching
+// (which TextMate can't do well) are emitted:
 const LEX_KIND_TO_TOKEN: Partial<Record<LexTokenKind, { typeIdx: number; modifiers: number }>> = {
-  keyword:         { typeIdx: TYPE_KEYWORD,   modifiers: 0 },
-  string:          { typeIdx: TYPE_STRING,    modifiers: 0 },
-  number:          { typeIdx: TYPE_NUMBER,    modifiers: 0 },
-  comment:         { typeIdx: TYPE_COMMENT,   modifiers: 0 },
-  localVar:        { typeIdx: TYPE_VARIABLE,  modifiers: MOD_LOCAL },
-  parameter:       { typeIdx: TYPE_PARAMETER, modifiers: 0 },
-  interprocessVar: { typeIdx: TYPE_VARIABLE,  modifiers: MOD_INTERPROCESS },
+  // Process / interprocess variables — set membership is index-dependent.
   processVar:      { typeIdx: TYPE_VARIABLE,  modifiers: MOD_PROCESS },
-  tableRef:        { typeIdx: TYPE_TABLE,     modifiers: 0 },
-  fieldRef:        { typeIdx: TYPE_FIELD,     modifiers: 0 },
-  type:            { typeIdx: TYPE_TYPE,      modifiers: 0 },
-  operator:        { typeIdx: TYPE_OPERATOR,  modifiers: 0 },
-  // `cs` / `ds` / `Storage` / `Form` — the 4D blog tags these as
-  // method.defaultLibrary, even when used as a namespace head.
+  // `cs` / `ds` / `Storage` / `Form` — known builtin globals.
   builtinGlobal:   { typeIdx: TYPE_METHOD,    modifiers: MOD_DEFAULT_LIBRARY },
-  // Built-in command names (`Count parameters`, `OB Get`, `Length`, ...).
-  builtinCommand:  { typeIdx: TYPE_METHOD,    modifiers: MOD_DEFAULT_LIBRARY },
-  // Identifier after `.` (member access).
-  property:        { typeIdx: TYPE_PROPERTY,  modifiers: 0 }
+  // Multi-word + single-word builtin commands from builtins.json.
+  builtinCommand:  { typeIdx: TYPE_METHOD,    modifiers: MOD_DEFAULT_LIBRARY }
 };
 
 /**

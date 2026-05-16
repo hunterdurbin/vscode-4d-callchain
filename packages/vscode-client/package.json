@@ -40,27 +40,16 @@
       {
         "language": "4d",
         "scopes": {
-          "operator": ["keyword.operator.4d", "keyword.operator"],
-          "method": ["entity.name.function.4d", "entity.name.function"],
-          "method.defaultLibrary": ["support.function.builtin.4d", "support.function"],
-          "method.plugin": ["support.function.plugin.4d", "support.function"],
-          "method.static": ["support.function.static.4d", "support.function"],
-          "function": ["entity.name.function.member.4d", "entity.name.function"],
-          "property": ["variable.other.member.4d", "variable.other.member"],
-          "parameter": ["variable.parameter.4d", "variable.parameter"],
-          "variable": ["variable.other.4d", "variable.other"],
-          "variable.local": ["variable.other.local.4d", "variable.other"],
-          "variable.process": ["variable.other.global.4d", "variable.other"],
-          "variable.interprocess": ["variable.other.global.interprocess.4d", "variable.other"],
-          "table": ["entity.name.tag.table.4d", "entity.name.tag"],
-          "field": ["variable.other.member.field.4d", "variable.other.member"],
-          "type": ["entity.name.type.4d", "entity.name.type", "support.type"],
-          "constant": ["constant.language.4d", "constant.language"],
-          "keyword": ["keyword.control.4d", "keyword"],
-          "comment": ["comment.4d", "comment"],
-          "string": ["string.quoted.double.4d", "string.quoted.double"],
-          "number": ["constant.numeric.4d", "constant.numeric"],
-          "error": ["invalid.illegal.4d", "invalid"]
+          "method": ["entity.name.function.4d"],
+          "method.defaultLibrary": ["entity.name.function.4d"],
+          "method.plugin": ["entity.name.function.4d"],
+          "method.static": ["entity.name.function.4d"],
+          "function": ["entity.name.function.member.4d"],
+          "property": ["variable.other.member.4d"],
+          "variable.process": ["variable.name.4d"],
+          "variable.interprocess": ["variable.interprocess.name.4d"],
+          "type": ["storage.type.4d"],
+          "constant": ["constant.language.4d"]
         }
       }
     ],
