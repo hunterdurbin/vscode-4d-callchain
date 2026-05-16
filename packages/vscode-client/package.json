@@ -36,6 +36,18 @@
         "path": "./syntaxes/4d.tmLanguage.json"
       }
     ],
+    "themes": [
+      {
+        "label": "4D Default Dark",
+        "uiTheme": "vs-dark",
+        "path": "./themes/4d-default-dark-color-theme.json"
+      },
+      {
+        "label": "4D Default Light",
+        "uiTheme": "vs",
+        "path": "./themes/4d-default-light-color-theme.json"
+      }
+    ],
     "configurationDefaults": {
       "editor.semanticTokenColorCustomizations": {
         "enabled": true,
