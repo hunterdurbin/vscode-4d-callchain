@@ -152,6 +152,28 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
     return id;
   };
 
+  /**
+   * Synthetic per-table ORDA call symbol (`ds.<Table>.<method>` style).
+   * Kept in its own SymbolKind so the tree provider can give them a
+   * dedicated `Table Builtin` folder rather than mixing them in with
+   * actual 4D commands.
+   */
+  const findOrCreateTableBuiltin = (table: string, method: string): string => {
+    const name = `ds.${table}.${method}`;
+    const id = symbolIdFor(SymbolKind.TableBuiltin, name);
+    if (!unresolvedSeen.has(id)) {
+      unresolvedSeen.add(id);
+      unresolved.push({
+        id,
+        name,
+        kind: SymbolKind.TableBuiltin,
+        location: { uri: "", line: 0 },
+        ownerTable: table
+      });
+    }
+    return id;
+  };
+
   const findOrCreateUnresolved = (name: string): string => {
     const id = symbolIdFor(SymbolKind.Unresolved, name);
     if (!unresolvedSeen.has(id)) {
@@ -549,8 +571,8 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           if (fn) {
             pushEdge(fn.id, CallKind.Static, true);
           } else {
-            // Might be a built-in DataClass method like .query, .create, .all etc.
-            pushEdge(findOrCreateBuiltin(`ds.${hint.className}.${hint.method}`), CallKind.Static, true);
+            // Built-in DataClass method like .query, .new, .all — bucket per table.
+            pushEdge(findOrCreateTableBuiltin(hint.className, hint.method), CallKind.Static, true);
           }
           break;
         }
@@ -755,8 +777,9 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
               break;
             }
           }
-          // No user-defined class — synthesize a builtin to keep the edge.
-          pushEdge(findOrCreateBuiltin(`ds.${table}.new`), CallKind.Static, true);
+          // No user-defined class — synthesize a per-table builtin so the
+          // table's `.new()` call sites still aggregate.
+          pushEdge(findOrCreateTableBuiltin(table, "new"), CallKind.Static, true);
           break;
         }
         case "DsBracketCall": {
@@ -772,7 +795,7 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           if (fn) {
             pushEdge(fn.id, CallKind.Static, true);
           } else {
-            pushEdge(findOrCreateBuiltin(`ds.${table}.${hint.method}`), CallKind.Static, true);
+            pushEdge(findOrCreateTableBuiltin(table, hint.method), CallKind.Static, true);
           }
           break;
         }

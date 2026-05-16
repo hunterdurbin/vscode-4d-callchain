@@ -18,6 +18,7 @@ export enum SymbolKind {
   Component = "Component",
   ComponentMethod = "ComponentMethod",
   Builtin = "Builtin",
+  TableBuiltin = "TableBuiltin",
   Constant = "Constant",
   BuiltinConstant = "BuiltinConstant",
   ProcessVariable = "ProcessVariable",
@@ -148,7 +149,7 @@ export interface ChainStep {
   isCall: boolean;
 }
 
-export const INDEX_VERSION = 21;
+export const INDEX_VERSION = 22;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

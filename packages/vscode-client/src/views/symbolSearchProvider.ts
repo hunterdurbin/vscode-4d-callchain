@@ -47,8 +47,13 @@ const ORDER: SymbolKind[] = [
   SymbolKind.Component,
   SymbolKind.ComponentMethod,
   SymbolKind.Builtin,
+  SymbolKind.TableBuiltin,
   SymbolKind.Unresolved
 ];
+
+const KIND_LABELS: Partial<Record<SymbolKind, string>> = {
+  [SymbolKind.TableBuiltin]: "Table Builtin"
+};
 
 /** Groups above this size are sub-divided by prefix. Smaller groups stay flat. */
 const SUBGROUP_THRESHOLD = 100;
@@ -320,6 +325,7 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     if (this.themeGroupedKinds.has(s.kind)) return s.constantTheme;
     if (s.kind === SymbolKind.PluginCommand) return s.ownerPlugin;
     if (s.kind === SymbolKind.ComponentMethod) return s.ownerComponent;
+    if (s.kind === SymbolKind.TableBuiltin) return s.ownerTable;
     return prefixFor(s.name);
   }
 
@@ -424,7 +430,7 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
         counts.set(s.kind, (counts.get(s.kind) ?? 0) + 1);
       }
       return ORDER.filter((k) => (counts.get(k) ?? 0) > 0).map(
-        (k) => new GroupNode({ kind: k, label: k }, counts.get(k)!)
+        (k) => new GroupNode({ kind: k, label: KIND_LABELS[k] ?? k }, counts.get(k)!)
       );
     }
     if (isGroup(node)) {

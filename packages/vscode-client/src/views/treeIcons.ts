@@ -23,6 +23,7 @@ export function iconFor(s: SymbolRecord): vscode.ThemeIcon {
     case SymbolKind.Component:        return new vscode.ThemeIcon("package");
     case SymbolKind.ComponentMethod:  return new vscode.ThemeIcon("symbol-method");
     case SymbolKind.Builtin:          return new vscode.ThemeIcon("symbol-keyword");
+    case SymbolKind.TableBuiltin:     return new vscode.ThemeIcon("database");
     case SymbolKind.Constant:         return new vscode.ThemeIcon("symbol-constant");
     case SymbolKind.BuiltinConstant:  return new vscode.ThemeIcon("symbol-numeric");
     case SymbolKind.ProcessVariable:  return new vscode.ThemeIcon("symbol-variable");
@@ -57,6 +58,9 @@ export function descriptionFor(s: SymbolRecord): string {
   }
   if (s.kind === SymbolKind.TableForm || s.kind === SymbolKind.TableFormMethod || s.kind === SymbolKind.TableObjectMethod) {
     if (s.ownerTable) return `[${s.ownerTable}]`;
+  }
+  if (s.kind === SymbolKind.TableBuiltin) {
+    return s.ownerTable ? `[${s.ownerTable}]` : "Table builtin";
   }
   if (s.kind === SymbolKind.ProcessVariable || s.kind === SymbolKind.InterprocessVariable) {
     const prefix = s.kind === SymbolKind.InterprocessVariable ? "<> · " : "";
