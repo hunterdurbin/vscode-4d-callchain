@@ -374,6 +374,47 @@ describe("tokenize", () => {
     expect(toks.find((t) => t.kind === "type")).toBeUndefined();
   });
 
+  it("multi-word builtin `Count parameters` is a single builtinCommand token", () => {
+    const toks = tokenize("If (Count parameters>=5)");
+    findOne(toks, "keyword", 0, 0);                    // If
+    const cmd = findOne(toks, "builtinCommand", 0, 4); // Count parameters
+    expect(cmd.length).toBe("Count parameters".length);
+    findOne(toks, "operator", 0, "If (Count parameters".length); // >=
+    findOne(toks, "number",   0, "If (Count parameters>=".length); // 5
+  });
+
+  it("multi-word builtin `Current method name` matches longest variant", () => {
+    const toks = tokenize("$x:=Current method name");
+    const cmd = findOne(toks, "builtinCommand", 0, "$x:=".length);
+    expect(cmd.length).toBe("Current method name".length);
+  });
+
+  it("multi-word builtin `OB Is defined` beats `OB Is` prefix", () => {
+    const toks = tokenize("If (OB Is defined($obj; \"k\"))");
+    const cmd = findOne(toks, "builtinCommand", 0, "If (".length);
+    expect(cmd.length).toBe("OB Is defined".length);
+  });
+
+  it("single-word builtin (e.g. Length) tokenizes as builtinCommand", () => {
+    const toks = tokenize("$n:=Length($s)");
+    const cmd = findOne(toks, "builtinCommand", 0, "$n:=".length);
+    expect(cmd.length).toBe("Length".length);
+  });
+
+  it("builtin matching is case-insensitive", () => {
+    const toks = tokenize("count parameters");
+    const cmd = findOne(toks, "builtinCommand", 0, 0);
+    expect(cmd.length).toBe("count parameters".length);
+  });
+
+  it("non-builtin multi-word combos stay as separate tokens", () => {
+    // `MyCustomMethod_FooBar` is a project-method-shaped name that won't be
+    // in 4D's builtin catalog. Should fall through to identifier.
+    const toks = tokenize("MyCustomMethod_FooBar Tangerine");
+    expect(toks.find((t) => t.kind === "builtinCommand")).toBeUndefined();
+    findOne(toks, "identifier", 0, 0);
+  });
+
   it("parens and braces emit operator tokens", () => {
     const toks = tokenize("foo({1; 2})");
     findOne(toks, "operator", 0, 3);  // (
@@ -430,7 +471,7 @@ describe("tokenize", () => {
 
   it("string keeps subsequent identifiers tokenized correctly", () => {
     const toks = tokenize('ALERT("hi") $x:=1');
-    findOne(toks, "identifier", 0, 0);     // ALERT
+    findOne(toks, "builtinCommand", 0, 0); // ALERT — 4D builtin
     findOne(toks, "string", 0, 6);         // "hi"
     findOne(toks, "localVar", 0, 12);      // $x
     findOne(toks, "number", 0, 16);        // 1

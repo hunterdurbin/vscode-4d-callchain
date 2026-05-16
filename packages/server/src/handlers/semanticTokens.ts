@@ -213,6 +213,8 @@ const LEX_KIND_TO_TOKEN: Partial<Record<LexTokenKind, { typeIdx: number; modifie
   // `cs` / `ds` / `Storage` / `Form` — the 4D blog tags these as
   // method.defaultLibrary, even when used as a namespace head.
   builtinGlobal:   { typeIdx: TYPE_METHOD,    modifiers: MOD_DEFAULT_LIBRARY },
+  // Built-in command names (`Count parameters`, `OB Get`, `Length`, ...).
+  builtinCommand:  { typeIdx: TYPE_METHOD,    modifiers: MOD_DEFAULT_LIBRARY },
   // Identifier after `.` (member access).
   property:        { typeIdx: TYPE_PROPERTY,  modifiers: 0 }
 };

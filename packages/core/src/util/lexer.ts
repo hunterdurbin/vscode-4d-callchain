@@ -24,6 +24,7 @@ export type LexTokenKind =
   | "fieldRef"
   | "type"
   | "builtinGlobal"
+  | "builtinCommand"
   | "property"
   | "operator"
   | "identifier";
@@ -98,6 +99,46 @@ const SINGLE_WORD_KEYWORDS = new Set<string>([
   "new",
   "extends"
 ]);
+
+// Lookup tables for 4D's built-in commands (sourced from
+// `packages/core/src/model/builtins.json`). Two flavors:
+//   • BUILTIN_SINGLE — lowercased single-word command names (e.g. `length`,
+//     `string`, `type`).
+//   • BUILTIN_MULTI  — first-word → list of remaining-word arrays, ordered
+//     longest-first so the matcher tries `OB Is defined` before `OB Is`.
+// Both are populated lazily on first call so a cold tokenizer doesn't pay
+// the build cost up front.
+import builtinsData from "../model/builtins.json";
+
+let BUILTIN_SINGLE: Set<string> | null = null;
+let BUILTIN_MULTI: Map<string, string[][]> | null = null;
+
+function ensureBuiltins(): { single: Set<string>; multi: Map<string, string[][]> } {
+  if (BUILTIN_SINGLE && BUILTIN_MULTI) return { single: BUILTIN_SINGLE, multi: BUILTIN_MULTI };
+  const single = new Set<string>();
+  const multi = new Map<string, string[][]>();
+  for (const raw of (builtinsData as { commands: string[] }).commands) {
+    const lower = raw.toLowerCase();
+    const parts = lower.split(/\s+/);
+    if (parts.length === 0) continue;
+    // First-word must start with letter/underscore — `4D`, `#DECLARE` etc.
+    // are handled in dedicated paths and aren't relevant here.
+    if (!/^[a-z_]/.test(parts[0])) continue;
+    if (parts.length === 1) {
+      single.add(parts[0]);
+    } else {
+      const arr = multi.get(parts[0]) ?? [];
+      arr.push(parts.slice(1));
+      multi.set(parts[0], arr);
+    }
+  }
+  for (const arr of multi.values()) {
+    arr.sort((a, b) => b.length - a.length);
+  }
+  BUILTIN_SINGLE = single;
+  BUILTIN_MULTI = multi;
+  return { single, multi };
+}
 
 // Top-level global identifiers that 4D treats as builtin "commands":
 //   cs       — class store
@@ -450,6 +491,18 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
           continue;
         }
 
+        // Multi-word 4D builtin (`Count parameters`, `OB Is defined`,
+        // `New object`, `Current method name`). Run before keyword / type
+        // checks so the WHOLE span lands on one token.
+        const multiBuiltin = tryMultiWordBuiltin(line, i, j);
+        if (multiBuiltin !== null) {
+          expectingType = false;
+          expectingProperty = false;
+          out.push({ line: lineIdx, startChar: i, length: multiBuiltin - i, kind: "builtinCommand" });
+          i = multiBuiltin;
+          continue;
+        }
+
         // After `.`, the identifier is a member-access property. Matches the
         // official 4D extension: in `cs.IQ_Options` the IQ_Options is
         // `property`, not a class/type. Wins over keyword so chained methods
@@ -500,6 +553,17 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
           continue;
         }
 
+        // Single-word 4D builtin (e.g. `Length`, `String`, `Type`). The
+        // call-graph symbol pass would also tag these when called with
+        // parens, but bare references without parens (rare but legal in
+        // some contexts) still get colored here.
+        const { single } = ensureBuiltins();
+        if (single.has(word)) {
+          out.push({ line: lineIdx, startChar: i, length: j - i, kind: "builtinCommand" });
+          i = j;
+          continue;
+        }
+
         if (processVariables && processVariables.has(word)) {
           out.push({ line: lineIdx, startChar: i, length: j - i, kind: "processVar" });
         } else {
@@ -527,6 +591,38 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
   }
 
   return out;
+}
+
+/**
+ * Match a multi-word 4D builtin (e.g. `Count parameters`, `OB Is defined`)
+ * starting at `wordStart`, where the first word ends at `firstWordEnd`.
+ * Longest-first via the lookup table's sort order. Returns the absolute
+ * end-of-match index in `line`, or null if no multi-word builtin matches.
+ */
+function tryMultiWordBuiltin(line: string, wordStart: number, firstWordEnd: number): number | null {
+  const { multi } = ensureBuiltins();
+  const first = line.slice(wordStart, firstWordEnd).toLowerCase();
+  const candidates = multi.get(first);
+  if (!candidates) return null;
+  for (const parts of candidates) {
+    let cursor = firstWordEnd;
+    let ok = true;
+    for (const expected of parts) {
+      let ws = cursor;
+      while (ws < line.length && isSpaceOrTab(line[ws])) ws++;
+      if (ws === cursor) { ok = false; break; }
+      let we = ws;
+      while (we < line.length && isWordChar(line[we])) we++;
+      if (we === ws) { ok = false; break; }
+      const w = line.slice(ws, we).toLowerCase();
+      if (w !== expected) { ok = false; break; }
+      cursor = we;
+    }
+    if (!ok) continue;
+    if (cursor < line.length && isWordChar(line[cursor])) continue;
+    return cursor;
+  }
+  return null;
 }
 
 /**
