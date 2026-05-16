@@ -45,9 +45,15 @@ export enum CallKind {
 
 export interface FileLocation {
   uri: string;
+  /** Zero-based line of the symbol's identifier (or 0 for file-level symbols). */
   line: number;
+  /** Zero-based column of the identifier's first character. */
   column?: number;
+  /** Zero-based line where the symbol's range ends. */
   endLine?: number;
+  /** Zero-based column where the identifier ends (exclusive). When set with
+   *  column, gives a precise word-level range for hover / go-to-def. */
+  endColumn?: number;
 }
 
 export interface SymbolRecord {
@@ -149,7 +155,7 @@ export interface ChainStep {
   isCall: boolean;
 }
 
-export const INDEX_VERSION = 23;
+export const INDEX_VERSION = 24;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

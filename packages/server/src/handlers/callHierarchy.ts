@@ -13,21 +13,17 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { SymbolRecord } from "@4d/core";
 import { ServerState, wordAt, lookupByName } from "../state";
 import { toLspKind } from "../symbolKind";
-
-function rangeFor(s: SymbolRecord): Range {
-  const start = { line: s.location.line, character: s.location.column ?? 0 };
-  const endLine = s.location.endLine ?? s.location.line;
-  return { start, end: { line: endLine, character: 0 } };
-}
+import { rangeForSymbol } from "../range";
 
 function itemFor(s: SymbolRecord): CallHierarchyItem {
+  const range = rangeForSymbol(s);
   return {
     name: s.name,
     kind: toLspKind(s.kind),
     detail: s.ownerClass ?? s.ownerComponent ?? s.ownerPlugin ?? s.kind,
     uri: s.location.uri,
-    range: rangeFor(s),
-    selectionRange: rangeFor(s),
+    range,
+    selectionRange: range,
     data: { id: s.id }
   };
 }

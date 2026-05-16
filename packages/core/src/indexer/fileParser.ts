@@ -232,6 +232,11 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
           : accessor === "get" ? SymbolKind.ClassGetter
           : accessor === "set" ? SymbolKind.ClassSetter
           : SymbolKind.ClassFunction;
+        // Find the identifier's column on the decl line so go-to-def lands at
+        // the start of the name, and hover ranges highlight just the name.
+        // `Class constructor` has no captured name — point at `constructor`.
+        const identifierStr = isCtor ? "constructor" : funcMatch![4];
+        const column = rawLine.indexOf(identifierStr, isCtor ? rawLine.indexOf("Class") : 0);
         const sym: SymbolRecord = {
           id: symbolIdFor(kind, name, className),
           name,
@@ -239,7 +244,9 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
           ownerClass: className,
           accessor: accessor ?? "function",
           scope: scope ?? "public",
-          location: { uri: fileUri, line: i }
+          location: column >= 0
+            ? { uri: fileUri, line: i, column, endColumn: column + identifierStr.length }
+            : { uri: fileUri, line: i }
         };
         // Capture the return type for chain resolution:
         // - Typed getters land in classPropertyTypes (property-like lookup)

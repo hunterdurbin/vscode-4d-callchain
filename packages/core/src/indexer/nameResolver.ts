@@ -856,7 +856,7 @@ export function buildSymbolIndex(
   catalogTables: Set<string> = new Set(),
   constants: { name: string; value?: string; type?: string; theme?: string; sourceFile: string }[] = [],
   builtinConstants: { name: string; value?: string; theme?: string; sourceFile: string }[] = [],
-  variables: { name: string; scope: "process" | "interprocess"; type?: string; sourceFile: string; line: number }[] = [],
+  variables: { name: string; scope: "process" | "interprocess"; type?: string; sourceFile: string; line: number; column?: number }[] = [],
   components: {
     name: string;
     bundlePath: string;
@@ -1003,7 +1003,9 @@ export function buildSymbolIndex(
       id,
       name: v.name,
       kind,
-      location: { uri: "file://" + v.sourceFile, line: v.line },
+      location: v.column !== undefined
+        ? { uri: "file://" + v.sourceFile, line: v.line, column: v.column, endColumn: v.column + v.name.length }
+        : { uri: "file://" + v.sourceFile, line: v.line },
       variableType: v.type
     });
   }

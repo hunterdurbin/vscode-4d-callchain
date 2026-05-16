@@ -2,11 +2,11 @@ import {
   Connection,
   DefinitionParams,
   Location,
-  Range,
   TextDocuments
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { ServerState, wordAt, lookupByName } from "../state";
+import { rangeForSymbol } from "../range";
 
 export function registerDefinitionHandler(
   state: ServerState,
@@ -25,10 +25,6 @@ export function registerDefinitionHandler(
     const word = wordAt(line, params.position.character);
     if (!word) return [];
     const matches = lookupByName(graph, word);
-    return matches.map((s) => {
-      const start = { line: s.location.line, character: s.location.column ?? 0 };
-      const endLine = s.location.endLine ?? s.location.line;
-      return Location.create(s.location.uri, Range.create(start, { line: endLine, character: 0 }));
-    });
+    return matches.map((s) => Location.create(s.location.uri, rangeForSymbol(s)));
   });
 }

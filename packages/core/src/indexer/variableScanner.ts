@@ -11,6 +11,8 @@ export interface DiscoveredVariable {
   sourceFile: string;
   /** Zero-based line index of the declaration. */
   line: number;
+  /** Zero-based column of the variable name on the declaration line. */
+  column?: number;
 }
 
 const TYPE_NAMES_C: Record<string, string> = {
@@ -75,7 +77,8 @@ export function discoverVariables(projectRoot: string): DiscoveredVariable[] {
     scope: VariableScope,
     type: string | undefined,
     sourceFile: string,
-    line: number
+    line: number,
+    column?: number
   ) => {
     // 4D identifiers are case-insensitive — collapse `doRefresh` and
     // `DOREFRESH` into a single variable record. First occurrence wins
@@ -83,7 +86,7 @@ export function discoverVariables(projectRoot: string): DiscoveredVariable[] {
     // take precedence over inline uses).
     const key = `${scope}:${name.toLowerCase()}`;
     if (seen.has(key)) return;
-    seen.set(key, { name, scope, type, sourceFile, line });
+    seen.set(key, { name, scope, type, sourceFile, line, column });
   };
 
   const dirs = [
@@ -114,7 +117,7 @@ export function discoverVariables(projectRoot: string): DiscoveredVariable[] {
 
 function scanFile(
   filePath: string,
-  record: (n: string, s: VariableScope, t: string | undefined, f: string, line: number) => void
+  record: (n: string, s: VariableScope, t: string | undefined, f: string, line: number, column?: number) => void
 ): void {
   let source: string;
   try { source = fs.readFileSync(filePath, "utf8"); } catch { return; }
@@ -125,6 +128,14 @@ function scanFile(
     const cleaned = raw.replace(/\/\/.*$/, "").trim();
     if (!cleaned) continue;
 
+    // Find the column of `name` in the raw (pre-trim) line — we search after
+    // the declaration keyword so we don't accidentally match a substring of
+    // it. Returns -1 → column omitted.
+    const columnOf = (name: string, searchFrom = 0): number | undefined => {
+      const idx = raw.indexOf(name, searchFrom);
+      return idx >= 0 ? idx : undefined;
+    };
+
     // C_TYPE(name) — single bare/<> argument. Multi-arg forms like
     // `C_TEXT(MyMethod; $1)` are parameter declarations; the single-arg
     // regex won't match them, so they're naturally skipped.
@@ -134,7 +145,8 @@ function scanFile(
       const isIp = !!m[2];
       const name = m[3];
       const type = TYPE_NAMES_C[ctor] ?? ctor.replace(/^C_/, "");
-      record(name, isIp ? "interprocess" : "process", type, filePath, i);
+      const after = raw.indexOf("(") + 1;
+      record(name, isIp ? "interprocess" : "process", type, filePath, i, columnOf(name, after));
       continue;
     }
 
@@ -145,14 +157,16 @@ function scanFile(
       const isIp = !!m[2];
       const name = m[3];
       const type = ARRAY_TYPE_SUFFIX[arrType] ?? `${arrType} array`;
-      record(name, isIp ? "interprocess" : "process", type, filePath, i);
+      const after = raw.indexOf("(") + 1;
+      record(name, isIp ? "interprocess" : "process", type, filePath, i, columnOf(name, after));
       continue;
     }
 
     // Modern `var <>name : Type` syntax.
     m = cleaned.match(RE_VAR_IP);
     if (m) {
-      record(m[1], "interprocess", m[2], filePath, i);
+      const after = raw.indexOf("<>");
+      record(m[1], "interprocess", m[2], filePath, i, columnOf(m[1], after >= 0 ? after + 2 : 0));
       continue;
     }
 
@@ -163,7 +177,8 @@ function scanFile(
     if (m) {
       const name = m[1];
       if (RESERVED.has(name)) continue;
-      record(name, "process", m[2], filePath, i);
+      const after = raw.toLowerCase().indexOf("var ") + 4;
+      record(name, "process", m[2], filePath, i, columnOf(name, after));
       continue;
     }
   }

@@ -3,26 +3,20 @@ import {
   DocumentSymbolParams,
   WorkspaceSymbolParams,
   SymbolInformation,
-  Location,
-  Range
+  Location
 } from "vscode-languageserver/node";
 import { fuzzyMatch, parseFilterQuery, SymbolKind, SymbolRecord } from "@4d/core";
 import { ServerState } from "../state";
 import { toLspKind } from "../symbolKind";
+import { rangeForSymbol } from "../range";
 
 const MAX_WORKSPACE_RESULTS = 500;
-
-function rangeFor(s: SymbolRecord): Range {
-  const start = { line: s.location.line, character: s.location.column ?? 0 };
-  const endLine = s.location.endLine ?? s.location.line;
-  return { start, end: { line: endLine, character: 0 } };
-}
 
 function toSymbolInfo(s: SymbolRecord): SymbolInformation {
   return {
     name: s.name,
     kind: toLspKind(s.kind),
-    location: Location.create(s.location.uri, rangeFor(s)),
+    location: Location.create(s.location.uri, rangeForSymbol(s)),
     containerName: s.ownerClass ?? s.ownerComponent ?? s.ownerPlugin
   };
 }
