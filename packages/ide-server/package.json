@@ -1,0 +1,23 @@
+{
+  "name": "@4d/ide-server",
+  "version": "0.1.16",
+  "description": "Language Server for 4D IDE features: hover, completion, signatureHelp, diagnostics, semanticTokens. Runs alongside @4d/language-server.",
+  "main": "./dist/server.js",
+  "bin": {
+    "4d-ide-server": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "@4d/core": "*",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11",
+    "vscode-uri": "^3.0.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
