@@ -508,12 +508,17 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
   private partitionByPrefix(kind: SymbolKind, items: SymbolRecord[]): Node[] {
     const filterActive = this.filterQuery.length > 0;
     const byTheme = this.themeGroupedKinds.has(kind);
+    // Kinds with an explicit owner field (TableBuiltin → ownerTable) bucket by
+    // that owner rather than by a name prefix. Singleton demotion is skipped
+    // for them too — a table with just one builtin call still deserves its
+    // own folder.
+    const byOwner = kind === SymbolKind.TableBuiltin;
     let buckets = filterActive ? undefined : this.byKindAndPrefix.get(kind);
     if (!buckets) {
       buckets = new Map<string, SymbolRecord[]>();
       const orphans: SymbolRecord[] = [];
       for (const s of items) {
-        const p = byTheme ? s.constantTheme : prefixFor(s.name);
+        const p = byTheme ? s.constantTheme : byOwner ? this.groupKeyFor(s) : prefixFor(s.name);
         if (p) {
           let arr = buckets.get(p);
           if (!arr) { arr = []; buckets.set(p, arr); }
@@ -522,12 +527,14 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
           orphans.push(s);
         }
       }
-      // Demote singleton prefixes back into orphans so we don't create
-      // one-item sub-folders. Keeps the tree from looking spammy.
-      for (const [p, list] of Array.from(buckets.entries())) {
-        if (list.length === 1) {
-          orphans.push(list[0]);
-          buckets.delete(p);
+      if (!byOwner) {
+        // Demote singleton prefixes back into orphans so we don't create
+        // one-item sub-folders. Keeps the tree from looking spammy.
+        for (const [p, list] of Array.from(buckets.entries())) {
+          if (list.length === 1) {
+            orphans.push(list[0]);
+            buckets.delete(p);
+          }
         }
       }
       if (orphans.length > 0) {
