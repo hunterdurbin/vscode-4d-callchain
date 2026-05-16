@@ -46,12 +46,11 @@ const RE_DS_BRACKET_CALL = /\bds\s*\[\s*([\w_]+)\s*\]\s*\.\s*([\w_]+)\s*\(/g;
 const RE_THIS_CALL= /\bThis\.([\w_]+)\s*\(/g;
 const RE_SUPER    = /\bSuper(?:\.([\w_]+))?\s*\(/g;
 const RE_VAR_CALL = /\$([\w_]+)\.([\w_]+)\s*\(/g;
-// `$var.prop1.prop2.method(` — chains of property accesses ending in a call.
-// At least one intermediate property; the first capture is the variable, the
-// second is the dotted path (`.prop1.prop2`), the third is the terminating method.
-const RE_VAR_CHAIN_CALL = /\$([\w_]+)((?:\.[\w_]+){1,})\.([\w_]+)\s*\(/g;
-// `This.prop1.prop2.method(` — analogous chain starting from the current class.
-const RE_THIS_CHAIN_CALL = /\bThis((?:\.[\w_]+){1,})\.([\w_]+)\s*\(/g;
+// Chains starting from `$var` or `This` are extracted by a token scanner
+// (`iterateChains`) instead of regex — needed because intermediate method
+// calls like `$x.foo().bar.baz()` have `()` mid-chain that regex can't
+// balance. Single-step calls (`$x.method()`, `This.method()`) still flow
+// through RE_VAR_CALL / RE_THIS_CALL.
 
 // --- Property-access patterns (computed getters / setters) ---
 // Assignment forms: `:=` is plain set; `+=`/`-=`/`*=`/`/=` is compound (read + write).
@@ -93,6 +92,89 @@ const RESERVED = new Set<string>([
   // Form constants commonly called like functions in some legacy code:
   "Form","FORM"
 ]);
+
+interface ScannedChainSegment {
+  name: string;
+  isCall: boolean;
+}
+
+interface ScannedChain {
+  /** Position in `line` where the head (`$var` or `This`) starts. */
+  startChar: number;
+  /** Position in `line` where the chain ends (one past the terminal `)`). */
+  endChar: number;
+  /** Head of the chain — either a $-variable or `This`. */
+  head: { kind: "var"; variable: string } | { kind: "this" };
+  /** Ordered segments after the head; the last entry is the terminal call. */
+  segments: ScannedChainSegment[];
+}
+
+/**
+ * Find every `$var.<...>(` or `This.<...>(` chain on a line. Handles
+ * intermediate method calls (`$x.foo().bar.baz()`) via balanced-paren scanning
+ * rather than regex. Each result's last segment is guaranteed `isCall: true`.
+ */
+function iterateChains(line: string): ScannedChain[] {
+  const out: ScannedChain[] = [];
+  const isWord = (c: string | undefined) => c !== undefined && /[A-Za-z0-9_]/.test(c);
+  let i = 0;
+  while (i < line.length) {
+    let head: ScannedChain["head"] | undefined;
+    let pos = i;
+    const prev = i > 0 ? line[i - 1] : undefined;
+    if (line[i] === "$" && !isWord(prev)) {
+      let j = i + 1;
+      while (j < line.length && /[\w_]/.test(line[j])) j++;
+      if (j > i + 1) {
+        head = { kind: "var", variable: line.slice(i + 1, j) };
+        pos = j;
+      }
+    } else if (
+      line.slice(i, i + 4) === "This" &&
+      !isWord(prev) &&
+      !isWord(line[i + 4]) &&
+      line[i + 4] !== "(" // exclude `This(...)` (constructor invocation, distinct pattern)
+    ) {
+      head = { kind: "this" };
+      pos = i + 4;
+    }
+    if (!head) { i++; continue; }
+
+    const segments: ScannedChainSegment[] = [];
+    let aborted = false;
+    while (pos < line.length && line[pos] === ".") {
+      let j = pos + 1;
+      while (j < line.length && /[\w_]/.test(line[j])) j++;
+      if (j === pos + 1) break;
+      const name = line.slice(pos + 1, j);
+      let k = j;
+      while (k < line.length && line[k] === " ") k++;
+      let isCall = false;
+      if (line[k] === "(") {
+        isCall = true;
+        let depth = 1;
+        let p = k + 1;
+        while (p < line.length && depth > 0) {
+          const c = line[p];
+          if (c === "(") depth++;
+          else if (c === ")") depth--;
+          p++;
+        }
+        if (depth !== 0) { aborted = true; break; }
+        pos = p;
+      } else {
+        pos = j;
+      }
+      segments.push({ name, isCall });
+    }
+
+    if (!aborted && segments.length > 0 && segments[segments.length - 1].isCall) {
+      out.push({ startChar: i, endChar: pos, head, segments });
+    }
+    i = pos > i ? pos : i + 1;
+  }
+  return out;
+}
 
 /**
  * Emit zero-or-more raw call sites from a single (already cleaned) source line.
@@ -231,22 +313,45 @@ export function extractCallSitesFromLine(
     push({ kind: "DsBracketCall", ident: m[1], method: m[2] }, m[0]);
   }
 
-  // --- This.prop1.prop2.method(...) — chain starting from the current class.
-  // Same dance as the $var-chain case: extract first, then guard the simpler
-  // ThisCall pattern below from double-emitting.
-  const consumedThisChainSpans: Array<[number, number]> = [];
-  re = new RegExp(RE_THIS_CHAIN_CALL);
-  while ((m = re.exec(line))) {
-    const path = m[1].split(".").filter((p) => p.length > 0);
-    const method = m[2];
-    push({ kind: "ThisChainCall", path, method }, m[0]);
-    consumedThisChainSpans.push([m.index!, m.index! + m[0].length]);
+  // --- $var / This chains: tokenize each call site in the chain.
+  // For each chain, emit:
+  //   - VarCall / ThisCall for the leftmost terminal call (path.length === 0)
+  //   - VarChainCall / ThisChainCall for any subsequent call sites with the
+  //     accumulated path of prior segments (mix of properties and calls).
+  // Sub-spans consumed by chain emissions are recorded so the legacy
+  // RE_VAR_CALL / RE_THIS_CALL passes below don't double-count.
+  const consumedChainSpans: Array<[number, number]> = [];
+  for (const chain of iterateChains(line)) {
+    consumedChainSpans.push([chain.startChar, chain.endChar]);
+    const exprFull = line.slice(chain.startChar, chain.endChar);
+    for (let i = 0; i < chain.segments.length; i++) {
+      const seg = chain.segments[i];
+      if (!seg.isCall) continue;
+      const prior = chain.segments.slice(0, i);
+      const method = seg.name;
+      if (chain.head.kind === "var") {
+        if (prior.length === 0) {
+          push({ kind: "VarCall", variable: chain.head.variable, method }, exprFull);
+        } else {
+          push({ kind: "VarChainCall", variable: chain.head.variable, path: prior, method }, exprFull);
+        }
+      } else {
+        if (prior.length === 0) {
+          push({ kind: "ThisCall", method }, exprFull);
+        } else {
+          push({ kind: "ThisChainCall", path: prior, method }, exprFull);
+        }
+      }
+    }
   }
 
-  // --- This.method(...) ---
+  // --- This.method(...) — fallback for plain `This.method()` not part of a
+  // dotted chain. Most cases are already handled above; this regex catches
+  // anything the tokenizer missed (defense in depth — overlapping matches are
+  // suppressed via consumedChainSpans).
   re = new RegExp(RE_THIS_CALL);
   while ((m = re.exec(line))) {
-    if (consumedThisChainSpans.some(([s, e]) => m!.index! >= s && m!.index! < e)) continue;
+    if (consumedChainSpans.some(([s, e]) => m!.index! >= s && m!.index! < e)) continue;
     push({ kind: "ThisCall", method: m[1] }, m[0]);
   }
 
@@ -256,20 +361,8 @@ export function extractCallSitesFromLine(
     push({ kind: "SuperCall", method: m[1] }, m[0]);
   }
 
-  // --- $var.prop1.prop2.method(...) — chained property access before the call.
-  // Tracked so the simpler RE_VAR_CALL doesn't double-emit a VarCall for the
-  // leftmost `$var.<segment>(` substring of the chain.
-  const consumedChainSpans: Array<[number, number]> = [];
-  re = new RegExp(RE_VAR_CHAIN_CALL);
-  while ((m = re.exec(line))) {
-    const variable = m[1];
-    const path = m[2].split(".").filter((p) => p.length > 0);
-    const method = m[3];
-    push({ kind: "VarChainCall", variable, path, method }, m[0]);
-    consumedChainSpans.push([m.index!, m.index! + m[0].length]);
-  }
-
-  // --- $var.method(...) ---
+  // --- $var.method(...) — fallback for any single-step `$x.method()` call
+  // that escaped the tokenizer (rare; defense in depth).
   re = new RegExp(RE_VAR_CALL);
   while ((m = re.exec(line))) {
     if (consumedChainSpans.some(([s, e]) => m!.index! >= s && m!.index! < e)) continue;

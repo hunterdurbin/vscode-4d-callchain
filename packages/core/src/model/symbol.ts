@@ -97,8 +97,8 @@ export type CallHint =
   | { kind: "ThisCall"; method: string }
   | { kind: "SuperCall"; method?: string }
   | { kind: "VarCall"; variable: string; method: string }
-  | { kind: "VarChainCall"; variable: string; path: string[]; method: string }
-  | { kind: "ThisChainCall"; path: string[]; method: string }
+  | { kind: "VarChainCall"; variable: string; path: ChainStep[]; method: string }
+  | { kind: "ThisChainCall"; path: ChainStep[]; method: string }
   | { kind: "ThisGet"; property: string }
   | { kind: "ThisSet"; property: string }
   | { kind: "VarGet"; variable: string; property: string }
@@ -137,7 +137,18 @@ export interface SymbolIndex {
   fileMtimes: Record<string, number>;
 }
 
-export const INDEX_VERSION = 19;
+/**
+ * One step inside a chained expression like `$x.foo().bar.baz()`. Properties
+ * are `{ name, isCall: false }`; method calls are `{ name, isCall: true }`.
+ * The resolver uses isCall to decide whether to look up a return type or a
+ * property type when walking the chain.
+ */
+export interface ChainStep {
+  name: string;
+  isCall: boolean;
+}
+
+export const INDEX_VERSION = 20;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

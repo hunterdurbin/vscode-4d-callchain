@@ -24,6 +24,12 @@ export interface ResolverInput {
    * `cs.NS.Bar`, or a primitive that won't be resolvable further).
    */
   projectClassPropsByName?: Map<string, Map<string, string>>;
+  /**
+   * Project class method return types, keyed by lowercase class name. Lets
+   * the chain walker advance through mid-chain method calls like
+   * `$x.findById($id).save()`.
+   */
+  projectClassMethodReturnsByName?: Map<string, Map<string, string>>;
 }
 
 export interface ResolverOutput {
@@ -244,6 +250,33 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
     return undefined;
   };
 
+  /**
+   * Step one method-call on the current type; return the method's return type
+   * (normalized) or undefined. Falls back to property/getter lookup so an
+   * expression like `$x.foo()` resolves even when foo is a typed getter.
+   * Component classes have no usable return-type metadata from classes.json
+   * today — they return undefined.
+   */
+  const stepMethodReturn = (type: string, method: string): string | undefined => {
+    if (/^cs\.[\w_]+\.[\w_]+$/.test(type)) return undefined;
+    let cur: string | undefined = type;
+    const visited = new Set<string>();
+    while (cur && !visited.has(cur.toLowerCase())) {
+      visited.add(cur.toLowerCase());
+      const ret = input.projectClassMethodReturnsByName?.get(cur.toLowerCase())?.get(method);
+      if (ret) return normalizeType(ret);
+      // Typed getter as a method call (`$x.foo()` when foo is a getter).
+      const propType = input.projectClassPropsByName?.get(cur.toLowerCase())?.get(method);
+      if (propType) return normalizeType(propType);
+      cur = classByName.get(cur.toLowerCase())?.extendsClass;
+    }
+    return undefined;
+  };
+
+  /** Render a chain path for an unresolved-edge label: ".foo().bar" etc. */
+  const pathLabel = (path: { name: string; isCall: boolean }[]): string =>
+    path.map((s) => (s.isCall ? `${s.name}()` : s.name)).join(".");
+
   /** Resolve `<type>.<method>` to a ClassFunction symbol, or undefined. */
   const resolveMethodOnType = (type: string, method: string): SymbolRecord | undefined => {
     if (/^cs\.[\w_]+\.[\w_]+$/.test(type)) {
@@ -442,15 +475,18 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
           break;
         }
         case "ThisChainCall": {
-          // Walk `This.prop1.prop2.method()` starting from the current class.
+          // Walk `This.<...>.method()` starting from the current class. Each
+          // path step is either a property access or a mid-chain method call;
+          // the resolver advances the "current type" accordingly.
+          const fallbackLabel = `This.${pathLabel(hint.path)}.${hint.method}`;
           if (!className) {
-            pushEdge(findOrCreateUnresolved(`This.${hint.path.join(".")}.${hint.method}`), CallKind.Dynamic, false);
+            pushEdge(findOrCreateUnresolved(fallbackLabel), CallKind.Dynamic, false);
             break;
           }
           let currentType: string | undefined = className;
           for (const step of hint.path) {
             if (!currentType) break;
-            currentType = stepProperty(currentType, step);
+            currentType = step.isCall ? stepMethodReturn(currentType, step.name) : stepProperty(currentType, step.name);
           }
           if (currentType) {
             const fn = resolveMethodOnType(currentType, hint.method);
@@ -459,22 +495,23 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
               break;
             }
           }
-          pushEdge(findOrCreateUnresolved(`This.${hint.path.join(".")}.${hint.method}`), CallKind.Dynamic, false);
+          pushEdge(findOrCreateUnresolved(fallbackLabel), CallKind.Dynamic, false);
           break;
         }
         case "VarChainCall": {
-          // Walk `$var.prop1.prop2.method()` through component-class properties
-          // (pass 1) and/or user-class properties + typed getters (pass 2).
+          // Walk `$var.<...>.method()` where intermediate segments can be
+          // either property accesses (pass 1 + 2) or method calls (pass 3).
+          const fallbackLabel = `$${hint.variable}.${pathLabel(hint.path)}.${hint.method}`;
           const locals = localTypes.get(call.fromSymbolId);
           const startType = locals?.get(hint.variable);
           if (!startType) {
-            pushEdge(findOrCreateUnresolved(`$${hint.variable}.${hint.path.join(".")}.${hint.method}`), CallKind.Dynamic, false);
+            pushEdge(findOrCreateUnresolved(fallbackLabel), CallKind.Dynamic, false);
             break;
           }
           let currentType: string | undefined = normalizeType(startType);
           for (const step of hint.path) {
             if (!currentType) break;
-            currentType = stepProperty(currentType, step);
+            currentType = step.isCall ? stepMethodReturn(currentType, step.name) : stepProperty(currentType, step.name);
           }
           if (currentType) {
             const fn = resolveMethodOnType(currentType, hint.method);
@@ -483,7 +520,7 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
               break;
             }
           }
-          pushEdge(findOrCreateUnresolved(`$${hint.variable}.${hint.path.join(".")}.${hint.method}`), CallKind.Dynamic, false);
+          pushEdge(findOrCreateUnresolved(fallbackLabel), CallKind.Dynamic, false);
           break;
         }
         case "CallWorker":
@@ -852,14 +889,19 @@ export function buildSymbolIndex(
   // Project class property/getter types harvested from each parsed class file.
   // Keyed by lowercase class name; the inner map carries property/getter -> type.
   const projectClassPropsByName = new Map<string, Map<string, string>>();
+  const projectClassMethodReturnsByName = new Map<string, Map<string, string>>();
   for (const parsed of parsedFiles) {
-    if (!parsed.classInfo || !parsed.classPropertyTypes) continue;
+    if (!parsed.classInfo) continue;
     const key = parsed.classInfo.name.toLowerCase();
-    const existing = projectClassPropsByName.get(key);
-    if (existing) {
-      for (const [p, t] of parsed.classPropertyTypes) existing.set(p, t);
-    } else {
-      projectClassPropsByName.set(key, new Map(parsed.classPropertyTypes));
+    if (parsed.classPropertyTypes) {
+      const existing = projectClassPropsByName.get(key);
+      if (existing) for (const [p, t] of parsed.classPropertyTypes) existing.set(p, t);
+      else projectClassPropsByName.set(key, new Map(parsed.classPropertyTypes));
+    }
+    if (parsed.classMethodReturnsByName) {
+      const existing = projectClassMethodReturnsByName.get(key);
+      if (existing) for (const [m, t] of parsed.classMethodReturnsByName) existing.set(m, t);
+      else projectClassMethodReturnsByName.set(key, new Map(parsed.classMethodReturnsByName));
     }
   }
 
@@ -874,7 +916,8 @@ export function buildSymbolIndex(
       catalogTables,
       componentByMethod,
       componentClassPropsByNs,
-      projectClassPropsByName
+      projectClassPropsByName,
+      projectClassMethodReturnsByName
     },
     allSymbols
   );

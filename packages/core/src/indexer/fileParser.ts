@@ -30,6 +30,13 @@ export interface ParsedFile {
    * Only populated for class files.
    */
   classPropertyTypes?: Map<string, string>;
+  /**
+   * Method return types for the file's class — `Function name(...) : Type`.
+   * Used by the chain resolver to walk `$x.method().prop.foo()` patterns.
+   * Getters are stored in `classPropertyTypes` instead; this map only
+   * carries plain functions.
+   */
+  classMethodReturnsByName?: Map<string, string>;
 }
 
 const CLASS_HEADER = /^\s*Class\s+extends\s+([\w.]+)/i;
@@ -74,6 +81,7 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
   const localTypes = new Map<string, Map<string, string>>();
   const localStrings = new Map<string, Map<string, string>>();
   const classPropertyTypes = new Map<string, string>();
+  const classMethodReturnsByName = new Map<string, string>();
   let classInfo: ParsedFile["classInfo"];
 
   // ---------- Symbol creation ----------
@@ -208,11 +216,15 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
           scope: scope ?? "public",
           location: { uri: fileUri, line: i }
         };
-        // For typed getters, capture the return type as the property's type
-        // for chain resolution: `Function get foo() : cs.Bar` -> {foo -> cs.Bar}.
-        if (accessor === "get") {
+        // Capture the return type for chain resolution:
+        // - Typed getters land in classPropertyTypes (property-like lookup)
+        // - Plain functions land in classMethodReturnsByName (call-step lookup)
+        if (!isCtor) {
           const retMatch = rawLine.match(FUNCTION_RETURN_TYPE);
-          if (retMatch) classPropertyTypes.set(name, retMatch[1]);
+          if (retMatch) {
+            if (accessor === "get") classPropertyTypes.set(name, retMatch[1]);
+            else if (!accessor) classMethodReturnsByName.set(name, retMatch[1]);
+          }
         }
         symbols.push(sym);
         currentSymbolId = sym.id;
@@ -306,7 +318,8 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
     localTypes,
     localStrings,
     classInfo,
-    classPropertyTypes: classPropertyTypes.size > 0 ? classPropertyTypes : undefined
+    classPropertyTypes: classPropertyTypes.size > 0 ? classPropertyTypes : undefined,
+    classMethodReturnsByName: classMethodReturnsByName.size > 0 ? classMethodReturnsByName : undefined
   };
 }
 
