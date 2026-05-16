@@ -31,6 +31,8 @@ export type { Disposable } from "./util/emitter";
 export { fuzzyMatch, parseFilterQuery } from "./util/fuzzy";
 export type { ParsedQuery } from "./util/fuzzy";
 export { cleanLine, stripBlockComments, recoverString } from "./util/textCleanup";
+export { tokenize } from "./util/lexer";
+export type { LexToken, LexTokenKind, TokenizeOptions } from "./util/lexer";
 export { scanBlocks } from "./util/blockScanner";
 export type { Block, BlockKind } from "./util/blockScanner";
 export {

@@ -119,7 +119,7 @@ export function startServer(): void {
   registerFoldingHandler(connection, documents);
   registerSelectionRangeHandler(connection, documents);
   registerDocumentHighlightHandler(state, connection, documents);
-  registerSemanticTokensHandler(state, connection);
+  registerSemanticTokensHandler(state, connection, documents);
 
   documents.listen(connection);
   connection.listen();
