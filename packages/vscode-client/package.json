@@ -36,6 +36,32 @@
         "path": "./syntaxes/4d.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "editor.semanticTokenColorCustomizations": {
+        "enabled": true,
+        "rules": {
+          "operator:4d":              { "foreground": "#56B6C2" },
+          "keyword:4d":               { "foreground": "#C678DD" },
+          "string:4d":                { "foreground": "#98C379" },
+          "number:4d":                { "foreground": "#D19A66" },
+          "comment:4d":               { "foreground": "#5C6370", "fontStyle": "italic" },
+          "type:4d":                  { "foreground": "#E5C07B" },
+          "constant:4d":              { "foreground": "#D19A66" },
+          "parameter:4d":             { "foreground": "#E06C75" },
+          "variable.local:4d":        { "foreground": "#E06C75" },
+          "variable.process:4d":      { "foreground": "#E06C75" },
+          "variable.interprocess:4d": { "foreground": "#E06C75" },
+          "method:4d":                { "foreground": "#61AFEF" },
+          "method.defaultLibrary:4d": { "foreground": "#C678DD", "fontStyle": "italic" },
+          "method.plugin:4d":         { "foreground": "#C678DD" },
+          "method.static:4d":         { "foreground": "#61AFEF" },
+          "function:4d":              { "foreground": "#61AFEF" },
+          "property:4d":              { "foreground": "#E06C75" },
+          "table:4d":                 { "foreground": "#E5C07B" },
+          "field:4d":                 { "foreground": "#E06C75" }
+        }
+      }
+    },
     "semanticTokenScopes": [
       {
         "language": "4d",
