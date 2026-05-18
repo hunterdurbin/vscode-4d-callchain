@@ -160,7 +160,7 @@
     },
     {
       "scope": "support.table.name.4d",
-      "settings": { "foreground": "#E5C07B" }
+      "settings": { "foreground": "#ABB2BF" }
     },
     {
       "scope": "storage.type.4d",
@@ -205,7 +205,7 @@
     "method.static:4d":         { "foreground": "#61AFEF" },
     "function:4d":              { "foreground": "#61AFEF" },
     "property:4d":              { "foreground": "#E06C75" },
-    "table:4d":                 { "foreground": "#E5C07B" },
-    "field:4d":                 { "foreground": "#E5C07B" }
+    "table:4d":                 { "foreground": "#ABB2BF" },
+    "field:4d":                 { "foreground": "#ABB2BF" }
   }
 }
