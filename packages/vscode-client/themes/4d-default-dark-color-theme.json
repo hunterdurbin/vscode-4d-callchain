@@ -200,7 +200,7 @@
     "variable.process:4d":      { "foreground": "#E06C75" },
     "variable.interprocess:4d": { "foreground": "#E06C75" },
     "method:4d":                { "foreground": "#61AFEF" },
-    "method.defaultLibrary:4d": { "foreground": "#C678DD", "fontStyle": "italic" },
+    "method.defaultLibrary:4d": { "foreground": "#C678DD" },
     "method.plugin:4d":         { "foreground": "#C678DD" },
     "method.static:4d":         { "foreground": "#61AFEF" },
     "function:4d":              { "foreground": "#61AFEF" },

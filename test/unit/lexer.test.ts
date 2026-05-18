@@ -337,13 +337,14 @@ describe("tokenize", () => {
     findOne(toks, "builtinGlobal", 0, "$x:=".length);
   });
 
-  it("`{bCheckPaid: True}` — key is property, value is keyword", () => {
+  it("`{bCheckPaid: True}` — key is property, value is builtinCommand", () => {
     const toks = tokenize("{bCheckPaid: True}");
-    findOne(toks, "operator", 0, 0);                        // {
-    findOne(toks, "property", 0, 1);                        // bCheckPaid
-    findOne(toks, "operator", 0, "{bCheckPaid".length);     // :
-    findOne(toks, "keyword",  0, "{bCheckPaid: ".length);   // True
-    findOne(toks, "operator", 0, "{bCheckPaid: True".length); // }
+    findOne(toks, "operator",       0, 0);                        // {
+    findOne(toks, "property",       0, 1);                        // bCheckPaid
+    findOne(toks, "operator",       0, "{bCheckPaid".length);     // :
+    // True is now method.defaultLibrary (matches official 4D extension).
+    findOne(toks, "builtinCommand", 0, "{bCheckPaid: ".length);   // True
+    findOne(toks, "operator",       0, "{bCheckPaid: True".length); // }
     expect(toks.find((t) => t.kind === "type")).toBeUndefined();
   });
 

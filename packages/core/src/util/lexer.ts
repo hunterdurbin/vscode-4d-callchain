@@ -94,9 +94,6 @@ const SINGLE_WORD_KEYWORDS = new Set<string>([
   "catch",
   "throw",
   "return",
-  "true",
-  "false",
-  "null",
   "this",
   "super",
   "var",
@@ -106,6 +103,9 @@ const SINGLE_WORD_KEYWORDS = new Set<string>([
   "use",
   "new",
   "extends"
+  // `true` / `false` / `null` are in builtins.json — they fall through the
+  // identifier branch to `builtinCommand`, matching how the official 4D
+  // extension semantic-tokenizes them as method.defaultLibrary.
 ]);
 
 // Lookup tables for 4D's built-in commands (sourced from
