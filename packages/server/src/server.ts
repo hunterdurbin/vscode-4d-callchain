@@ -87,6 +87,12 @@ export function startServer(): void {
     try {
       await state.indexer.load();
       diagnostics.publishForAllSymbols();
+      // The semantic-tokens handler reads PluginCommand symbols out of the
+      // graph to feed plugin-command names into the lexer. If a `.4dm` file
+      // was open before the index finished, VS Code already cached an empty
+      // (no-plugin) token set for it — without a refresh nudge those stale
+      // tokens stay on screen forever.
+      void connection.languages.semanticTokens.refresh();
     } catch (err) {
       connection.console.error(`[Server] Indexer failed: ${err}`);
     }

@@ -25,6 +25,7 @@ export type LexTokenKind =
   | "type"
   | "builtinGlobal"
   | "builtinCommand"
+  | "pluginCommand"
   | "property"
   | "operator"
   | "identifier";
@@ -34,6 +35,13 @@ export interface TokenizeOptions {
    *  case-insensitively against bare identifiers. When omitted, no
    *  `processVar` tokens are emitted. */
   processVariables?: Set<string>;
+  /** Case-preserving names of plugin commands discovered in the project's
+   *  Plugins/*.bundle manifests (e.g. `"PgSQL Connect"`, `"WP New"`). Matched
+   *  case-insensitively. Treated symmetrically with the static 4D builtins:
+   *  multi-word names lex to a single `pluginCommand` token; single-word
+   *  names lex to `pluginCommand` instead of falling through to `identifier`.
+   *  When omitted, no `pluginCommand` tokens are emitted. */
+  pluginCommands?: Set<string>;
 }
 
 export interface LexToken {
@@ -140,6 +148,45 @@ function ensureBuiltins(): { single: Set<string>; multi: Map<string, string[][]>
   return { single, multi };
 }
 
+// Per-project plugin command lookup tables. Plugin command lists are
+// per-project (parsed from each `<projectRoot>/Plugins/*.bundle/Contents/
+// Resources/manifest.json`), so unlike the static 4D builtins we can't
+// memoize globally. We cache by Set identity — the semantic-tokens handler
+// passes the same Set across calls within an index generation, so this
+// pays the split-into-{single,multi} cost once per index rebuild.
+const PLUGIN_LOOKUP_CACHE = new WeakMap<
+  Set<string>,
+  { single: Set<string>; multi: Map<string, string[][]> }
+>();
+
+function pluginLookup(
+  names: Set<string>
+): { single: Set<string>; multi: Map<string, string[][]> } {
+  const cached = PLUGIN_LOOKUP_CACHE.get(names);
+  if (cached) return cached;
+  const single = new Set<string>();
+  const multi = new Map<string, string[][]>();
+  for (const raw of names) {
+    const lower = raw.toLowerCase();
+    const parts = lower.split(/\s+/);
+    if (parts.length === 0) continue;
+    if (!/^[a-z_]/.test(parts[0])) continue;
+    if (parts.length === 1) {
+      single.add(parts[0]);
+    } else {
+      const arr = multi.get(parts[0]) ?? [];
+      arr.push(parts.slice(1));
+      multi.set(parts[0], arr);
+    }
+  }
+  for (const arr of multi.values()) {
+    arr.sort((a, b) => b.length - a.length);
+  }
+  const out = { single, multi };
+  PLUGIN_LOOKUP_CACHE.set(names, out);
+  return out;
+}
+
 // Top-level global identifiers that 4D treats as builtin "commands":
 //   cs       — class store
 //   ds       — datastore
@@ -171,6 +218,8 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
   const out: LexToken[] = [];
   const lines = source.split(/\r?\n/);
   const processVariables = options?.processVariables;
+  const pluginNames = options?.pluginCommands;
+  const plugin = pluginNames && pluginNames.size > 0 ? pluginLookup(pluginNames) : null;
 
   let inBlockComment = false;
 
@@ -503,6 +552,20 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
           continue;
         }
 
+        // Multi-word plugin command (`PgSQL Connect`, `WP New`). Same
+        // matching strategy as builtins — claim the whole span so the
+        // semantic-tokens handler can paint `method.plugin`.
+        if (plugin) {
+          const multiPlugin = tryMultiWordFromTable(line, i, j, plugin.multi);
+          if (multiPlugin !== null) {
+            expectingType = false;
+            expectingProperty = false;
+            out.push({ line: lineIdx, startChar: i, length: multiPlugin - i, kind: "pluginCommand" });
+            i = multiPlugin;
+            continue;
+          }
+        }
+
         // After `.`, the identifier is a member-access property. Matches the
         // official 4D extension: in `cs.IQ_Options` the IQ_Options is
         // `property`, not a class/type. Wins over keyword so chained methods
@@ -564,6 +627,14 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
           continue;
         }
 
+        // Single-word plugin command (e.g. some plugins expose flat names
+        // like `WP_New_Document`).
+        if (plugin && plugin.single.has(word)) {
+          out.push({ line: lineIdx, startChar: i, length: j - i, kind: "pluginCommand" });
+          i = j;
+          continue;
+        }
+
         if (processVariables && processVariables.has(word)) {
           out.push({ line: lineIdx, startChar: i, length: j - i, kind: "processVar" });
         } else {
@@ -601,8 +672,22 @@ export function tokenize(source: string, options?: TokenizeOptions): LexToken[] 
  */
 function tryMultiWordBuiltin(line: string, wordStart: number, firstWordEnd: number): number | null {
   const { multi } = ensureBuiltins();
+  return tryMultiWordFromTable(line, wordStart, firstWordEnd, multi);
+}
+
+/**
+ * Generic multi-word matcher. Used by both the static builtin path and the
+ * per-project plugin-command path — same boundary rules and longest-first
+ * semantics, only the source table differs.
+ */
+function tryMultiWordFromTable(
+  line: string,
+  wordStart: number,
+  firstWordEnd: number,
+  table: Map<string, string[][]>
+): number | null {
   const first = line.slice(wordStart, firstWordEnd).toLowerCase();
-  const candidates = multi.get(first);
+  const candidates = table.get(first);
   if (!candidates) return null;
   for (const parts of candidates) {
     let cursor = firstWordEnd;

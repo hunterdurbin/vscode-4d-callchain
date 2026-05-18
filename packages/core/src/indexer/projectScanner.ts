@@ -215,30 +215,58 @@ export function discoverPlugins(projectRoot: string): DiscoveredPlugin[] {
 }
 
 /**
- * Parse `<bundle>/Contents/Resources/manifest.json` for the plugin's exported
- * commands. Each manifest entry looks like
- *   { "theme": "IC TCP/IP", "syntax": "TCP_Open(&S;&I;&L;&I):I" }
- * The command name is everything before the first `(`.
+ * Parse a plugin manifest for the bundle's exported command names. Tolerant
+ * of multiple known shapes — different 4D plugins (and plugin generations)
+ * ship slightly different JSON layouts:
+ *
+ *   • Top-level `commands[]` of `{ theme, syntax }` (4D Internet Commands
+ *     style — name is the prefix before `(`).
+ *   • Top-level `commands[]` of `{ name }` or `{ commandName }` (newer
+ *     plugins; PG_/SQL_/PgSQL/etc community plugins).
+ *   • Nested `themes[].commands[]` of either shape (older grouping).
+ *
+ * Looks for the manifest at three locations in priority order, since not
+ * every plugin nests under `Contents/Resources/`.
  */
 function readPluginCommands(bundlePath: string): string[] {
-  const manifest = path.join(bundlePath, "Contents", "Resources", "manifest.json");
-  if (!fs.existsSync(manifest)) return [];
-  let doc: any;
-  try {
-    let raw = fs.readFileSync(manifest, "utf8");
-    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-    doc = JSON.parse(raw);
-  } catch { return []; }
-  const entries: any[] = Array.isArray(doc?.commands) ? doc.commands : [];
-  const out: string[] = [];
+  const candidatePaths = [
+    path.join(bundlePath, "Contents", "Resources", "manifest.json"),
+    path.join(bundlePath, "Contents", "manifest.json"),
+    path.join(bundlePath, "manifest.json")
+  ];
+  for (const manifest of candidatePaths) {
+    if (!fs.existsSync(manifest)) continue;
+    let doc: any;
+    try {
+      let raw = fs.readFileSync(manifest, "utf8");
+      if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+      doc = JSON.parse(raw);
+    } catch { continue; }
+    const out: string[] = [];
+    collectCommandNames(doc?.commands, out);
+    if (Array.isArray(doc?.themes)) {
+      for (const t of doc.themes) collectCommandNames(t?.commands, out);
+    }
+    if (out.length > 0) return out;
+  }
+  return [];
+}
+
+function collectCommandNames(entries: unknown, out: string[]): void {
+  if (!Array.isArray(entries)) return;
   for (const e of entries) {
-    const syntax = typeof e?.syntax === "string" ? e.syntax : "";
+    if (!e || typeof e !== "object") continue;
+    const direct =
+      typeof (e as any).name === "string" ? (e as any).name :
+      typeof (e as any).commandName === "string" ? (e as any).commandName :
+      "";
+    if (direct.trim()) { out.push(direct.trim()); continue; }
+    const syntax = typeof (e as any).syntax === "string" ? (e as any).syntax : "";
     if (!syntax) continue;
     const paren = syntax.indexOf("(");
     const name = (paren > 0 ? syntax.slice(0, paren) : syntax).trim();
     if (name) out.push(name);
   }
-  return out;
 }
 
 function walkDir(dir: string, opts: ScanOptions, visit: (path: string) => void): void {

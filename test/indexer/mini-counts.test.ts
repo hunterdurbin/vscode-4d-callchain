@@ -21,7 +21,14 @@ describeWithFixture("indexer/mini-counts — deterministic kind tallies", (root)
   it("ProjectMethod count is exact", () => {
     if (!isMini) return;
     const count = idx.symbols.filter((s) => s.kind === ("ProjectMethod" as any)).length;
-    expect(count).toBe(25);
+    expect(count).toBe(26);
+  });
+
+  it("Plugin / PluginCommand count is exact (1 bundle, 2 commands from Plugins/PgSQL.bundle)", () => {
+    if (!isMini) return;
+    expect(idx.symbols.filter((s) => s.kind === ("Plugin" as any)).length).toBe(1);
+    const cmds = idx.symbols.filter((s) => s.kind === ("PluginCommand" as any));
+    expect(cmds.map((s) => s.name).sort()).toEqual(["PgSQL Connect", "PgSQL Execute"]);
   });
 
   it("CompilerMethod count is exact (1: Compiler_Variables.4dm)", () => {

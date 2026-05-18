@@ -415,6 +415,47 @@ describe("tokenize", () => {
     findOne(toks, "identifier", 0, 0);
   });
 
+  it("multi-word plugin command lexes as a single pluginCommand token", () => {
+    const toks = tokenize("PgSQL Connect", {
+      pluginCommands: new Set(["PgSQL Connect", "PgSQL Execute"])
+    });
+    const tok = findOne(toks, "pluginCommand", 0, 0);
+    expect(tok.length).toBe("PgSQL Connect".length);
+  });
+
+  it("plugin command matching is case-insensitive and works inside a statement", () => {
+    const toks = tokenize("$ok:=pgsql connect()", {
+      pluginCommands: new Set(["PgSQL Connect"])
+    });
+    const tok = findOne(toks, "pluginCommand", 0, "$ok:=".length);
+    expect(tok.length).toBe("pgsql connect".length);
+  });
+
+  it("plugin command longest-match wins (`PgSQL Get parameter` over `PgSQL Get`)", () => {
+    const toks = tokenize("PgSQL Get parameter", {
+      pluginCommands: new Set(["PgSQL Get", "PgSQL Get parameter"])
+    });
+    const tok = findOne(toks, "pluginCommand", 0, 0);
+    expect(tok.length).toBe("PgSQL Get parameter".length);
+  });
+
+  it("without the option, plugin-shaped names fall through to identifier (regression guard)", () => {
+    const toks = tokenize("PgSQL Connect");
+    expect(toks.find((t) => t.kind === "pluginCommand")).toBeUndefined();
+    findOne(toks, "identifier", 0, 0);                // PgSQL
+    findOne(toks, "identifier", 0, "PgSQL ".length);  // Connect
+  });
+
+  it("4D builtin wins over a same-named plugin entry", () => {
+    // If a user's plugin manifest somehow listed `Count parameters`, the
+    // built-in must still win — the builtin pass runs first.
+    const toks = tokenize("Count parameters", {
+      pluginCommands: new Set(["Count parameters"])
+    });
+    findOne(toks, "builtinCommand", 0, 0);
+    expect(toks.find((t) => t.kind === "pluginCommand")).toBeUndefined();
+  });
+
   it("parens and braces emit operator tokens", () => {
     const toks = tokenize("foo({1; 2})");
     findOne(toks, "operator", 0, 3);  // (

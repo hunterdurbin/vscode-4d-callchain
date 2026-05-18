@@ -97,7 +97,16 @@ export class Indexer {
       }
     }
     const plugins = discoverPlugins(this.opts.projectRoot);
-    this.opts.logger.info(`[Indexer] Discovered ${plugins.length} plugin bundles`);
+    const totalPluginCommands = plugins.reduce((n, p) => n + p.commands.length, 0);
+    this.opts.logger.info(
+      `[Indexer] Discovered ${plugins.length} plugin bundles (${totalPluginCommands} commands total)`
+    );
+    // Per-plugin breakdown so zero-command bundles are visible (helps diagnose
+    // manifest-format mismatches — e.g., if `PgSQL.bundle` yields 0 commands
+    // it means its manifest doesn't match the shapes readPluginCommands knows).
+    for (const p of plugins) {
+      this.opts.logger.info(`[Indexer]   ${p.name}: ${p.commands.length} commands`);
+    }
     const catalogTables = discoverCatalogTables(this.opts.projectRoot);
     this.opts.logger.info(`[Indexer] Discovered ${catalogTables.size} catalog tables`);
 

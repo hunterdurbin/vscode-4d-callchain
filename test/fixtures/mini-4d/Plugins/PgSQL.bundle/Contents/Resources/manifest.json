@@ -1,0 +1,6 @@
+{
+  "commands": [
+    { "theme": "PgSQL", "syntax": "PgSQL Connect(&T;&T;&T;&T;&L)" },
+    { "theme": "PgSQL", "syntax": "PgSQL Execute(&T)" }
+  ]
+}

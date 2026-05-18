@@ -154,7 +154,8 @@ function buildTokens(
   const doc = documents.get(uri);
   if (doc) {
     const processVariables = collectVariableNames(state);
-    const lex = tokenize(doc.getText(), { processVariables });
+    const pluginCommands = collectPluginCommandNames(state);
+    const lex = tokenize(doc.getText(), { processVariables, pluginCommands });
     const claimed = buildClaimedSpans(symbolTokens);
     for (const lt of lex) {
       const t = lexTokenToToken(lt);
@@ -217,6 +218,7 @@ const LEX_KIND_TO_TOKEN: Partial<Record<LexTokenKind, { typeIdx: number; modifie
   operator:        { typeIdx: TYPE_OPERATOR,  modifiers: 0 },
   builtinGlobal:   { typeIdx: TYPE_METHOD,    modifiers: MOD_DEFAULT_LIBRARY },
   builtinCommand:  { typeIdx: TYPE_METHOD,    modifiers: MOD_DEFAULT_LIBRARY },
+  pluginCommand:   { typeIdx: TYPE_METHOD,    modifiers: MOD_PLUGIN },
   property:        { typeIdx: TYPE_PROPERTY,  modifiers: 0 }
 };
 
@@ -234,6 +236,32 @@ function collectVariableNames(state: ServerState): Set<string> {
       out.add(sym.name.toLowerCase());
     }
   }
+  return out;
+}
+
+// Memoize per graph instance — `state.graph` returns the same object until a
+// reindex replaces it, and the lexer's plugin-name lookup cache is keyed by
+// Set identity, so returning the same Set keeps that hot.
+const PLUGIN_NAME_CACHE = new WeakMap<object, Set<string>>();
+
+/**
+ * Build the case-preserving set of plugin command names (e.g. `"PgSQL Connect"`)
+ * from the current index. The lexer uses this to lex plugin commands as
+ * `pluginCommand` tokens, which map to `method.plugin`. Empty set when no
+ * graph is loaded yet (e.g. during cold-start before the first index).
+ */
+function collectPluginCommandNames(state: ServerState): Set<string> {
+  const graph = state.graph;
+  if (!graph) return new Set();
+  const cached = PLUGIN_NAME_CACHE.get(graph as unknown as object);
+  if (cached) return cached;
+  const out = new Set<string>();
+  for (const sym of graph.allSymbols()) {
+    if (sym.kind === SymbolKind.PluginCommand) {
+      out.add(sym.name);
+    }
+  }
+  PLUGIN_NAME_CACHE.set(graph as unknown as object, out);
   return out;
 }
 
