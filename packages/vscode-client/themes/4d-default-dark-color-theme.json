@@ -49,7 +49,7 @@
     },
     {
       "scope": ["constant.language", "constant.language.boolean", "constant.language.null"],
-      "settings": { "foreground": "#ABB2BF", "fontStyle": "underline" }
+      "settings": { "foreground": "#ABB2BF" }
     },
     {
       "scope": ["keyword", "keyword.control"],
@@ -168,7 +168,7 @@
     },
     {
       "scope": "constant.language.4d",
-      "settings": { "foreground": "#ABB2BF", "fontStyle": "underline" }
+      "settings": { "foreground": "#ABB2BF" }
     },
     {
       "scope": ["constant.numeric.decimal.4d", "constant.numeric.hexadecimal.4d"],
