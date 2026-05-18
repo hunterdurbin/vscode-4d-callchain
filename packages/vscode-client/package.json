@@ -58,7 +58,7 @@
           "number:4d":                { "foreground": "#D19A66" },
           "comment:4d":               { "foreground": "#5C6370", "fontStyle": "italic" },
           "type:4d":                  { "foreground": "#E5C07B" },
-          "constant:4d":              { "foreground": "#D19A66" },
+          "constant:4d":              { "fontStyle": "underline" },
           "parameter:4d":             { "foreground": "#E06C75" },
           "variable.local:4d":        { "foreground": "#E06C75" },
           "variable.process:4d":      { "foreground": "#E06C75" },

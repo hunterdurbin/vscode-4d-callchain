@@ -49,7 +49,7 @@
     },
     {
       "scope": ["constant.language", "constant.language.boolean", "constant.language.null"],
-      "settings": { "foreground": "#986801" }
+      "settings": { "foreground": "#383A42", "fontStyle": "underline" }
     },
     {
       "scope": ["keyword", "keyword.control"],
@@ -167,7 +167,11 @@
       "settings": { "foreground": "#C18401" }
     },
     {
-      "scope": ["constant.language.4d", "constant.numeric.decimal.4d", "constant.numeric.hexadecimal.4d"],
+      "scope": "constant.language.4d",
+      "settings": { "foreground": "#383A42", "fontStyle": "underline" }
+    },
+    {
+      "scope": ["constant.numeric.decimal.4d", "constant.numeric.hexadecimal.4d"],
       "settings": { "foreground": "#986801" }
     },
     {
@@ -190,7 +194,7 @@
     "number:4d":                { "foreground": "#986801" },
     "comment:4d":               { "foreground": "#A0A1A7", "fontStyle": "italic" },
     "type:4d":                  { "foreground": "#C18401" },
-    "constant:4d":              { "foreground": "#986801" },
+    "constant:4d":              { "foreground": "#383A42", "fontStyle": "underline" },
     "parameter:4d":             { "foreground": "#E45649" },
     "variable.local:4d":        { "foreground": "#E45649" },
     "variable.process:4d":      { "foreground": "#E45649" },
