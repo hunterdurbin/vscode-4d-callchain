@@ -206,6 +206,6 @@
     "function:4d":              { "foreground": "#4078F2" },
     "property:4d":              { "foreground": "#E45649" },
     "table:4d":                 { "foreground": "#C18401" },
-    "field:4d":                 { "foreground": "#E45649" }
+    "field:4d":                 { "foreground": "#C18401" }
   }
 }
