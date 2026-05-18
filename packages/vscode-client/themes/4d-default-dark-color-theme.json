@@ -15,7 +15,20 @@
     "editorLineNumber.foreground": "#5C6370",
     "editorLineNumber.activeForeground": "#ABB2BF",
     "editorWhitespace.foreground": "#3B4048",
-    "editorRuler.foreground": "#3B4048"
+    "editorRuler.foreground": "#3B4048",
+    "editorBracketHighlight.foreground1": "#E5C07B",
+    "editorBracketHighlight.foreground2": "#C678DD",
+    "editorBracketHighlight.foreground3": "#56B6C2",
+    "editorBracketHighlight.foreground4": "#98C379",
+    "editorBracketHighlight.foreground5": "#61AFEF",
+    "editorBracketHighlight.foreground6": "#D19A66",
+    "editorBracketHighlight.unexpectedBracket.foreground": "#E06C75",
+    "editorBracketPairGuide.activeBackground1": "#E5C07B",
+    "editorBracketPairGuide.activeBackground2": "#C678DD",
+    "editorBracketPairGuide.activeBackground3": "#56B6C2",
+    "editorBracketPairGuide.activeBackground4": "#98C379",
+    "editorBracketPairGuide.activeBackground5": "#61AFEF",
+    "editorBracketPairGuide.activeBackground6": "#D19A66"
   },
   "tokenColors": [
     {
