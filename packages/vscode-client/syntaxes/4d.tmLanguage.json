@@ -16,7 +16,6 @@
     { "include": "#property-key" },
     { "include": "#directives" },
     { "include": "#control-keywords" },
-    { "include": "#declaration-keywords" },
     { "include": "#modifier-keywords" },
     { "include": "#language-constants" },
     { "include": "#language-this" },
@@ -140,11 +139,7 @@
     },
     "control-keywords": {
       "name": "keyword.control.4d",
-      "match": "(?i)\\b(?:End[ \\t]+for[ \\t]+each|End[ \\t]+for|End[ \\t]+while|End[ \\t]+if|End[ \\t]+case|End[ \\t]+try|End[ \\t]+use|End[ \\t]+SQL[ \\t]+Without|End[ \\t]+SQL|Else[ \\t]+if|Case[ \\t]+of|For[ \\t]+each|Begin[ \\t]+SQL|If|Else|For|While|Repeat|Until|Case|End|Try|Catch|Throw|Return|Break|Continue|Use)\\b"
-    },
-    "declaration-keywords": {
-      "name": "storage.type.4d",
-      "match": "(?i)\\b(?:Class[ \\t]+constructor|Class[ \\t]+extends|End[ \\t]+function|End[ \\t]+class|Function|Class)\\b"
+      "match": "(?i)\\b(?:Class[ \\t]+constructor|Class[ \\t]+extends|End[ \\t]+for[ \\t]+each|End[ \\t]+for|End[ \\t]+while|End[ \\t]+if|End[ \\t]+case|End[ \\t]+try|End[ \\t]+use|End[ \\t]+SQL[ \\t]+Without|End[ \\t]+SQL|End[ \\t]+function|End[ \\t]+class|Else[ \\t]+if|Case[ \\t]+of|For[ \\t]+each|Begin[ \\t]+SQL|If|Else|For|While|Repeat|Until|Case|End|Try|Catch|Throw|Return|Break|Continue|Use|Function|Class)\\b"
     },
     "modifier-keywords": {
       "name": "storage.modifier.4d",

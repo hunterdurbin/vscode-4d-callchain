@@ -300,8 +300,12 @@ function symbolToken(sym: SymbolRecord, line: number, startChar: number, endChar
     case SymbolKind.Class:
       return { line, startChar, length, typeIdx: TYPE_TYPE, modifiers: 0 };
     case SymbolKind.ClassFunction:
-    case SymbolKind.ClassConstructor:
       return { line, startChar, length, typeIdx: TYPE_FUNCTION, modifiers: 0 };
+    case SymbolKind.ClassConstructor:
+      // Official 4D extension tokenizes `Class constructor` as a keyword
+      // (purple), not a function — the constructor identifier is structural
+      // syntax, not a callable member name.
+      return { line, startChar, length, typeIdx: TYPE_KEYWORD, modifiers: 0 };
     case SymbolKind.ClassGetter:
     case SymbolKind.ClassSetter:
       return { line, startChar, length, typeIdx: TYPE_PROPERTY, modifiers: 0 };
@@ -338,8 +342,11 @@ function callSiteToken(edge: CallEdge, target: SymbolRecord | undefined, length:
       typeIdx = TYPE_TYPE;
       break;
     case SymbolKind.ClassFunction:
-    case SymbolKind.ClassConstructor:
       typeIdx = TYPE_FUNCTION;
+      break;
+    case SymbolKind.ClassConstructor:
+      // Match the symbol-definition handling: constructors render as keyword.
+      typeIdx = TYPE_KEYWORD;
       break;
     case SymbolKind.ClassGetter:
     case SymbolKind.ClassSetter:
