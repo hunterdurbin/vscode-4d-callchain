@@ -53,7 +53,6 @@
       "editor.semanticTokenColorCustomizations": {
         "enabled": true,
         "rules": {
-          "operator:4d":              { "foreground": "#56B6C2" },
           "keyword:4d":               { "foreground": "#C678DD" },
           "string:4d":                { "foreground": "#98C379" },
           "number:4d":                { "foreground": "#D19A66" },

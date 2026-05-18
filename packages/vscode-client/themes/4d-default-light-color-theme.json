@@ -57,7 +57,7 @@
     },
     {
       "scope": ["keyword.operator", "keyword.operator.assignment", "keyword.operator.comparison"],
-      "settings": { "foreground": "#0184BC" }
+      "settings": { "foreground": "#383A42" }
     },
     {
       "scope": "storage.type",
@@ -133,18 +133,12 @@
     },
     {
       "scope": [
-        "punctuation.section.arguments.begin.bracket.round.4d",
-        "punctuation.section.arguments.end.bracket.round.4d",
-        "punctuation.section.scope.begin.bracket.curly.4d",
-        "punctuation.section.scope.end.bracket.curly.4d",
         "punctuation.terminator.statement.4d",
         "punctuation.separator.delimiter.4d",
         "punctuation.separator.dot-access.4d",
-        "punctuation.separator.pointer-access.4d",
-        "punctuation.definition.begin.bracket.square.4d",
-        "punctuation.definition.end.bracket.square.4d"
+        "punctuation.separator.pointer-access.4d"
       ],
-      "settings": { "foreground": "#0184BC" }
+      "settings": { "foreground": "#383A42" }
     },
     {
       "scope": [
@@ -190,7 +184,7 @@
     }
   ],
   "semanticTokenColors": {
-    "operator:4d":              { "foreground": "#0184BC" },
+    "operator:4d":              { "foreground": "#383A42" },
     "keyword:4d":               { "foreground": "#A626A4" },
     "string:4d":                { "foreground": "#50A14F" },
     "number:4d":                { "foreground": "#986801" },

@@ -57,7 +57,7 @@
     },
     {
       "scope": ["keyword.operator", "keyword.operator.assignment", "keyword.operator.comparison"],
-      "settings": { "foreground": "#56B6C2" }
+      "settings": { "foreground": "#ABB2BF" }
     },
     {
       "scope": "storage.type",
@@ -133,18 +133,12 @@
     },
     {
       "scope": [
-        "punctuation.section.arguments.begin.bracket.round.4d",
-        "punctuation.section.arguments.end.bracket.round.4d",
-        "punctuation.section.scope.begin.bracket.curly.4d",
-        "punctuation.section.scope.end.bracket.curly.4d",
         "punctuation.terminator.statement.4d",
         "punctuation.separator.delimiter.4d",
         "punctuation.separator.dot-access.4d",
-        "punctuation.separator.pointer-access.4d",
-        "punctuation.definition.begin.bracket.square.4d",
-        "punctuation.definition.end.bracket.square.4d"
+        "punctuation.separator.pointer-access.4d"
       ],
-      "settings": { "foreground": "#56B6C2" }
+      "settings": { "foreground": "#ABB2BF" }
     },
     {
       "scope": [
@@ -190,7 +184,7 @@
     }
   ],
   "semanticTokenColors": {
-    "operator:4d":              { "foreground": "#56B6C2" },
+    "operator:4d":              { "foreground": "#ABB2BF" },
     "keyword:4d":               { "foreground": "#C678DD" },
     "string:4d":                { "foreground": "#98C379" },
     "number:4d":                { "foreground": "#D19A66" },
