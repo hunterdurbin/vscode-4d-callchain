@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 28 after the schema bump", () => {
-    expect(INDEX_VERSION).toBe(28);
+  it("INDEX_VERSION is 29 after the schema bump", () => {
+    expect(INDEX_VERSION).toBe(29);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {

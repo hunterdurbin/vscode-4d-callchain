@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { unpack } from "msgpackr";
 import { Indexer, classifyChange } from "../../packages/core/dist";
 import type { SymbolIndex } from "../../packages/core/dist";
 import { resolveFixture } from "../helpers/fixture";
+
+function readCache(p: string): SymbolIndex {
+  return unpack(fs.readFileSync(p)) as SymbolIndex;
+}
 
 function copyDir(src: string, dst: string): void {
   fs.mkdirSync(dst, { recursive: true });
@@ -108,7 +113,7 @@ describe("patchFile dispatcher routes non-.4dm to full rebuild", () => {
       logger: silentLogger() as any
     });
     await ixWarm.load();
-    const cachePath = path.join(root, ".vscode", "callchain-index.json");
+    const cachePath = path.join(root, ".vscode", "callchain-index.msgpack");
     expect(fs.existsSync(cachePath)).toBe(true);
 
     // 2) Touch the constants file so its mtime advances beyond the cached value.
@@ -119,14 +124,14 @@ describe("patchFile dispatcher routes non-.4dm to full rebuild", () => {
 
     // 3) A fresh Indexer should treat the cache as stale and rebuild on load.
     //    We detect the rebuild by observing the cache's `builtAt` advancing.
-    const cachedBefore = JSON.parse(fs.readFileSync(cachePath, "utf8")) as SymbolIndex;
+    const cachedBefore = readCache(cachePath);
     const ixCold = new Indexer({
       projectRoot: root,
       exclusions: ["DerivedData", "Libraries", ".git", "node_modules"],
       logger: silentLogger() as any
     });
     await ixCold.load();
-    const cachedAfter = JSON.parse(fs.readFileSync(cachePath, "utf8")) as SymbolIndex;
+    const cachedAfter = readCache(cachePath);
     expect(cachedAfter.builtAt).toBeGreaterThan(cachedBefore.builtAt);
   });
 
@@ -184,8 +189,8 @@ describe("patchFile dispatcher routes non-.4dm to full rebuild", () => {
       logger: silentLogger() as any
     });
     await ix1.load();
-    const cachePath = path.join(root, ".vscode", "callchain-index.json");
-    const cachedBefore = JSON.parse(fs.readFileSync(cachePath, "utf8")) as SymbolIndex;
+    const cachePath = path.join(root, ".vscode", "callchain-index.msgpack");
+    const cachedBefore = readCache(cachePath);
 
     // Drop in a brand-new Constants_Extra.xlf and reload.
     await new Promise((r) => setTimeout(r, 20));
@@ -201,7 +206,7 @@ describe("patchFile dispatcher routes non-.4dm to full rebuild", () => {
       logger: silentLogger() as any
     });
     await ix2.load();
-    const cachedAfter = JSON.parse(fs.readFileSync(cachePath, "utf8")) as SymbolIndex;
+    const cachedAfter = readCache(cachePath);
     expect(cachedAfter.builtAt).toBeGreaterThan(cachedBefore.builtAt);
   });
 });
