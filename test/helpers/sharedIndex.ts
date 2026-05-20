@@ -41,7 +41,7 @@ async function buildIndex(projectRoot: string): Promise<SymbolIndex> {
   const catalogTables = projectScanner.discoverCatalogTables(projectRoot);
   const components = componentScanner.discoverComponents(projectRoot);
 
-  return nameResolver.buildSymbolIndex(
+  const built = nameResolver.buildSymbolIndex(
     projectRoot,
     parsed,
     plugins,
@@ -51,6 +51,7 @@ async function buildIndex(projectRoot: string): Promise<SymbolIndex> {
     variables,
     components
   );
+  return built.index;
 }
 
 export function symFinder(idx: SymbolIndex) {

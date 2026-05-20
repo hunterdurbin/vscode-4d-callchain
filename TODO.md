@@ -23,7 +23,7 @@ Effort estimates: **XS** < 30 min · **S** ~1 hr · **M** ~half-day · **L** ~1�
 
 | # | Item | Effort | Notes |
 |---|---|---|---|
-| 9 | Incremental indexing | M–L | `patchFile()` currently does a full rebuild (~25s on symphony). Replace with per-file diff. Biggest UX win after the initial index. |
+| 9 | ~~Incremental indexing~~ ✅ | M–L | `patchFile()` now diffs per-file. INDEX_VERSION 27 adds `fileOrigins[]` reference-counting on synthetic symbols; `Indexer` keeps warm caches (`parsedByPath`, `edgesByFromId`, `edgesByNameKey` reverse-name index) populated at the tail of `rebuild()`. Cross-file fan-out re-resolves only the call sites that referenced names the patched files added/removed. `patchFiles()` batches `onDidChangeWatchedFiles` so a rename emits one update. Fallbacks: full rebuild on cold caches, non-`.4dm` changes, batches > 50, or synth refcount drift. |
 | 10 | File watching gaps | S | We watch `.4dm` only. Missing: `.4DCatalog`, `Resources/Constants_*.xlf`, component `.4DZ`, `Catalog/Tables/*.json`. Each requires a partial reindex. |
 | 11 | Per-workspace cache paths | S | Multiple 4D projects open in one VSCode window collide on `.vscode/callchain-index.json`. |
 | 12 | Component class columns | M | 664 ClassFunction symbols are line-only because they come from `.4DZ` `classes.json`. Could read the `.4DZ`'s embedded source if present, or accept line-only behavior. |
@@ -58,6 +58,6 @@ Effort estimates: **XS** < 30 min · **S** ~1 hr · **M** ~half-day · **L** ~1�
 
 ## Recommended next 3
 
-1. **Incremental indexing** (#9) — eliminates the save-feels-slow problem; now the only large UX gap left.
-2. **Rename** (#6) — column ranges are now in the index, so the precise call-site replacements rename needs are available.
+1. **Rename** (#6) — column ranges are in the index, so the precise call-site replacements rename needs are available.
+2. **File watching gaps** (#10) — extend the patch path to `.4DCatalog`, `Resources/Constants_*.xlf`, component `.4DZ`, `Catalog/Tables/*.json` (currently fall back to full rebuild).
 3. **`#DECLARE(...)->$return : Type` return-variable capture** — would let `$return.` completion work inside methods that declare an output via the arrow form.

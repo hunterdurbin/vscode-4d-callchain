@@ -53,12 +53,100 @@ export interface ResolverInput {
 export interface ResolverOutput {
   edges: CallEdge[];
   unresolvedSymbols: SymbolRecord[];
+  /**
+   * For each parsed file (keyed by `absolutePath`), the set of synthetic
+   * symbol ids that file contributed to. Lets the incremental indexer reverse
+   * the contribution on file change/delete and drop synths whose refcount
+   * reaches zero.
+   */
+  synthOwnersByPath: Map<string, Set<string>>;
+}
+
+/**
+ * Bundle of lookup maps + helper closures shared across the per-file loop.
+ * Built once per `resolve()` invocation (full rebuild) or per patch (incremental).
+ * The synth-creation closures (`findOrCreateBuiltin` etc.) mutate `unresolved`
+ * + `unresolvedSeen` so symbols accumulate across files. Helpers that close
+ * over `input` (`stepProperty`, `stepMethodReturn`, `classFromVarType`) get
+ * fresh closures bound to the current `input` reference.
+ */
+export interface ResolverScratch {
+  input: ResolverInput;
+  // Lookup maps
+  byName: Map<string, SymbolRecord[]>;
+  classByName: Map<string, SymbolRecord>;
+  componentClassByNs: Map<string, SymbolRecord>;
+  classFunctions: Map<string, SymbolRecord>;
+  classGetters: Map<string, SymbolRecord>;
+  classSetters: Map<string, SymbolRecord>;
+  pluginByName: Map<string, string>;
+  commandToPlugin: Map<string, string>;
+  constantsByName: Map<string, string>;
+  interprocessByName: Map<string, string>;
+  formsByName: Map<string, string>;
+  // Synth-symbol state. `unresolved` is appended to; `unresolvedSeen`
+  // dedupes ids; `synthOwnersByPath` attributes each synth's contribution
+  // to the file that created it (needed for incremental refcount).
+  unresolved: SymbolRecord[];
+  unresolvedSeen: Set<string>;
+  synthOwnersByPath: Map<string, Set<string>>;
+  // Synth creators. The currently-resolving file's absolute path is
+  // configured via `setCurrentFileOrigin` so call sites don't have to
+  // thread the path through. The creators read it at invocation time and
+  // attribute the synth to that file (for incremental refcounting).
+  setCurrentFileOrigin: (absolutePath: string | undefined) => void;
+  findOrCreateBuiltin: (name: string) => string;
+  findOrCreateTableBuiltin: (table: string, method: string) => string;
+  findOrCreateUnresolved: (name: string) => string;
+  // Class chain resolvers
+  resolveOnClassChain: (className: string, method: string) => SymbolRecord | undefined;
+  resolveGetterOnChain: (className: string, prop: string) => SymbolRecord | undefined;
+  resolveSetterOnChain: (className: string, prop: string) => SymbolRecord | undefined;
+  classForTable: (tableName: string) => string | undefined;
+  normalizeType: (type: string | undefined) => string | undefined;
+  stepProperty: (type: string, prop: string) => string | undefined;
+  stepMethodReturn: (type: string, method: string) => string | undefined;
+  builtinBaseOf: (type: string) => string | undefined;
+  builtinMethodName: (type: string, method: string) => string | undefined;
+  classFromVarType: (type: string | undefined) => string | undefined;
+  resolveMethodOnType: (type: string, method: string) => SymbolRecord | undefined;
+  resolveMethodOrBuiltin: (type: string, method: string) => { id: string; resolved: boolean } | undefined;
 }
 
 export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): ResolverOutput {
-  const edges: CallEdge[] = [];
+  const scratch = buildResolverScratch(input, projectSymbols);
+  const allEdges: CallEdge[] = [];
+  for (const parsed of input.files) {
+    const fileEdges = resolveCallsForFile(parsed, scratch);
+    for (const e of fileEdges) allEdges.push(e);
+  }
+  // Project-wide dedup. Per-file dedup happens in `resolveCallsForFile`, but
+  // identical edges can still arise across files when two files own symbols
+  // with the same id (rare; preserved for backward compatibility).
+  const seen = new Set<string>();
+  const uniq: CallEdge[] = [];
+  for (const e of allEdges) {
+    const key = `${e.fromId}|${e.toId}|${e.line}|${e.callKind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniq.push(e);
+  }
+  return {
+    edges: uniq,
+    unresolvedSymbols: scratch.unresolved,
+    synthOwnersByPath: scratch.synthOwnersByPath
+  };
+}
+
+/**
+ * Build the lookup maps + helper closures over `projectSymbols`. The returned
+ * scratch is re-usable across multiple per-file resolves for a single patch.
+ */
+export function buildResolverScratch(input: ResolverInput, projectSymbols: SymbolRecord[]): ResolverScratch {
   const unresolved: SymbolRecord[] = [];
   const unresolvedSeen = new Set<string>();
+  const unresolvedById = new Map<string, SymbolRecord>();
+  const synthOwnersByPath = new Map<string, Set<string>>();
 
   // Build indexes for fast lookup.
   const byName = new Map<string, SymbolRecord[]>();
@@ -153,17 +241,47 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
     }
   }
 
+  // Tracked across synth-creator invocations so incremental indexing can
+  // reverse a file's contribution without re-scanning the entire edge set.
+  // The per-file resolver sets this via setCurrentFileOrigin before
+  // iterating a ParsedFile's rawCalls.
+  let currentFileOrigin: string | undefined;
+  const setCurrentFileOrigin = (absolutePath: string | undefined): void => {
+    currentFileOrigin = absolutePath;
+  };
+
+  // Maintain the symbol's `fileOrigins[]` AND the per-file `synthOwnersByPath`
+  // index in lock-step. Calls that don't have a fileOrigin (theoretically none
+  // in normal use) are silently skipped — synth symbols missing a fileOrigin
+  // would never be reclaimed, but that's the same behaviour as before.
+  const recordSynthOwner = (id: string, sym: SymbolRecord): void => {
+    if (!currentFileOrigin) return;
+    let owners = synthOwnersByPath.get(currentFileOrigin);
+    if (!owners) {
+      owners = new Set();
+      synthOwnersByPath.set(currentFileOrigin, owners);
+    }
+    if (owners.has(id)) return;
+    owners.add(id);
+    const list = sym.fileOrigins ?? (sym.fileOrigins = []);
+    if (!list.includes(currentFileOrigin)) list.push(currentFileOrigin);
+  };
+
   const findOrCreateBuiltin = (name: string): string => {
     const id = symbolIdFor(SymbolKind.Builtin, name);
+    let sym = unresolvedById.get(id);
     if (!unresolvedSeen.has(id)) {
       unresolvedSeen.add(id);
-      unresolved.push({
+      sym = {
         id,
         name,
         kind: SymbolKind.Builtin,
         location: { uri: "", line: 0 }
-      });
+      };
+      unresolved.push(sym);
+      unresolvedById.set(id, sym);
     }
+    if (sym) recordSynthOwner(id, sym);
     return id;
   };
 
@@ -176,30 +294,38 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   const findOrCreateTableBuiltin = (table: string, method: string): string => {
     const name = `ds.${table}.${method}`;
     const id = symbolIdFor(SymbolKind.TableBuiltin, name);
+    let sym = unresolvedById.get(id);
     if (!unresolvedSeen.has(id)) {
       unresolvedSeen.add(id);
-      unresolved.push({
+      sym = {
         id,
         name,
         kind: SymbolKind.TableBuiltin,
         location: { uri: "", line: 0 },
         ownerTable: table
-      });
+      };
+      unresolved.push(sym);
+      unresolvedById.set(id, sym);
     }
+    if (sym) recordSynthOwner(id, sym);
     return id;
   };
 
   const findOrCreateUnresolved = (name: string): string => {
     const id = symbolIdFor(SymbolKind.Unresolved, name);
+    let sym = unresolvedById.get(id);
     if (!unresolvedSeen.has(id)) {
       unresolvedSeen.add(id);
-      unresolved.push({
+      sym = {
         id,
         name,
         kind: SymbolKind.Unresolved,
         location: { uri: "", line: 0 }
-      });
+      };
+      unresolved.push(sym);
+      unresolvedById.set(id, sym);
     }
+    if (sym) recordSynthOwner(id, sym);
     return id;
   };
 
@@ -488,7 +614,80 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
     return undefined;
   };
 
-  for (const parsed of input.files) {
+  return {
+    input,
+    byName,
+    classByName,
+    componentClassByNs,
+    classFunctions,
+    classGetters,
+    classSetters,
+    pluginByName,
+    commandToPlugin,
+    constantsByName,
+    interprocessByName,
+    formsByName,
+    unresolved,
+    unresolvedSeen,
+    synthOwnersByPath,
+    setCurrentFileOrigin,
+    findOrCreateBuiltin,
+    findOrCreateTableBuiltin,
+    findOrCreateUnresolved,
+    resolveOnClassChain,
+    resolveGetterOnChain,
+    resolveSetterOnChain,
+    classForTable,
+    normalizeType,
+    stepProperty,
+    stepMethodReturn,
+    builtinBaseOf,
+    builtinMethodName,
+    classFromVarType,
+    resolveMethodOnType,
+    resolveMethodOrBuiltin
+  };
+}
+
+/**
+ * Resolve the rawCalls of a single ParsedFile against the supplied scratch,
+ * mutating the scratch's `unresolved` / `synthOwnersByPath` state as new
+ * synthetic targets are created. Returns the file's edges, deduplicated
+ * within the file by `(fromId, toId, line, callKind)`.
+ */
+export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch): CallEdge[] {
+  const {
+    input,
+    byName,
+    classByName,
+    componentClassByNs,
+    classFunctions,
+    classGetters,
+    classSetters,
+    commandToPlugin,
+    constantsByName,
+    interprocessByName,
+    formsByName,
+    setCurrentFileOrigin,
+    findOrCreateBuiltin,
+    findOrCreateTableBuiltin,
+    findOrCreateUnresolved,
+    resolveOnClassChain,
+    resolveGetterOnChain,
+    resolveSetterOnChain,
+    classForTable,
+    normalizeType,
+    stepProperty,
+    stepMethodReturn,
+    builtinMethodName,
+    classFromVarType,
+    resolveMethodOrBuiltin
+  } = scratch;
+  const pathLabel = (path: { name: string; isCall: boolean }[]): string =>
+    path.map((s) => (s.isCall ? `${s.name}()` : s.name)).join(".");
+  const edges: CallEdge[] = [];
+  setCurrentFileOrigin(parsed.file.absolutePath);
+  {
     const localTypes = parsed.localTypes;
     const className = parsed.classInfo?.name;
 
@@ -877,7 +1076,8 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
     }
   }
 
-  // Deduplicate identical edges (same from/to/line)
+  // Per-file dedup: identical edges (same from/to/line/callKind) within a
+  // single file collapse to one. Project-wide dedup is handled by `resolve`.
   const seen = new Set<string>();
   const uniq: CallEdge[] = [];
   for (const e of edges) {
@@ -886,7 +1086,8 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
     seen.add(key);
     uniq.push(e);
   }
-  return { edges: uniq, unresolvedSymbols: unresolved };
+  setCurrentFileOrigin(undefined);
+  return uniq;
 }
 
 export function buildSymbolIndex(
@@ -910,7 +1111,7 @@ export function buildSymbolIndex(
       properties?: Record<string, { className: string; componentName: string }>;
     }[];
   }[] = []
-): SymbolIndex {
+): { index: SymbolIndex; resolverInput: ResolverInput; synthOwnersByPath: Map<string, Set<string>> } {
   const allSymbols: SymbolRecord[] = [];
   for (const f of parsedFiles) {
     for (const s of f.symbols) allSymbols.push(s);
@@ -1117,26 +1318,24 @@ export function buildSymbolIndex(
     }
   }
 
-  const { edges, unresolvedSymbols } = resolve(
-    {
-      files: parsedFiles,
-      plugins: pluginSyms.map((s, i) => ({
-        name: s.name,
-        symbolId: s.id,
-        commands: plugins[i]?.commands
-      })),
-      catalogTables,
-      componentByMethod,
-      componentClassPropsByNs,
-      projectClassPropsByName,
-      projectClassMethodReturnsByName
-    },
-    allSymbols
-  );
+  const resolverInput: ResolverInput = {
+    files: parsedFiles,
+    plugins: pluginSyms.map((s, i) => ({
+      name: s.name,
+      symbolId: s.id,
+      commands: plugins[i]?.commands
+    })),
+    catalogTables,
+    componentByMethod,
+    componentClassPropsByNs,
+    projectClassPropsByName,
+    projectClassMethodReturnsByName
+  };
+  const { edges, unresolvedSymbols, synthOwnersByPath } = resolve(resolverInput, allSymbols);
 
   for (const u of unresolvedSymbols) allSymbols.push(u);
 
-  return {
+  const index: SymbolIndex = {
     version: INDEX_VERSION,
     builtAt: Date.now(),
     projectRoot,
@@ -1144,4 +1343,5 @@ export function buildSymbolIndex(
     edges,
     fileMtimes: {}
   };
+  return { index, resolverInput, synthOwnersByPath };
 }

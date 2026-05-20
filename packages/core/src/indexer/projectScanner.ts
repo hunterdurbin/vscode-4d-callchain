@@ -191,6 +191,100 @@ export function discoverCatalogTableIdMap(projectRoot: string): Map<string, stri
   return out;
 }
 
+/**
+ * Single-file analogue of `discoverFiles()`. Given an absolute path, return
+ * the same `DiscoveredFile` shape the walk would emit — or `undefined` if the
+ * path isn't a project source we know how to index. Used by the incremental
+ * indexer to classify a path coming out of an `onDidChangeWatchedFiles` event
+ * without re-walking the whole tree.
+ */
+export function classifyFile(absolutePath: string, projectRoot: string): DiscoveredFile | undefined {
+  const sourcesRoot = path.join(projectRoot, "Project", "Sources");
+  const rel = path.relative(sourcesRoot, absolutePath);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
+  const parts = rel.split(path.sep);
+  if (parts.length === 0) return undefined;
+  const relativePath = path.relative(projectRoot, absolutePath);
+
+  switch (parts[0]) {
+    case "Methods": {
+      if (!absolutePath.endsWith(".4dm")) return undefined;
+      const base = path.basename(absolutePath, ".4dm");
+      return {
+        absolutePath,
+        relativePath,
+        category: base.startsWith("Compiler_") ? "compilerMethod" : "method"
+      };
+    }
+    case "Classes": {
+      if (!absolutePath.endsWith(".4dm")) return undefined;
+      return {
+        absolutePath,
+        relativePath,
+        category: "class",
+        containerName: path.basename(absolutePath, ".4dm")
+      };
+    }
+    case "DatabaseMethods": {
+      if (!absolutePath.endsWith(".4dm")) return undefined;
+      return { absolutePath, relativePath, category: "databaseMethod" };
+    }
+    case "Forms": {
+      // Forms/<name>/method.4dm | Forms/<name>/form.4DForm | Forms/<name>/ObjectMethods/*.4dm
+      if (parts.length < 3) return undefined;
+      const formName = parts[1];
+      const tail = parts.slice(2);
+      if (tail.length === 1 && tail[0] === "method.4dm") {
+        return { absolutePath, relativePath, category: "formMethod", containerName: formName };
+      }
+      if (tail.length === 1 && tail[0] === "form.4DForm") {
+        return { absolutePath, relativePath, category: "formDefinition", containerName: formName };
+      }
+      if (tail[0] === "ObjectMethods" && absolutePath.endsWith(".4dm")) {
+        return { absolutePath, relativePath, category: "formObjectMethod", containerName: formName };
+      }
+      return undefined;
+    }
+    case "TableForms": {
+      // TableForms/<tableId>/<formName>/method.4dm | .../form.4DForm | .../ObjectMethods/*.4dm
+      if (parts.length < 4) return undefined;
+      const tableId = parts[1];
+      const formName = parts[2];
+      const tail = parts.slice(3);
+      if (tail.length === 1 && tail[0] === "method.4dm") {
+        return {
+          absolutePath,
+          relativePath,
+          category: "tableFormMethod",
+          containerName: formName,
+          ownerTableId: tableId
+        };
+      }
+      if (tail.length === 1 && tail[0] === "form.4DForm") {
+        return {
+          absolutePath,
+          relativePath,
+          category: "tableFormDefinition",
+          containerName: formName,
+          ownerTableId: tableId
+        };
+      }
+      if (tail[0] === "ObjectMethods" && absolutePath.endsWith(".4dm")) {
+        return {
+          absolutePath,
+          relativePath,
+          category: "tableObjectMethod",
+          containerName: formName,
+          ownerTableId: tableId
+        };
+      }
+      return undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
 export interface DiscoveredPlugin {
   name: string;
   absolutePath: string;

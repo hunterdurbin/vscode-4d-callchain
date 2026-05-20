@@ -6,7 +6,7 @@ export class CallGraph {
   private readonly forward = new Map<string, CallEdge[]>();
   private readonly reverse = new Map<string, CallEdge[]>();
 
-  constructor(private readonly index: SymbolIndex) {
+  constructor(private index: SymbolIndex) {
     for (const s of index.symbols) {
       this.symbolsById.set(s.id, s);
       const key = s.name.toLowerCase();
@@ -101,6 +101,145 @@ export class CallGraph {
       }
     }
     return visited;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Mutation API
+  //
+  // Incremental indexing edits the live graph rather than rebuilding from
+  // scratch. All mutators keep the underlying `SymbolIndex.symbols`/`edges`
+  // arrays in sync with the lookup maps so downstream consumers reading
+  // `graph.root` / `graph.allSymbols()` see consistent state.
+  // ──────────────────────────────────────────────────────────────────────
+
+  addSymbol(s: SymbolRecord): void {
+    if (this.symbolsById.has(s.id)) return;
+    this.symbolsById.set(s.id, s);
+    this.index.symbols.push(s);
+    const key = s.name.toLowerCase();
+    const list = this.symbolsByName.get(key) ?? [];
+    list.push(s);
+    this.symbolsByName.set(key, list);
+  }
+
+  /**
+   * Remove the given symbols + their outgoing edges. Incoming edges (those
+   * targeting a removed symbol) are left in place: the incremental indexer's
+   * cross-file fan-out step is responsible for re-resolving them once it
+   * knows whether the removal was part of a file change (same id may be
+   * added back) or a true delete. Pass `{ alsoRemoveIncoming: true }` to opt
+   * into removing incoming edges too — used by callers that know the
+   * removal is final.
+   */
+  removeSymbolsByIds(ids: Iterable<string>, opts?: { alsoRemoveIncoming?: boolean }): { removedEdges: CallEdge[] } {
+    const idSet = ids instanceof Set ? (ids as Set<string>) : new Set(ids);
+    if (idSet.size === 0) return { removedEdges: [] };
+    const alsoIncoming = opts?.alsoRemoveIncoming === true;
+
+    // Remove from name buckets first so we can iterate symbolsById.
+    for (const id of idSet) {
+      const sym = this.symbolsById.get(id);
+      if (!sym) continue;
+      const key = sym.name.toLowerCase();
+      const list = this.symbolsByName.get(key);
+      if (list) {
+        const next = list.filter((s) => s.id !== id);
+        if (next.length === 0) this.symbolsByName.delete(key);
+        else this.symbolsByName.set(key, next);
+      }
+      this.symbolsById.delete(id);
+    }
+
+    this.index.symbols = this.index.symbols.filter((s) => !idSet.has(s.id));
+
+    // Drop edges originating from a removed symbol (always). If
+    // alsoRemoveIncoming is set, also drop edges that target a removed
+    // symbol; otherwise leave the incoming edges in place so a follow-up
+    // fan-out step can decide what to do with them.
+    const removed: CallEdge[] = [];
+    const kept: CallEdge[] = [];
+    for (const e of this.index.edges) {
+      const drop = idSet.has(e.fromId) || (alsoIncoming && idSet.has(e.toId));
+      if (drop) removed.push(e);
+      else kept.push(e);
+    }
+    this.index.edges = kept;
+
+    // Rebuild forward/reverse buckets touched by removed edges. Iterating
+    // every bucket is O(edges) worst case; in practice the touched bucket
+    // count is small so we only filter the affected ones.
+    const touchedFrom = new Set<string>();
+    const touchedTo = new Set<string>();
+    for (const e of removed) {
+      touchedFrom.add(e.fromId);
+      touchedTo.add(e.toId);
+    }
+    for (const id of touchedFrom) {
+      if (idSet.has(id)) {
+        this.forward.delete(id);
+      } else {
+        const list = this.forward.get(id);
+        if (list) {
+          const next = alsoIncoming
+            ? list.filter((e) => !idSet.has(e.toId))
+            : list;
+          if (next.length === 0) this.forward.delete(id);
+          else this.forward.set(id, next);
+        }
+      }
+    }
+    for (const id of touchedTo) {
+      if (idSet.has(id)) {
+        this.reverse.delete(id);
+      } else {
+        const list = this.reverse.get(id);
+        if (list) {
+          const next = list.filter((e) => !idSet.has(e.fromId));
+          if (next.length === 0) this.reverse.delete(id);
+          else this.reverse.set(id, next);
+        }
+      }
+    }
+
+    return { removedEdges: removed };
+  }
+
+  addEdge(e: CallEdge): void {
+    this.index.edges.push(e);
+    const f = this.forward.get(e.fromId) ?? [];
+    f.push(e);
+    this.forward.set(e.fromId, f);
+    const r = this.reverse.get(e.toId) ?? [];
+    r.push(e);
+    this.reverse.set(e.toId, r);
+  }
+
+  /**
+   * Remove a single edge identified by object identity. Used by the cross-file
+   * fan-out path that needs to re-resolve a specific call site. O(edges) splice
+   * — bounded by the count of call sites touching a renamed/removed name.
+   */
+  removeEdge(e: CallEdge): void {
+    const idx = this.index.edges.indexOf(e);
+    if (idx >= 0) this.index.edges.splice(idx, 1);
+    const f = this.forward.get(e.fromId);
+    if (f) {
+      const fi = f.indexOf(e);
+      if (fi >= 0) f.splice(fi, 1);
+      if (f.length === 0) this.forward.delete(e.fromId);
+    }
+    const r = this.reverse.get(e.toId);
+    if (r) {
+      const ri = r.indexOf(e);
+      if (ri >= 0) r.splice(ri, 1);
+      if (r.length === 0) this.reverse.delete(e.toId);
+    }
+  }
+
+  /** Reattach the graph to a new SymbolIndex (used after a full rebuild that
+   *  replaces the underlying index reference). */
+  setIndex(idx: SymbolIndex): void {
+    this.index = idx;
   }
 
   /** All reverse-reachable symbol ids: seeds + anything that can reach them. */

@@ -81,6 +81,8 @@ export function startServer(): void {
       projectRoot: state.projectRoot,
       exclusions: initOptions.exclusions ?? ["DerivedData", "Libraries", ".git", "node_modules"],
       builtinConstantsPaths: initOptions.builtinConstantsPaths ?? [],
+      // Coalesce post-patch cache writes; a burst of saves only writes once.
+      persistDebounceMs: 250,
       logger: state.makeLogger()
     });
 
@@ -100,13 +102,24 @@ export function startServer(): void {
 
   connection.onDidChangeWatchedFiles(async (params) => {
     if (!state.indexer) return;
+    const batch: { path: string; kind: "change" | "delete" | "create" }[] = [];
     for (const change of params.changes) {
       const fsPath = URI.parse(change.uri).fsPath;
       if (change.type === FileChangeType.Deleted) {
         diagnostics.clearForFile(change.uri);
+        batch.push({ path: fsPath, kind: "delete" });
+      } else if (change.type === FileChangeType.Created) {
+        batch.push({ path: fsPath, kind: "create" });
+      } else {
+        batch.push({ path: fsPath, kind: "change" });
       }
-      await state.indexer.patchFile(fsPath);
-      diagnostics.publishForFile(change.uri);
+    }
+    // Coalesce all changes from this notification into one patch call so a
+    // rename (Deleted + Created) emits a single onDidUpdate.
+    await state.indexer.patchFiles(batch);
+    // Republish diagnostics for surviving (non-deleted) files in the batch.
+    for (const change of params.changes) {
+      if (change.type !== FileChangeType.Deleted) diagnostics.publishForFile(change.uri);
     }
   });
 

@@ -83,6 +83,14 @@ export interface SymbolRecord {
   ownerTable?: string;
   /** For function / method / constructor symbols: declared parameters in source order. */
   params?: SymbolParam[];
+  /**
+   * Reference-count of source files that contributed this synthetic symbol
+   * (Builtin / TableBuiltin / Unresolved). Each entry is an absolute file path
+   * that produced an edge targeting this symbol. Only populated on synthetic
+   * symbols whose `location.uri` is `""`. Incremental indexing decrements on
+   * file change/delete and removes the synth when the count reaches zero.
+   */
+  fileOrigins?: string[];
 }
 
 export interface SymbolParam {
@@ -170,7 +178,7 @@ export interface ChainStep {
   isCall: boolean;
 }
 
-export const INDEX_VERSION = 26;
+export const INDEX_VERSION = 27;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {
