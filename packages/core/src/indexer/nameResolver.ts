@@ -1177,6 +1177,13 @@ export function buildSymbolIndex(
   // (`cs.<NS>.<Class>`) so they don't collide with project classes of the
   // same name. ownerClass on functions is the full `cs.<NS>.<Class>` form so
   // the existing resolveOnClassChain lookup hits them via the namespaced key.
+  //
+  // Locations are `{ uri: file://<bundlePath>, line: 0 }` with NO column —
+  // the .4DZ ships compiled bytecode + metadata only, so no source positions
+  // are available. See componentScanner.discoverComponents() for the format
+  // rationale. The `ownerComponent` field is the marker downstream features
+  // (semantic tokens, rename, hover) use to detect these symbols and either
+  // skip column-dependent paths or fall back to line-only behavior.
   for (const c of components) {
     if (!c.classes || c.classes.length === 0) continue;
     const ns = c.classStoreName ?? c.name;

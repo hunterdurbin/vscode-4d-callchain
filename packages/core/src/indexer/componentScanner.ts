@@ -47,6 +47,18 @@ export interface DiscoveredComponent {
  * inside the archive lists every project method by name. We extract that file
  * via `unzip -p` and parse it — the keys of the `methods` object are the
  * method names exposed to the host project.
+ *
+ * **Why component-class symbols are line-only (see TODO #12):** as of 4D v21,
+ * the `.4DZ` format ships only metadata + compiled bytecode (`MX64`/`IX64`
+ * files) — no `.4dm` source. The class metadata in
+ * `Project/DerivedData/CompiledCode/classes.json` records function names and
+ * numeric IDs but no source positions, so every Component / ComponentMethod
+ * / ClassFunction symbol the resolver builds from a component has
+ * `location.column === undefined`. Downstream features that require
+ * columns (semantic tokens, precise rename ranges) detect that case via
+ * the `ownerComponent` marker on the symbol and skip / degrade gracefully.
+ * If a future 4D release starts embedding sources, this scanner is the
+ * place to thread them into `parseFile()` for real positions.
  */
 export function discoverComponents(projectRoot: string): DiscoveredComponent[] {
   const componentsRoot = path.join(projectRoot, "Components");
