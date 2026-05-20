@@ -113,7 +113,7 @@ describe("patchFile dispatcher routes non-.4dm to full rebuild", () => {
       logger: silentLogger() as any
     });
     await ixWarm.load();
-    const cachePath = path.join(root, ".vscode", "callchain-index.msgpack");
+    const cachePath = ixWarm.getCachePath();
     expect(fs.existsSync(cachePath)).toBe(true);
 
     // 2) Touch the constants file so its mtime advances beyond the cached value.
@@ -189,7 +189,7 @@ describe("patchFile dispatcher routes non-.4dm to full rebuild", () => {
       logger: silentLogger() as any
     });
     await ix1.load();
-    const cachePath = path.join(root, ".vscode", "callchain-index.msgpack");
+    const cachePath = ix1.getCachePath();
     const cachedBefore = readCache(cachePath);
 
     // Drop in a brand-new Constants_Extra.xlf and reload.

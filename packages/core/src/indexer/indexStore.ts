@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { createHash } from "crypto";
 import { pack, unpack } from "msgpackr";
 import { CallEdge, INDEX_VERSION, RawCallSite, SymbolIndex, SymbolKind, SymbolRecord } from "../model/symbol";
 import { CallGraph } from "../model/callGraph";
@@ -69,7 +70,17 @@ export interface IndexerOptions {
 // Binary msgpack file — 3–5× faster to encode and ~2× smaller than the old
 // JSON cache. Pre-v29 caches used `callchain-index.json`; those are simply
 // ignored (load() falls through to `rebuild()` when neither file is fresh).
-const INDEX_FILENAME = "callchain-index.msgpack";
+// The filename is suffixed with a short hash of the absolute project root
+// so two projects sharing the same `.vscode/` directory (multi-root
+// workspaces, sibling project subfolders) don't trample each other's caches.
+const INDEX_FILENAME_PREFIX = "callchain-index";
+const INDEX_FILENAME_SUFFIX = ".msgpack";
+
+function cacheFileNameFor(projectRoot: string): string {
+  const canonical = path.resolve(projectRoot);
+  const hash = createHash("sha256").update(canonical).digest("hex").slice(0, 12);
+  return `${INDEX_FILENAME_PREFIX}-${hash}${INDEX_FILENAME_SUFFIX}`;
+}
 
 /**
  * Reverse-name index entry for cross-file invalidation. Each entry remembers
@@ -836,7 +847,16 @@ export class Indexer {
 
   private indexPath(): string {
     const dir = this.opts.cacheDir ?? path.join(this.opts.projectRoot, ".vscode");
-    return path.join(dir, INDEX_FILENAME);
+    return path.join(dir, cacheFileNameFor(this.opts.projectRoot));
+  }
+
+  /**
+   * Absolute path the indexer reads from / writes to. Exposed so tooling
+   * (tests, the `callchain.reindex` command, diagnostics) can locate the
+   * cache without duplicating the hash-suffix logic.
+   */
+  getCachePath(): string {
+    return this.indexPath();
   }
 
   private persist(idx: SymbolIndex): void {

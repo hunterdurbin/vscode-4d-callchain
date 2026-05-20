@@ -25,7 +25,7 @@ Effort estimates: **XS** < 30 min · **S** ~1 hr · **M** ~half-day · **L** ~1�
 |---|---|---|---|
 | 9 | ~~Incremental indexing~~ ✅ | M–L | `patchFile()` now diffs per-file. INDEX_VERSION 27 adds `fileOrigins[]` reference-counting on synthetic symbols; `Indexer` keeps warm caches (`parsedByPath`, `edgesByFromId`, `edgesByNameKey` reverse-name index) populated at the tail of `rebuild()`. Cross-file fan-out re-resolves only the call sites that referenced names the patched files added/removed. `patchFiles()` batches `onDidChangeWatchedFiles` so a rename emits one update. Fallbacks: full rebuild on cold caches, non-`.4dm` changes, batches > 50, or synth refcount drift. |
 | 10 | ~~File watching gaps~~ ✅ | S | Watchers now cover `Project/Sources/catalog.4DCatalog`, `Resources/Constants_*.xlf`, and `Components/**/*.{4DZ,4dz}` in the in-process indexer + both LSP clients. `classifyChange()` routes each watcher event to either the existing `.4dm` surgical path or a single full rebuild; mixed batches dispatch on most-aggressive-wins. `isFresh()` now samples `catalogMtime` / `constantsMtimes` / `componentMtimes` and detects file-set membership changes so offline edits invalidate the cache. INDEX_VERSION 27 → 28. |
-| 11 | Per-workspace cache paths | S | Multiple 4D projects open in one VSCode window collide on `.vscode/callchain-index.json`. |
+| 11 | ~~Per-workspace cache paths~~ ✅ | S | Cache filename is now `callchain-index-<12char-hash>.msgpack` where the hash is a sha256 prefix of `path.resolve(projectRoot)`. Two projects sharing one `.vscode/` co-exist instead of forcing a rebuild on every switch. Pre-v29 caches are silently orphaned (one forced rebuild on upgrade). `Indexer.getCachePath()` exposes the resolved path for tests + diagnostics. |
 | 12 | Component class columns | M | 664 ClassFunction symbols are line-only because they come from `.4DZ` `classes.json`. Could read the `.4DZ`'s embedded source if present, or accept line-only behavior. |
 | 13 | Tree-sitter / proper parser | XL | Replace regex parsing. Handles multi-line function signatures, unusual formatting, embedded SQL. No published 4D grammar — would need to hand-write or hand-build one. |
 
@@ -59,5 +59,5 @@ Effort estimates: **XS** < 30 min · **S** ~1 hr · **M** ~half-day · **L** ~1�
 ## Recommended next 3
 
 1. **Rename** (#6) — column ranges are in the index, so the precise call-site replacements rename needs are available.
-2. **Per-workspace cache paths** (#11) — multiple 4D projects in one VS Code window collide on `.vscode/callchain-index.json`; pick the path per project root.
+2. **Component class columns** (#12) — 664 ClassFunction symbols from `.4DZ` `classes.json` are line-only; reading the embedded source would give them precise ranges for hover / go-to-def.
 3. **`#DECLARE(...)->$return : Type` return-variable capture** — would let `$return.` completion work inside methods that declare an output via the arrow form.

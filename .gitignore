@@ -8,8 +8,11 @@ packages/*/dist/
 
 # Indexer cache — written by the LSP/IDE server into each project's
 # .vscode/. Never check it in (committed copies invalidate when
-# INDEX_VERSION bumps and confuse fixture-based tests). The `.json`
-# entry is left for users upgrading from pre-v29 caches.
+# INDEX_VERSION bumps and confuse fixture-based tests). v11+ adds a
+# per-project hash suffix so multiple projects sharing one .vscode/
+# don't trample each other; the un-suffixed names are kept here for
+# users upgrading from pre-v29 caches.
+.vscode/callchain-index-*.msgpack
 .vscode/callchain-index.msgpack
 .vscode/callchain-index.json
 test/fixtures/**/.vscode/
