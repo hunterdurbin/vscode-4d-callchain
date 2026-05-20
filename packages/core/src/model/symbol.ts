@@ -165,6 +165,13 @@ export interface SymbolIndex {
   symbols: SymbolRecord[];
   edges: CallEdge[];
   fileMtimes: Record<string, number>;
+  /** mtime of `Project/Sources/catalog.4DCatalog`, used by isFresh() to detect
+   *  offline edits to the catalog while VS Code was closed. */
+  catalogMtime?: number;
+  /** mtimes for every `Resources/Constants_*.xlf` file the indexer discovered. */
+  constantsMtimes?: Record<string, number>;
+  /** mtimes for every component `.4DZ` archive the indexer discovered. */
+  componentMtimes?: Record<string, number>;
 }
 
 /**
@@ -178,7 +185,7 @@ export interface ChainStep {
   isCall: boolean;
 }
 
-export const INDEX_VERSION = 27;
+export const INDEX_VERSION = 28;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

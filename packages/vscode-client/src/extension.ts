@@ -34,6 +34,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     projectRoot,
     exclusions,
     builtinConstantsPaths,
+    // Coalesce post-patch cache writes so a burst of saves only writes the
+    // cache once, and so the JSON.stringify of a multi-MB index doesn't
+    // block the extension host (= VSCode UI thread) on every save.
+    persistDebounceMs: 250,
     logger: {
       info: (m) => output.appendLine(m),
       warn: (m) => output.appendLine(m),
@@ -147,7 +151,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output.appendLine("[Activate] ScottHarris.4d-testing-extension detected — ▶ Run will delegate to its Test Explorer.");
   }
 
-  // File-system watcher for .4dm changes → incremental rebuild
+  // File-system watchers — `.4dm` flows through the surgical patch path;
+  // catalog / constants / components events trigger a full rebuild via the
+  // indexer's classifier. Separate watchers per category keep the LSP
+  // synchronize handler symmetric and let each category be tuned later
+  // (e.g. component archive debounce) without affecting the others.
   const codeWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(projectRoot, "Project/Sources/**/*.4dm")
   );
@@ -155,6 +163,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   codeWatcher.onDidCreate((uri) => indexer.patchFile(uri.fsPath));
   codeWatcher.onDidDelete((uri) => indexer.patchFile(uri.fsPath));
   context.subscriptions.push(codeWatcher);
+
+  const catalogWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(projectRoot, "Project/Sources/catalog.4DCatalog")
+  );
+  catalogWatcher.onDidChange((uri) => indexer.patchFile(uri.fsPath));
+  catalogWatcher.onDidCreate((uri) => indexer.patchFile(uri.fsPath));
+  catalogWatcher.onDidDelete((uri) => indexer.patchFile(uri.fsPath));
+  context.subscriptions.push(catalogWatcher);
+
+  const constantsWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(projectRoot, "Resources/Constants_*.xlf")
+  );
+  constantsWatcher.onDidChange((uri) => indexer.patchFile(uri.fsPath));
+  constantsWatcher.onDidCreate((uri) => indexer.patchFile(uri.fsPath));
+  constantsWatcher.onDidDelete((uri) => indexer.patchFile(uri.fsPath));
+  context.subscriptions.push(constantsWatcher);
+
+  const componentsWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(projectRoot, "Components/**/*.{4DZ,4dz}")
+  );
+  componentsWatcher.onDidChange((uri) => indexer.patchFile(uri.fsPath));
+  componentsWatcher.onDidCreate((uri) => indexer.patchFile(uri.fsPath));
+  componentsWatcher.onDidDelete((uri) => indexer.patchFile(uri.fsPath));
+  context.subscriptions.push(componentsWatcher);
 
   // Commands
   context.subscriptions.push(
@@ -441,7 +473,12 @@ function startLanguageServer(
     documentSelector: [{ language: "4d" }, { pattern: "**/*.4dm" }],
     initializationOptions: { exclusions, builtinConstantsPaths },
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.4dm")
+      fileEvents: [
+        vscode.workspace.createFileSystemWatcher("**/*.4dm"),
+        vscode.workspace.createFileSystemWatcher("**/Project/Sources/catalog.4DCatalog"),
+        vscode.workspace.createFileSystemWatcher("**/Resources/Constants_*.xlf"),
+        vscode.workspace.createFileSystemWatcher("**/Components/**/*.{4DZ,4dz}")
+      ]
     },
     outputChannel: output
   };
@@ -482,7 +519,12 @@ function startIdeServer(
     documentSelector: [{ language: "4d" }, { pattern: "**/*.4dm" }],
     initializationOptions: { exclusions, builtinConstantsPaths },
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.4dm")
+      fileEvents: [
+        vscode.workspace.createFileSystemWatcher("**/*.4dm"),
+        vscode.workspace.createFileSystemWatcher("**/Project/Sources/catalog.4DCatalog"),
+        vscode.workspace.createFileSystemWatcher("**/Resources/Constants_*.xlf"),
+        vscode.workspace.createFileSystemWatcher("**/Components/**/*.{4DZ,4dz}")
+      ]
     },
     outputChannel: output
   };

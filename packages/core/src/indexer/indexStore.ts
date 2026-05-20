@@ -12,6 +12,42 @@ import { ParsedFile, parseFile } from "./fileParser";
 import { buildResolverScratch, buildSymbolIndex, resolveCallsForFile, ResolverInput } from "./nameResolver";
 import { classifyFile } from "./projectScanner";
 
+/**
+ * The category of source change for dispatch in `patchFiles`. Drives whether
+ * a watcher event flows through the surgical `.4dm` patch path or kicks off
+ * a full rebuild because the change touched data feeding the resolver
+ * context (catalog tables, constants, components).
+ */
+export type ChangeCategory = "code" | "catalog" | "constants" | "components" | "unknown";
+
+/**
+ * Classify an absolute path to a watched file. The watcher globs in the
+ * VSCode client should keep "unknown" rare; it's the defensive default for
+ * paths that match no recognized layout (e.g. random files surfaced by a
+ * broader glob upstream).
+ */
+export function classifyChange(absolutePath: string, projectRoot: string): ChangeCategory {
+  const rel = path.relative(projectRoot, absolutePath);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return "unknown";
+  const parts = rel.split(path.sep);
+  if (parts.length < 2) return "unknown";
+
+  if (parts[0] === "Project" && parts[1] === "Sources") {
+    if (absolutePath.endsWith(".4dm")) return "code";
+    if (parts.length === 3 && parts[2] === "catalog.4DCatalog") return "catalog";
+    return "unknown";
+  }
+  if (parts[0] === "Resources" && parts.length === 2) {
+    if (/^Constants_.*\.xlf$/i.test(parts[1])) return "constants";
+    return "unknown";
+  }
+  if (parts[0] === "Components") {
+    if (/\.(4dz)$/i.test(absolutePath)) return "components";
+    return "unknown";
+  }
+  return "unknown";
+}
+
 export interface IndexerOptions {
   projectRoot: string;
   exclusions: string[];
@@ -58,6 +94,13 @@ export class Indexer {
   private resolverInput: ResolverInput | undefined;
   private constantsSet: Set<string> | undefined;
   private pendingPersist: ReturnType<typeof setTimeout> | undefined;
+  private inFlightPersist: Promise<void> | undefined;
+  // Tracks an in-progress full rebuild so concurrent patch calls (or other
+  // rebuild requests) await the same work instead of starting their own.
+  // Without this, the first save after `load()` triggers a rebuild AND
+  // subsequent saves arriving during that rebuild each trigger another,
+  // causing N concurrent ~25s rebuilds scribbling over the same state.
+  private rebuildInFlight: Promise<CallGraph> | undefined;
 
   constructor(private readonly opts: IndexerOptions) {}
 
@@ -87,6 +130,18 @@ export class Indexer {
   }
 
   async rebuild(): Promise<CallGraph> {
+    // Coalesce concurrent rebuild requests onto a single in-flight promise.
+    // Any patch that bails to rebuild (cold caches, non-`.4dm` change, etc.)
+    // hits this — without coalescing, each save during a long rebuild fires
+    // another full rebuild.
+    if (this.rebuildInFlight) return this.rebuildInFlight;
+    this.rebuildInFlight = this.doRebuild().finally(() => {
+      this.rebuildInFlight = undefined;
+    });
+    return this.rebuildInFlight;
+  }
+
+  private async doRebuild(): Promise<CallGraph> {
     const start = Date.now();
     this.opts.logger.info(`[Indexer] Scanning ${this.opts.projectRoot}`);
     const files = discoverFiles(this.opts.projectRoot, { exclusions: this.opts.exclusions });
@@ -148,6 +203,25 @@ export class Indexer {
     const idx = built.index;
     idx.fileMtimes = mtimes;
 
+    // Record mtimes for the non-.4dm source-of-truth files so `isFresh()`
+    // can detect offline edits to catalog / constants / components between
+    // VSCode sessions.
+    try {
+      const catalogPath = path.join(this.opts.projectRoot, "Project", "Sources", "catalog.4DCatalog");
+      idx.catalogMtime = fs.statSync(catalogPath).mtimeMs;
+    } catch {/* catalog absent */}
+    const constantsMtimes: Record<string, number> = {};
+    for (const c of constants) {
+      try { constantsMtimes[c.sourceFile] = fs.statSync(c.sourceFile).mtimeMs; } catch {/* skip */}
+    }
+    idx.constantsMtimes = constantsMtimes;
+    const componentMtimes: Record<string, number> = {};
+    for (const c of components) {
+      if (!c.zipPath) continue;
+      try { componentMtimes[c.zipPath] = fs.statSync(c.zipPath).mtimeMs; } catch {/* skip */}
+    }
+    idx.componentMtimes = componentMtimes;
+
     // Resolve numeric table ids (used as TableForms/<id> directory names) to
     // friendly table names so tree display shows `[Customers]` not `[25]`.
     const tableIdToName = discoverCatalogTableIdMap(this.opts.projectRoot);
@@ -164,6 +238,10 @@ export class Indexer {
 
     this.populateWarmCaches(parsed, built.resolverInput, built.synthOwnersByPath, idx, constantsSet);
     this.persist(idx);
+    // For rebuild (cold path), wait for the cache write to land before
+    // returning — callers can assume the on-disk cache reflects the rebuild.
+    // Patches don't await; they let the async write finish in the background.
+    if (this.inFlightPersist) await this.inFlightPersist;
     const elapsed = ((Date.now() - start) / 1000).toFixed(1);
     this.opts.logger.info(
       `[Indexer] Build complete: ${idx.symbols.length} symbols, ${idx.edges.length} edges in ${elapsed}s`
@@ -247,8 +325,20 @@ export class Indexer {
    * constants are out of scope for v1 — see TODO #10).
    */
   async patchFiles(changes: { path: string; kind: "change" | "delete" | "create" }[]): Promise<void> {
-    if (!this.currentIndex || !this.graph) return;
     if (changes.length === 0) return;
+
+    // If a rebuild is already in flight, that rebuild will produce a fresh
+    // index that already reflects the current disk state of every file —
+    // including the ones this batch is reporting. Awaiting the in-flight
+    // rebuild satisfies this patch without firing another rebuild, and
+    // ensures the warm caches are populated by the time we evaluate them
+    // below. If files changed AFTER the rebuild captured them, the next
+    // watcher event will deliver another patch with up-to-date contents.
+    if (this.rebuildInFlight) {
+      await this.rebuildInFlight;
+    }
+
+    if (!this.currentIndex || !this.graph) return;
 
     // Bail to full rebuild for changes we don't support incrementally.
     // 1) Cache cold (load() path hasn't been warmed) — populate caches by rebuilding.
@@ -267,22 +357,43 @@ export class Indexer {
       await this.rebuild();
       return;
     }
-    if (changes.some((c) => !c.path.endsWith(".4dm"))) {
-      this.opts.logger.info(`[Indexer] Non-.4dm change in batch — full rebuild`);
+
+    // Classify each change. Catalog / constants / components edits mutate
+    // resolver context (catalog tables, constantsSet, componentByMethod)
+    // that's baked into every .4dm parse + resolve — partial reindex for
+    // those types isn't viable today, so fall back to a single full rebuild
+    // even when mixed with .4dm changes.
+    const categories = changes.map((c) => classifyChange(c.path, this.opts.projectRoot));
+    if (categories.some((cat) => cat === "catalog" || cat === "constants" || cat === "components")) {
+      const which = categories.find((c) => c === "catalog" || c === "constants" || c === "components");
+      this.opts.logger.info(`[Indexer] ${which} change in batch — full rebuild`);
       await this.rebuild();
+      return;
+    }
+    // Discard anything the classifier doesn't recognize (defensive — the
+    // watcher should not deliver these). Continue with the .4dm-only path.
+    const codeChanges = changes.filter((_, i) => categories[i] === "code");
+    if (codeChanges.length === 0) {
+      this.opts.logger.info(`[Indexer] No recognized .4dm changes in batch — skipping`);
       return;
     }
 
     const start = Date.now();
     const affectedNameKeys = new Set<string>();
-    const changedPaths = new Set(changes.map((c) => c.path));
+    const changedPaths = new Set(codeChanges.map((c) => c.path));
 
-    for (const change of changes) {
+    // Per-phase timing buckets so we can see where a slow save spends its
+    // budget without sprinkling .info() through every helper.
+    let tRemove = 0, tParse = 0, tAdd = 0;
+    let nAffectedEdges = 0;
+
+    for (const change of codeChanges) {
       const exists = fs.existsSync(change.path);
       const effective: "change" | "delete" = !exists ? "delete" : (change.kind === "delete" ? "delete" : "change");
 
-      // Remove the file's old contribution (if any).
+      const t0 = Date.now();
       const oldKeys = this.removeFileContribution(change.path);
+      tRemove += Date.now() - t0;
       for (const k of oldKeys) affectedNameKeys.add(k);
 
       if (effective === "delete") {
@@ -290,31 +401,43 @@ export class Indexer {
         continue;
       }
 
-      // Re-parse and merge.
       const discovered = classifyFile(change.path, this.opts.projectRoot);
-      if (!discovered) {
-        // Not a recognized source file — nothing to add. Old contribution
-        // already removed above.
-        continue;
-      }
+      if (!discovered) continue;
+      const t1 = Date.now();
       const parsed = parseFile(discovered, this.opts.projectRoot, this.constantsSet);
+      tParse += Date.now() - t1;
       try { this.currentIndex.fileMtimes[change.path] = fs.statSync(change.path).mtimeMs; } catch {/* skip */}
 
+      const t2 = Date.now();
       const newKeys = this.addFileContribution(parsed);
+      tAdd += Date.now() - t2;
       for (const k of newKeys) affectedNameKeys.add(k);
     }
 
-    this.reresolveAffectedDependents(affectedNameKeys, changedPaths);
+    const tFanoutStart = Date.now();
+    nAffectedEdges = this.reresolveAffectedDependents(affectedNameKeys, changedPaths);
+    const tFanout = Date.now() - tFanoutStart;
 
-    if (!this.assertSynthRefcountInvariant()) {
+    const tAssertStart = Date.now();
+    const driftOk = this.assertSynthRefcountInvariant();
+    const tAssert = Date.now() - tAssertStart;
+    if (!driftOk) {
       this.opts.logger.warn(`[Indexer] Synth refcount drift detected — falling back to full rebuild`);
       await this.rebuild();
       return;
     }
 
+    const tPersistStart = Date.now();
     this.schedulePersist(this.currentIndex);
+    const tPersist = Date.now() - tPersistStart;
     const elapsed = Date.now() - start;
-    this.opts.logger.info(`[Indexer] Patched ${changes.length} file(s) in ${elapsed}ms`);
+    this.opts.logger.info(
+      `[Indexer] Patched ${codeChanges.length} file(s) in ${elapsed}ms ` +
+      `(remove ${tRemove}ms, parse ${tParse}ms, add ${tAdd}ms, fanout ${tFanout}ms [${nAffectedEdges} edges], ` +
+      `assert ${tAssert}ms, persist-schedule ${tPersist}ms, ` +
+      `symbols=${this.currentIndex.symbols.length}, edges=${this.currentIndex.edges.length}, ` +
+      `nameKeys=${this.edgesByNameKey.size})`
+    );
     this.emitter.fire(this.graph);
   }
 
@@ -345,20 +468,17 @@ export class Indexer {
     }
 
     // Drop the file's symbols + outgoing edges via the graph's batched op.
-    // Also drops edges that target file-owned symbols (incoming edges).
+    // We only remove outgoing edges by default — incoming edges (from other
+    // files calling into this one) stay in place so the fan-out path can
+    // re-resolve them precisely. Because every edge removed here originates
+    // from a symbol owned by THIS file, the corresponding name-key entries
+    // are already covered by `dropNameKeyEntriesForFile(absolutePath)` —
+    // no per-edge bucket scan needed.
     if (oldSyms.size > 0) {
-      const { removedEdges } = this.graph.removeSymbolsByIds(oldSyms);
-      // edgesByFromId: drop any entry whose key is in oldSyms; also remove
-      // each removed edge from its `from` bucket if the `from` survives.
+      this.graph.removeSymbolsByIds(oldSyms);
       for (const id of oldSyms) this.edgesByFromId.delete(id);
-      // edgesByNameKey: drop any entry produced by this file (we re-add only
-      // entries that survive — concrete edges may have been removed above).
-      this.dropNameKeyEntriesForFile(absolutePath);
-      // Drop any references in name-key entries whose edge was removed.
-      for (const e of removedEdges) this.dropEdgeFromNameKeyIndex(e);
-    } else {
-      this.dropNameKeyEntriesForFile(absolutePath);
     }
+    this.dropNameKeyEntriesForFile(absolutePath);
 
     // Synth refcount: decrement each synth this file owned. If a synth's
     // refcount drops to zero, remove the symbol entirely.
@@ -392,20 +512,6 @@ export class Indexer {
       const filtered = entries.filter((e) => e.fromPath !== absolutePath);
       if (filtered.length === 0) this.edgesByNameKey.delete(key);
       else this.edgesByNameKey.set(key, filtered);
-    }
-  }
-
-  /**
-   * Drop any name-key entries that reference the given edge by identity.
-   * Used after `CallGraph.removeSymbolsByIds` removes incoming edges from
-   * other files (their nameKey buckets are otherwise unaware).
-   */
-  private dropEdgeFromNameKeyIndex(edge: CallEdge): void {
-    if (!this.edgesByNameKey) return;
-    for (const [key, entries] of this.edgesByNameKey) {
-      const filtered = entries.filter((e) => e.edge !== edge);
-      if (filtered.length === 0) this.edgesByNameKey.delete(key);
-      else if (filtered.length !== entries.length) this.edgesByNameKey.set(key, filtered);
     }
   }
 
@@ -521,11 +627,11 @@ export class Indexer {
    * `addFileContribution` already resolves the changed file's own rawCalls
    * fresh against the post-patch symbol table.
    */
-  private reresolveAffectedDependents(affectedNameKeys: Set<string>, changedPaths: Set<string>): void {
-    if (affectedNameKeys.size === 0) return;
+  private reresolveAffectedDependents(affectedNameKeys: Set<string>, changedPaths: Set<string>): number {
+    if (affectedNameKeys.size === 0) return 0;
     if (!this.parsedByPath || !this.symbolIdsByPath || !this.synthOwnersByPath
         || !this.edgesByFromId || !this.edgesByNameKey || !this.graph
-        || !this.currentIndex || !this.resolverInput) return;
+        || !this.currentIndex || !this.resolverInput) return 0;
 
     // Collect unique (fromPath, rawCallIdx) pairs from all affected name
     // keys. The same rawCall is indexed under multiple keys (e.g. CsCall
@@ -541,7 +647,7 @@ export class Indexer {
         if (!toResolve.has(dedupKey)) toResolve.set(dedupKey, { fromPath: entry.fromPath, rawCallIdx: entry.rawCallIdx });
       }
     }
-    if (toResolve.size === 0) return;
+    if (toResolve.size === 0) return 0;
 
     // Build one scratch over the current global symbol set; reuse for every
     // affected call site (the scratch is O(symbols) to build, so we want
@@ -579,7 +685,17 @@ export class Indexer {
             if (i >= 0) list.splice(i, 1);
             if (list.length === 0) this.edgesByFromId.delete(call.fromSymbolId);
           }
-          this.dropEdgeFromNameKeyIndex(oldEdge);
+          // Drop the edge's entries from edgesByNameKey, but only in the
+          // buckets this rawCall actually published — `keys` is small (1–2
+          // names from `nameKeysForHint`). The general `dropEdgeFromNameKeyIndex`
+          // would scan all ~30k buckets per edge and dominate the fan-out cost.
+          for (const k of keys) {
+            const bucket = this.edgesByNameKey.get(k);
+            if (!bucket) continue;
+            const filtered = bucket.filter((entry) => entry.edge !== oldEdge);
+            if (filtered.length === 0) this.edgesByNameKey.delete(k);
+            else if (filtered.length !== bucket.length) this.edgesByNameKey.set(k, filtered);
+          }
           // The old edge may have targeted a synth — decrement the synth's
           // refcount via the calling file. If we owned the only reference,
           // the synth is now orphaned; let the graph drop it.
@@ -624,6 +740,7 @@ export class Indexer {
       if (!existing) { existing = new Set(); this.synthOwnersByPath.set(origin, existing); }
       for (const id of ids) existing.add(id);
     }
+    return toResolve.size;
   }
 
   /**
@@ -669,6 +786,9 @@ export class Indexer {
 
   private async isFresh(raw: SymbolIndex): Promise<boolean> {
     if (raw.projectRoot !== this.opts.projectRoot) return false;
+
+    // .4dm files: sample up to 100 mtimes (large projects have thousands;
+    // a sample is much cheaper than statting every file).
     let checked = 0;
     for (const [p, mtime] of Object.entries(raw.fileMtimes)) {
       try {
@@ -678,8 +798,30 @@ export class Indexer {
         return false;
       }
       checked++;
-      if (checked > 100) break; // sample-based freshness check
+      if (checked > 100) break;
     }
+
+    // catalog.4DCatalog: a single file. Check unconditionally.
+    if (raw.catalogMtime !== undefined) {
+      const catalogPath = path.join(this.opts.projectRoot, "Project", "Sources", "catalog.4DCatalog");
+      try {
+        const stat = fs.statSync(catalogPath);
+        if (Math.abs(stat.mtimeMs - raw.catalogMtime) > 1) return false;
+      } catch {
+        // Catalog was removed since cache was written.
+        return false;
+      }
+    }
+
+    // Constants and component files: bounded small (tens). Check all entries.
+    if (!checkAllMtimesFresh(raw.constantsMtimes)) return false;
+    if (!checkAllMtimesFresh(raw.componentMtimes)) return false;
+
+    // File-set membership change: if the on-disk set of Constants_*.xlf or
+    // component .4DZ files differs from the cached keys, treat as stale.
+    if (!checkFileSetUnchanged(raw.constantsMtimes, () => listConstantsFiles(this.opts.projectRoot))) return false;
+    if (!checkFileSetUnchanged(raw.componentMtimes, () => listComponentArchives(this.opts.projectRoot))) return false;
+
     return true;
   }
 
@@ -689,10 +831,30 @@ export class Indexer {
   }
 
   private persist(idx: SymbolIndex): void {
+    // Persist is fire-and-forget. The on-disk cache is only consulted at the
+    // next process start; correctness during the running session relies on
+    // the in-memory index. We `JSON.stringify` synchronously (allocation cost
+    // unavoidable) but hand off the actual write to `fs.promises.writeFile`
+    // so the event loop stays responsive — a 150 MB write was previously
+    // blocking the LSP for hundreds of ms.
     try {
       const dir = path.dirname(this.indexPath());
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(this.indexPath(), JSON.stringify(idx));
+      const tStringify = Date.now();
+      const json = JSON.stringify(idx);
+      const stringifyMs = Date.now() - tStringify;
+      const sizeKb = Math.round(json.length / 1024);
+      const tWrite = Date.now();
+      this.inFlightPersist = fs.promises
+        .writeFile(this.indexPath(), json)
+        .then(() => {
+          const writeMs = Date.now() - tWrite;
+          this.opts.logger.info(
+            `[Indexer] Persisted cache (${sizeKb}KB, stringify ${stringifyMs}ms, write ${writeMs}ms async)`
+          );
+        })
+        .catch((err) => this.opts.logger.warn(`[Indexer] Persist write failed: ${err}`))
+        .finally(() => { this.inFlightPersist = undefined; });
     } catch (err) {
       this.opts.logger.warn(`[Indexer] Persist failed: ${err}`);
     }
@@ -719,14 +881,17 @@ export class Indexer {
   }
 
   /**
-   * Force any pending debounced persist to run immediately. Call before
-   * process exit to make sure the on-disk cache reflects the latest patch.
+   * Force any pending debounced persist to run immediately and wait for the
+   * (async) write to land on disk. Call before process exit / before reading
+   * the cache file in tests to make sure on-disk state matches in-memory.
    */
-  flushPersist(): void {
-    if (!this.pendingPersist || !this.currentIndex) return;
-    clearTimeout(this.pendingPersist);
-    this.pendingPersist = undefined;
-    this.persist(this.currentIndex);
+  async flushPersist(): Promise<void> {
+    if (this.pendingPersist) {
+      clearTimeout(this.pendingPersist);
+      this.pendingPersist = undefined;
+      if (this.currentIndex) this.persist(this.currentIndex);
+    }
+    if (this.inFlightPersist) await this.inFlightPersist;
   }
 }
 
@@ -794,4 +959,71 @@ function nameKeysForHint(hint: NonNullable<RawCallSite["hint"]>): string[] {
     case "Formula":
       return [];
   }
+}
+
+/**
+ * Verify every cached mtime matches the file's current mtime on disk. Returns
+ * false if any file is missing or differs by more than 1 ms. Bounded small
+ * (tens of files at most), so check every entry — unlike the .4dm sampling.
+ */
+function checkAllMtimesFresh(mtimes: Record<string, number> | undefined): boolean {
+  if (!mtimes) return true;
+  for (const [p, cached] of Object.entries(mtimes)) {
+    try {
+      const stat = fs.statSync(p);
+      if (Math.abs(stat.mtimeMs - cached) > 1) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Detect file-set membership changes: a new Constants_*.xlf or .4DZ that
+ * appeared (or disappeared) since the cache was written invalidates the
+ * cache even if all stored mtimes still match.
+ */
+function checkFileSetUnchanged(mtimes: Record<string, number> | undefined, listFn: () => string[]): boolean {
+  const cached = new Set(Object.keys(mtimes ?? {}));
+  const onDisk = new Set(listFn());
+  if (cached.size !== onDisk.size) return false;
+  for (const p of cached) if (!onDisk.has(p)) return false;
+  return true;
+}
+
+/** Mirror of `discoverConstants()`'s glob, used by `isFresh()` for set-membership checks. */
+function listConstantsFiles(projectRoot: string): string[] {
+  const resourcesDir = path.join(projectRoot, "Resources");
+  if (!fs.existsSync(resourcesDir)) return [];
+  const out: string[] = [];
+  try {
+    for (const entry of fs.readdirSync(resourcesDir)) {
+      if (entry.startsWith("Constants_") && entry.endsWith(".xlf")) {
+        out.push(path.join(resourcesDir, entry));
+      }
+    }
+  } catch {/* ignore */}
+  return out;
+}
+
+/** Mirror of `discoverComponents()`'s archive enumeration. */
+function listComponentArchives(projectRoot: string): string[] {
+  const componentsRoot = path.join(projectRoot, "Components");
+  if (!fs.existsSync(componentsRoot)) return [];
+  const out: string[] = [];
+  try {
+    for (const entry of fs.readdirSync(componentsRoot)) {
+      if (!entry.endsWith(".4dbase")) continue;
+      const bundle = path.join(componentsRoot, entry);
+      try {
+        for (const inner of fs.readdirSync(bundle)) {
+          if (inner.endsWith(".4DZ") || inner.endsWith(".4dz")) {
+            out.push(path.join(bundle, inner));
+          }
+        }
+      } catch {/* skip */}
+    }
+  } catch {/* ignore */}
+  return out;
 }

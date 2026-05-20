@@ -1,8 +1,8 @@
 // Pure 4D indexer + call graph. No editor dependencies.
 // Consumed by the language server and by the VSCode extension's in-process UI.
 
-export { Indexer } from "./indexer/indexStore";
-export type { IndexerOptions } from "./indexer/indexStore";
+export { Indexer, classifyChange } from "./indexer/indexStore";
+export type { IndexerOptions, ChangeCategory } from "./indexer/indexStore";
 
 export { CallGraph } from "./model/callGraph";
 export {
