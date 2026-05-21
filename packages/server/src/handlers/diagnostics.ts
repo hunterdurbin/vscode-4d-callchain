@@ -9,6 +9,9 @@ import { ServerState } from "../state";
 
 const SOURCE = "4d";
 const MAX_PER_FILE = 100;
+// Threshold over which a single publishForFile / publishForAllSymbols call
+// logs its elapsed time. Below this it stays quiet so we don't spam.
+const SLOW_PUBLISH_MS = 100;
 
 /**
  * Surface unresolved call edges as workspace warnings. Diagnostics are
@@ -29,6 +32,7 @@ export function registerDiagnostics(state: ServerState): {
   const publishForFile = (uri: string) => {
     const graph = state.graph;
     if (!graph) return;
+    const t0 = Date.now();
 
     const diags: Diagnostic[] = [];
     const seen = new Set<string>();
@@ -59,16 +63,25 @@ export function registerDiagnostics(state: ServerState): {
       }
     }
     connection.sendDiagnostics({ uri, diagnostics: diags });
+    const elapsed = Date.now() - t0;
+    if (elapsed >= SLOW_PUBLISH_MS) {
+      connection.console.info(`[Diagnostics] publishForFile ${uri} took ${elapsed}ms (${diags.length} diags)`);
+    }
   };
 
   const publishForAllSymbols = () => {
     const graph = state.graph;
     if (!graph) return;
+    const t0 = Date.now();
     const uris = new Set<string>();
     for (const sym of graph.allSymbols()) {
       if (sym.location.uri) uris.add(sym.location.uri);
     }
     for (const uri of uris) publishForFile(uri);
+    const elapsed = Date.now() - t0;
+    if (elapsed >= SLOW_PUBLISH_MS) {
+      connection.console.info(`[Diagnostics] publishForAllSymbols across ${uris.size} URIs took ${elapsed}ms`);
+    }
   };
 
   const clearForFile = (uri: string) => {

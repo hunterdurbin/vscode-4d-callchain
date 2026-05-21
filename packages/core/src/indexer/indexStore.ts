@@ -169,6 +169,7 @@ export class Indexer {
   private async doRebuild(): Promise<CallGraph> {
     const start = Date.now();
     this.opts.logger.info(`[Indexer] Scanning ${this.opts.projectRoot}`);
+    const tDiscover = Date.now();
     const files = discoverFiles(this.opts.projectRoot, { exclusions: this.opts.exclusions });
     this.opts.logger.info(`[Indexer] Discovered ${files.length} .4dm files`);
 
@@ -184,6 +185,7 @@ export class Indexer {
     this.opts.logger.info(`[Indexer] Discovered ${builtinConstants.length} built-in constants`);
     const variables = discoverVariables(this.opts.projectRoot);
     this.opts.logger.info(`[Indexer] Discovered ${variables.length} process/interprocess variables`);
+    const discoverMs = Date.now() - tDiscover;
     // Bare-identifier lookup set: constants + process variables. Interprocess
     // variables are matched via the `<>name` regex, not the bare path. 4D is
     // case-insensitive for identifiers so the set holds lowercase entries and
@@ -205,6 +207,7 @@ export class Indexer {
       );
     }
 
+    const tParse = Date.now();
     const parsed = [];
     const mtimes: Record<string, number> = {};
     for (let i = 0; i < files.length; i++) {
@@ -219,6 +222,8 @@ export class Indexer {
         this.opts.logger.info(`[Indexer]   parsed ${i}/${files.length}`);
       }
     }
+    const parseMs = Date.now() - tParse;
+    const tAux = Date.now();
     const plugins = discoverPlugins(this.opts.projectRoot);
     const totalPluginCommands = plugins.reduce((n, p) => n + p.commands.length, 0);
     this.opts.logger.info(
@@ -236,8 +241,11 @@ export class Indexer {
     const components = discoverComponents(this.opts.projectRoot);
     const totalCompMethods = components.reduce((n, c) => n + c.methods.length, 0);
     this.opts.logger.info(`[Indexer] Discovered ${components.length} components (${totalCompMethods} exposed methods)`);
+    const auxMs = Date.now() - tAux;
 
+    const tResolve = Date.now();
     const built = buildSymbolIndex(this.opts.projectRoot, parsed, plugins, catalogTables, constants, builtinConstants, variables, components);
+    const resolveMs = Date.now() - tResolve;
     const idx = built.index;
     idx.fileMtimes = mtimes;
 
@@ -274,13 +282,25 @@ export class Indexer {
     this.currentIndex = idx;
     this.graph = new CallGraph(idx);
 
+    const tWarm = Date.now();
     this.populateWarmCaches(parsed, built.resolverInput, built.synthOwnersByPath, idx, constantsSet);
+    const warmMs = Date.now() - tWarm;
+    const tPersist = Date.now();
     this.persist(idx);
     // For rebuild (cold path), wait for the cache write to land before
     // returning — callers can assume the on-disk cache reflects the rebuild.
     // Patches don't await; they let the async write finish in the background.
     if (this.inFlightPersist) await this.inFlightPersist;
-    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    const persistMs = Date.now() - tPersist;
+    const totalMs = Date.now() - start;
+    const elapsed = (totalMs / 1000).toFixed(1);
+    // Phase summary — drives perf measurement across releases. Matches the
+    // shape of the per-patch breakdown at the end of `patchFiles` so devs
+    // can compare cold vs. incremental work units at a glance.
+    const filesPerSec = parseMs > 0 ? Math.round((files.length * 1000) / parseMs) : 0;
+    this.opts.logger.info(
+      `[Indexer] Cold load: discover ${discoverMs}ms, parse ${parseMs}ms (${filesPerSec.toLocaleString()} files/s), aux ${auxMs}ms, resolve ${resolveMs}ms, warm ${warmMs}ms, persist ${persistMs}ms — total ${totalMs}ms`
+    );
     this.opts.logger.info(
       `[Indexer] Build complete: ${idx.symbols.length} symbols, ${idx.edges.length} edges in ${elapsed}s`
     );
