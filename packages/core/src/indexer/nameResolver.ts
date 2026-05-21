@@ -934,9 +934,23 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           break;
         }
         case "ExecuteMethodInSubform": {
-          const matches = byName.get(`${hint.formName}.${hint.methodName}`.toLowerCase()) ?? [];
-          const method = matches[0];
-          if (method) pushEdge(method.id, CallKind.Dynamic, true);
+          // Try a FormObjectMethod first — the method may live in the child
+          // form's ObjectMethods/ (symbol name is `<childForm>.<method>`).
+          const fomMatches = byName.get(`${hint.formName}.${hint.methodName}`.toLowerCase()) ?? [];
+          const fom = fomMatches[0];
+          if (fom) {
+            pushEdge(fom.id, CallKind.Dynamic, true);
+            break;
+          }
+          // Fall back to a regular ProjectMethod — in practice the second
+          // arg is most often a global project method that 4D runs in the
+          // subform's context (mirrors the CallWorker/NewProcess/
+          // ExecuteMethodLiteral resolution above).
+          const pmMatches = byName.get(hint.methodName.toLowerCase()) ?? [];
+          const pm = pmMatches.find(
+            (s) => s.kind === SymbolKind.ProjectMethod || s.kind === SymbolKind.DatabaseMethod
+          );
+          if (pm) pushEdge(pm.id, CallKind.Dynamic, true);
           else pushEdge(findOrCreateUnresolved(`${hint.formName}.${hint.methodName}`), CallKind.Dynamic, false);
           break;
         }

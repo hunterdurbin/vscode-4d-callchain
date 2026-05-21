@@ -83,4 +83,21 @@ describeWithFixture("indexer/mini-form — form.4DForm field extraction", (root)
     });
     expect(callee).toBeTruthy();
   });
+
+  // EXECUTE METHOD IN SUBFORM("name"; "method") — the second arg is
+  // typically a regular project method that 4D runs in the subform's
+  // context, NOT a FormObjectMethod. Verifies the resolver falls back
+  // from the FormObjectMethod lookup to a ProjectMethod lookup.
+  it("EXECUTE METHOD IN SUBFORM resolves second arg as a ProjectMethod when no FormObjectMethod matches", () => {
+    if (!isMini) return;
+    const caller = sym("ProjectMethod", "Subform_Caller");
+    expect(caller).toBeTruthy();
+    if (!caller) return;
+    const target = sym("ProjectMethod", "Subform_Helper_Target");
+    expect(target).toBeTruthy();
+    if (!target) return;
+    const edge = calleesOf(idx, caller).find((e) => e.toId === target.id);
+    expect(edge).toBeTruthy();
+    expect(edge?.resolved).toBe(true);
+  });
 });

@@ -42,6 +42,19 @@ export interface DiscoveredComponent {
 /**
  * Walk `Components/*.4dbase` and read each component's exposed method names.
  *
+ * Two sources contribute components:
+ *
+ *  1. **Project-local** — `${projectRoot}/Components/*.4dbase`. The user's
+ *     own components that ship alongside the project.
+ *  2. **4D-bundled** — `${4D.app}/Contents/Components/*.4dbase`. The
+ *     components 4D itself bundles (NetKit, Widgets, ViewPro, WritePro, SVG,
+ *     Progress, …). Discovered by probing installed 4D apps under
+ *     `/Applications` (`4D.app`, `4D Server.app`, `tool4d.app`, plus a
+ *     glob fallback for versioned bundles like `4D 20 R8/4D Server.app`).
+ *
+ * On name collision, project-local wins so the user can override bundled
+ * components.
+ *
  * Components are typically shipped compiled as a `.4DZ` (zip archive). The
  * source `.4dm` files are absent, but `Project/DerivedData/methodAttributes.json`
  * inside the archive lists every project method by name. We extract that file
@@ -60,19 +73,85 @@ export interface DiscoveredComponent {
  * If a future 4D release starts embedding sources, this scanner is the
  * place to thread them into `parseFile()` for real positions.
  */
-export function discoverComponents(projectRoot: string): DiscoveredComponent[] {
-  const componentsRoot = path.join(projectRoot, "Components");
-  if (!fs.existsSync(componentsRoot)) return [];
+export function discoverComponents(
+  projectRoot: string,
+  opts?: { bundledComponentRoots?: string[] }
+): DiscoveredComponent[] {
+  const seen = new Set<string>();
   const out: DiscoveredComponent[] = [];
-  for (const entry of safeReaddir(componentsRoot)) {
-    if (!entry.endsWith(".4dbase")) continue;
-    const bundlePath = path.join(componentsRoot, entry);
-    const name = entry.replace(/\.4dbase$/, "");
-    const zipPath = findArchive(bundlePath);
-    const methods = zipPath ? readMethodNamesFromZip(zipPath) : [];
-    const classStoreName = (zipPath && readClassStoreName(zipPath)) || name;
-    const classes = zipPath ? readClassesFromZip(zipPath) : [];
-    out.push({ name, bundlePath, zipPath, methods, classStoreName, classes });
+
+  const harvest = (componentsRoot: string) => {
+    if (!fs.existsSync(componentsRoot)) return;
+    for (const entry of safeReaddir(componentsRoot)) {
+      if (!entry.endsWith(".4dbase")) continue;
+      const name = entry.replace(/\.4dbase$/, "");
+      // Project-local components are added first; bundled probes are second
+      // and skipped on name collision so user overrides win.
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const bundlePath = path.join(componentsRoot, entry);
+      const zipPath = findArchive(bundlePath);
+      const methods = zipPath ? readMethodNamesFromZip(zipPath) : [];
+      const classStoreName = (zipPath && readClassStoreName(zipPath)) || name;
+      const classes = zipPath ? readClassesFromZip(zipPath) : [];
+      out.push({ name, bundlePath, zipPath, methods, classStoreName, classes });
+    }
+  };
+
+  // 1. Project-local first.
+  harvest(path.join(projectRoot, "Components"));
+
+  // 2. 4D-bundled (probe installed apps unless caller injected explicit roots).
+  const bundledRoots = opts?.bundledComponentRoots ?? findBundledComponentRoots();
+  for (const root of bundledRoots) harvest(root);
+
+  return out;
+}
+
+/**
+ * Probe `/Applications` for installed 4D apps and return their
+ * `Contents/Components` directories. Mirrors the probe strategy in
+ * `constantsScanner.findBuiltinConstantsFile`: try the canonical bundle
+ * names first, then scan `/Applications/*` (one level deep) for any
+ * `*.app` whose name looks 4D-flavored. Returns existing directories
+ * only; absence is silent (running on a machine without 4D installed is
+ * the test environment).
+ */
+export function findBundledComponentRoots(): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (p: string) => {
+    if (seen.has(p)) return;
+    seen.add(p);
+    if (fs.existsSync(p)) out.push(p);
+  };
+
+  // Canonical, version-less install names.
+  push("/Applications/4D.app/Contents/Components");
+  push("/Applications/4D Server.app/Contents/Components");
+  push("/Applications/tool4d.app/Contents/Components");
+
+  // Versioned installs: `/Applications/4D 20 R8/4D Server.app`, etc.
+  // Walk one level into `/Applications/*` for `*.app` bundles.
+  const appsRoot = "/Applications";
+  if (fs.existsSync(appsRoot)) {
+    for (const entry of safeReaddir(appsRoot)) {
+      const entryPath = path.join(appsRoot, entry);
+      let stat: fs.Stats;
+      try { stat = fs.statSync(entryPath); } catch { continue; }
+      if (stat.isDirectory() && entry.endsWith(".app")) {
+        // Direct .app at /Applications/<name>.app
+        if (/(4D|tool4d)/i.test(entry)) {
+          push(path.join(entryPath, "Contents/Components"));
+        }
+      } else if (stat.isDirectory() && /(4D|tool4d)/i.test(entry)) {
+        // Versioned wrapper like /Applications/4D 20 R8/ — scan inside.
+        for (const sub of safeReaddir(entryPath)) {
+          if (!sub.endsWith(".app")) continue;
+          push(path.join(entryPath, sub, "Contents/Components"));
+        }
+      }
+    }
   }
   return out;
 }

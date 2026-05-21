@@ -10,7 +10,7 @@ import { discoverCatalogTableIdMap, discoverCatalogTables, discoverFiles, discov
 import { DEFAULT_BUILTIN_CONSTANTS_PROBES, discoverBuiltinConstants, discoverConstants } from "./constantsScanner";
 import { discoverVariables } from "./variableScanner";
 import { discoverCompilerMethodTypes, mergeCompilerParamsWithDeclare, CompilerMethodTypes } from "./compilerMethodScanner";
-import { discoverComponents } from "./componentScanner";
+import { discoverComponents, findBundledComponentRoots } from "./componentScanner";
 import { ParsedFile, parseFile } from "./fileParser";
 import { buildResolverScratch, buildSymbolIndex, resolveCallsForFile, ResolverInput } from "./nameResolver";
 import { classifyFile } from "./projectScanner";
@@ -1080,24 +1080,34 @@ function listConstantsFiles(projectRoot: string): string[] {
   return out;
 }
 
-/** Mirror of `discoverComponents()`'s archive enumeration. */
+/** Mirror of `discoverComponents()`'s archive enumeration. Walks both the
+ *  project-local `Components/` directory and any 4D-bundled Components/
+ *  directories so cache-freshness checks see the same archive set the
+ *  scanner does. Project-local wins on collision (matches discoverComponents). */
 function listComponentArchives(projectRoot: string): string[] {
-  const componentsRoot = path.join(projectRoot, "Components");
-  if (!fs.existsSync(componentsRoot)) return [];
   const out: string[] = [];
-  try {
-    for (const entry of fs.readdirSync(componentsRoot)) {
-      if (!entry.endsWith(".4dbase")) continue;
-      const bundle = path.join(componentsRoot, entry);
-      try {
-        for (const inner of fs.readdirSync(bundle)) {
-          if (inner.endsWith(".4DZ") || inner.endsWith(".4dz")) {
-            out.push(path.join(bundle, inner));
+  const seenComponents = new Set<string>();
+  const harvest = (componentsRoot: string) => {
+    if (!fs.existsSync(componentsRoot)) return;
+    try {
+      for (const entry of fs.readdirSync(componentsRoot)) {
+        if (!entry.endsWith(".4dbase")) continue;
+        const name = entry.replace(/\.4dbase$/, "");
+        if (seenComponents.has(name)) continue;
+        seenComponents.add(name);
+        const bundle = path.join(componentsRoot, entry);
+        try {
+          for (const inner of fs.readdirSync(bundle)) {
+            if (inner.endsWith(".4DZ") || inner.endsWith(".4dz")) {
+              out.push(path.join(bundle, inner));
+            }
           }
-        }
-      } catch {/* skip */}
-    }
-  } catch {/* ignore */}
+        } catch {/* skip */}
+      }
+    } catch {/* ignore */}
+  };
+  harvest(path.join(projectRoot, "Components"));
+  for (const root of findBundledComponentRoots()) harvest(root);
   return out;
 }
 

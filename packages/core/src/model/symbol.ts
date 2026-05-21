@@ -203,9 +203,12 @@ export interface ChainStep {
 // `Cannot resolve` diagnostics per Symphony project).
 // Bumped to 32 when variadic params from Compiler_*.4dm started landing
 // on `SymbolRecord.params[]`.
+// Bumped to 33 when discoverComponents() started picking up 4D-bundled
+// components (NetKit, Widgets, ViewPro, …) from the 4D app bundle, and
+// when ExecuteMethodInSubform gained a ProjectMethod fallback.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 32;
+export const INDEX_VERSION = 33;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

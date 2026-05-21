@@ -21,7 +21,10 @@ describeWithFixture("indexer/mini-counts — deterministic kind tallies", (root)
   it("ProjectMethod count is exact", () => {
     if (!isMini) return;
     const count = idx.symbols.filter((s) => s.kind === ("ProjectMethod" as any)).length;
-    expect(count).toBe(26);
+    // 26 + 2 (Subform_Caller, Subform_Helper_Target — fixtures for the
+    // EXECUTE METHOD IN SUBFORM ProjectMethod-fallback resolver test in
+    // mini-form.test.ts).
+    expect(count).toBe(28);
   });
 
   it("Plugin / PluginCommand count is exact (1 bundle, 2 commands from Plugins/PgSQL.bundle)", () => {

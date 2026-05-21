@@ -39,7 +39,11 @@ async function buildIndex(projectRoot: string): Promise<SymbolIndex> {
   const parsed = files.map((file: any) => fileParser.parseFile(file, projectRoot, constantsSet));
   const plugins = projectScanner.discoverPlugins(projectRoot);
   const catalogTables = projectScanner.discoverCatalogTables(projectRoot);
-  const components = componentScanner.discoverComponents(projectRoot);
+  // Disable bundled-app probing in tests for hermetic behavior — the helper
+  // would otherwise pick up `/Applications/4D*.app/Contents/Components` on
+  // dev machines but not in CI. Tests that exercise bundled discovery inject
+  // their own roots (see test/unit/componentScanner.test.ts).
+  const components = componentScanner.discoverComponents(projectRoot, { bundledComponentRoots: [] });
 
   const built = nameResolver.buildSymbolIndex(
     projectRoot,
