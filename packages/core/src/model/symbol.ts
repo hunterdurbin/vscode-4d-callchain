@@ -186,9 +186,12 @@ export interface ChainStep {
 }
 
 // Bumped to 30 when the tree-sitter parser became the default (TODO #13).
-// Cached indexes built by the regex parser are silently invalidated on
-// load — users will see one rebuild after upgrading.
-export const INDEX_VERSION = 30;
+// Bumped to 31 after fixing flattenChain's call-flag annotation (`cs.X.new()
+// .method()` chains were emitting bogus `CsCallNs` edges; ~3k spurious
+// `Cannot resolve` diagnostics per Symphony project).
+// Cached indexes built before each bump are silently invalidated on load —
+// users see one rebuild after upgrading.
+export const INDEX_VERSION = 31;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {
