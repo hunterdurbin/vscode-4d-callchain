@@ -11,7 +11,7 @@ import {
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
-import { Indexer } from "@4d/core";
+import { Indexer, initTreeSitterParser } from "@4d/core";
 
 import { ServerState } from "./state";
 import { registerHoverHandler } from "./handlers/hover";
@@ -77,6 +77,17 @@ export function startServer(): void {
       builtinConstantsPaths: initOptions.builtinConstantsPaths ?? [],
       logger: state.makeLogger()
     });
+
+    // Bring up the tree-sitter parser in parallel with the indexer's
+    // load. parseFile() falls back to the regex parser until init resolves.
+    // Awaiting here (after Indexer is constructed) keeps state.indexer
+    // non-null so hover-style ping handlers can respond from the moment
+    // onInitialized completes.
+    try {
+      await initTreeSitterParser();
+    } catch (e) {
+      connection.console.warn(`[IDE] Tree-sitter init failed; using regex parser: ${(e as Error).message}`);
+    }
 
     try {
       await state.indexer.load();

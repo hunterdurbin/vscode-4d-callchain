@@ -11,7 +11,7 @@ import {
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
-import { Indexer } from "@4d/core";
+import { Indexer, initTreeSitterParser } from "@4d/core";
 
 import { ServerState } from "./state";
 import { registerSymbolHandlers } from "./handlers/symbols";
@@ -85,6 +85,16 @@ export function startServer(): void {
       persistDebounceMs: 250,
       logger: state.makeLogger()
     });
+
+    // Bring up the tree-sitter parser before the indexer's `load()` so the
+    // initial rebuild uses the new parser. Awaiting here (after Indexer is
+    // constructed) keeps `state.indexer` non-null so probe handlers like
+    // hover can respond as soon as onInitialized starts running.
+    try {
+      await initTreeSitterParser();
+    } catch (e) {
+      connection.console.warn(`[Server] Tree-sitter init failed; using regex parser: ${(e as Error).message}`);
+    }
 
     try {
       await state.indexer.load();

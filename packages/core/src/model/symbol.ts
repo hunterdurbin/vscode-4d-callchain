@@ -185,7 +185,10 @@ export interface ChainStep {
   isCall: boolean;
 }
 
-export const INDEX_VERSION = 29;
+// Bumped to 30 when the tree-sitter parser became the default (TODO #13).
+// Cached indexes built by the regex parser are silently invalidated on
+// load — users will see one rebuild after upgrading.
+export const INDEX_VERSION = 30;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

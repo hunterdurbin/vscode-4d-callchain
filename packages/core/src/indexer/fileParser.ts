@@ -127,12 +127,13 @@ function isAssignmentChained(line: string, openParenIdx: number): boolean {
 }
 
 export function parseFile(file: DiscoveredFile, projectRootUri: string, constantsSet?: Set<string>): ParsedFile {
-  // Experimental tree-sitter dispatch (TODO #13). Behind FOURD_PARSER=treesitter.
-  // Falls through to the legacy regex parser if tree-sitter isn't initialized
-  // yet — see packages/core/src/parser/parseWithTreeSitter.ts for init.
-  if (process.env.FOURD_PARSER === "treesitter") {
+  // Tree-sitter is the default once `initTreeSitterParser()` has resolved
+  // (the LSP servers and extension host await it at startup). The legacy
+  // regex parser is the fallback when the WASM init hasn't completed
+  // (e.g. during early startup, in tests, or on a failed init). Opt-out
+  // via `FOURD_PARSER=regex` for emergencies.
+  if (process.env.FOURD_PARSER !== "regex") {
     try {
-      // Lazy-required so the legacy path doesn't pay the import cost.
       const ts: typeof import("../parser/parseWithTreeSitter") = require("../parser/parseWithTreeSitter");
       if (ts.isTreeSitterReady()) {
         return ts.parseFileWithTreeSitter(file, constantsSet);

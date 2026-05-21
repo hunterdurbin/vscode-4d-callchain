@@ -161,24 +161,28 @@ export async function waitForIdeReady(
   client: LspClient,
   timeoutMs = 60_000
 ): Promise<void> {
+  // Open a scratch document that references a fixture-known method so the
+  // poll has something to anchor on. `MyLength` is a stable mini-4d
+  // ProjectMethod — once the indexer has loaded it, the hover handler
+  // returns a non-null Hover. Treating null as "ready" (as the old code
+  // did) is racy: hover returns null both when graph is missing AND when
+  // the word doesn't match anything, so we can't distinguish.
   const scratchUri = `file:///tmp/_4d_ide_ready_${process.pid}.4dm`;
-  const scratchText = "Function probe()\n  return 1";
+  const scratchText = "x:=MyLength(\"hi\")\n";
   client.notify("textDocument/didOpen", {
     textDocument: { uri: scratchUri, languageId: "4d", version: 1, text: scratchText }
   });
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      // Hover returns null when not on an identifier — what matters is the
-      // request completing without rejection, which signals the indexer is
-      // accepting requests.
       const out: any = await client.request("textDocument/hover", {
         textDocument: { uri: scratchUri },
-        position: { line: 0, character: 9 }
+        // Character 4 = 'M' of MyLength.
+        position: { line: 0, character: 4 }
       });
-      if (out !== undefined) return;
+      if (out && out.contents) return;
     } catch {}
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 250));
   }
   throw new Error("timed out waiting for ide-server to become ready");
 }

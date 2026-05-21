@@ -1,6 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { Indexer, SymbolKind } from "@4d/core";
+import { Indexer, SymbolKind, initTreeSitterParser } from "@4d/core";
 import type { SymbolRecord } from "@4d/core";
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from "vscode-languageclient/node";
 import { CallTreeProvider } from "./views/callTreeProvider";
@@ -27,6 +27,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return;
   }
   output.appendLine(`[Activate] Project root: ${projectRoot}`);
+
+  // Bring up the tree-sitter parser before the indexer constructs so
+  // parseFile() takes the new path from the first scan. Failures fall
+  // back silently to the regex parser via fileParser's dispatch.
+  try {
+    await initTreeSitterParser();
+  } catch (e) {
+    output.appendLine(`[Activate] Tree-sitter init failed; using regex parser: ${(e as Error).message}`);
+  }
 
   const exclusions = vscode.workspace.getConfiguration("callchain").get<string[]>("indexExclusions", []);
   const builtinConstantsPaths = vscode.workspace.getConfiguration("callchain").get<string[]>("builtinConstantsPaths", []);
