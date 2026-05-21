@@ -1,0 +1,197 @@
+==================
+call — bare-name with parens
+==================
+
+MyMethod()
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (identifier)
+      arguments: (argument_list))))
+
+==================
+call — bare-name with single arg
+==================
+
+ALERT("hello")
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (identifier)
+      arguments: (argument_list
+        (string)))))
+
+==================
+call — bare-name with multiple args
+==================
+
+DispatchedMethod($a; $b; "literal")
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (identifier)
+      arguments: (argument_list
+        (local_var)
+        (local_var)
+        (string)))))
+
+==================
+call — paren-less bare name
+==================
+
+DispatchedMethod
+
+---
+
+(source_file
+  (expression_statement expression: (identifier)))
+
+==================
+call — This.method
+==================
+
+This.save()
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (member_expression
+        object: (keyword_this)
+        property: (identifier))
+      arguments: (argument_list))))
+
+==================
+call — cs.Class.new
+==================
+
+cs.Order.new("id")
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (member_expression
+        object: (member_expression
+          object: (identifier)
+          property: (identifier))
+        property: (identifier))
+      arguments: (argument_list
+        (string)))))
+
+==================
+call — cs.NS.Class.new (3-segment)
+==================
+
+cs.Module.Result.new()
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (member_expression
+        object: (member_expression
+          object: (member_expression
+            object: (identifier)
+            property: (identifier))
+          property: (identifier))
+        property: (identifier))
+      arguments: (argument_list))))
+
+==================
+call — ds.Table.method
+==================
+
+ds.Orders.query("status = :1"; "open")
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (member_expression
+        object: (member_expression
+          object: (identifier)
+          property: (identifier))
+        property: (identifier))
+      arguments: (argument_list
+        (string)
+        (string)))))
+
+==================
+call — local var method chain
+==================
+
+$entity.save()
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (member_expression
+        object: (local_var)
+        property: (identifier))
+      arguments: (argument_list))))
+
+==================
+call — chained methods
+==================
+
+$x.foo().bar()
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (member_expression
+        object: (call_expression
+          function: (member_expression
+            object: (local_var)
+            property: (identifier))
+          arguments: (argument_list))
+        property: (identifier))
+      arguments: (argument_list))))
+
+==================
+call — Super
+==================
+
+Super()
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (keyword_super)
+      arguments: (argument_list))))
+
+==================
+call — Super.method
+==================
+
+Super.load()
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (member_expression
+        object: (keyword_super)
+        property: (identifier))
+      arguments: (argument_list))))

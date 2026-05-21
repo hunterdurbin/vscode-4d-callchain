@@ -7,7 +7,7 @@ string — simple
 ---
 
 (source_file
-  (string))
+  (expression_statement expression: (string)))
 
 ==================
 string — empty
@@ -18,7 +18,7 @@ string — empty
 ---
 
 (source_file
-  (string))
+  (expression_statement expression: (string)))
 
 ==================
 string — doubled-quote escape (4D classic)
@@ -29,7 +29,7 @@ string — doubled-quote escape (4D classic)
 ---
 
 (source_file
-  (string))
+  (expression_statement expression: (string)))
 
 ==================
 string — backslash-quote escape (4D v18+)
@@ -40,7 +40,7 @@ string — backslash-quote escape (4D v18+)
 ---
 
 (source_file
-  (string))
+  (expression_statement expression: (string)))
 
 ==================
 string — backslash other escapes
@@ -51,7 +51,7 @@ string — backslash other escapes
 ---
 
 (source_file
-  (string))
+  (expression_statement expression: (string)))
 
 ==================
 string — embedded brackets and dollar signs
@@ -62,7 +62,7 @@ string — embedded brackets and dollar signs
 ---
 
 (source_file
-  (string))
+  (expression_statement expression: (string)))
 
 ==================
 multiple strings on separate lines
@@ -75,6 +75,6 @@ multiple strings on separate lines
 ---
 
 (source_file
-  (string)
-  (string)
-  (string))
+  (expression_statement expression: (string))
+  (expression_statement expression: (string))
+  (expression_statement expression: (string)))

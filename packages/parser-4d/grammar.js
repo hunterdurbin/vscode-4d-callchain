@@ -40,6 +40,25 @@ function kw(text) {
   return new RegExp(body);
 }
 
+// Expression-precedence constants. Higher numbers bind tighter.
+// Roughly mirrors 4D operator precedence; not all levels are syntactically
+// distinct in 4D (it's mostly left-to-right), but accurate precedence keeps
+// the CST shapes sensible.
+const PREC = {
+  OR: 1,
+  AND: 2,
+  COMPARE: 3,
+  ADD: 4,
+  MUL: 5,
+  UNARY: 6,
+  MEMBER: 7,
+  CALL: 8,
+  // Multi-word call must outrank single-word call so `CALL WORKER(...)`
+  // parses with `CALL WORKER` as the callee, not `CALL` followed by
+  // `WORKER(...)`.
+  CALL_MULTIWORD: 9,
+};
+
 // 4D's `C_<TYPE>` legacy declaration prefix list, matched as a single
 // case-insensitive token. The body (`(...)`) is parsed by `legacy_var_declaration`.
 const C_TYPE_KEYWORDS = [
@@ -98,9 +117,17 @@ module.exports = grammar({
     _top_level_item: ($) =>
       choice(
         $._declaration,
-        $._misc_statement,
+        $.directive_statement,
+        $._statement,
         $._newline,
       ),
+
+    // Directives stand on their own at top level: `#PROJECT METHOD`,
+    // `#PROPERTIES`. Separate from `_statement` because tree-sitter's LR
+    // analysis can't reach `directive` through `_primary_expression` at
+    // start-of-line — the `#` token gets snapped up by `binary_expression`
+    // before the parser can backtrack into the directive's longer match.
+    directive_statement: ($) => seq($.directive, $._newline),
 
     _newline: ($) => /\n/,
 
@@ -326,49 +353,69 @@ module.exports = grammar({
     // token so the parser can take the structured path.
     declare_keyword: ($) => token(prec(2, kw("#DECLARE"))),
 
-    // ---- Catch-all for non-declaration lines (Phase 3+ refines this) ----
+    // ---- Statements ----
 
-    // A line of arbitrary tokens — assignments, calls, expressions, control
-    // flow, etc. Phase 3 will replace this with real expression rules. For
-    // Phase 2, we accept any sequence of tokens terminated by newline.
-    _misc_statement: ($) =>
-      seq(repeat1($._misc_token), $._newline),
-
-    _misc_token: ($) =>
+    _statement: ($) =>
       choice(
-        $.identifier,
-        $.local_var,
-        $.parameter,
-        $.interprocess_var,
-        $.field_ref,
-        $.table_ref,
-        $.number,
-        $.string,
-        $.directive,
-        // Operators / punctuation used in expressions.
-        $.op_dot,
-        $.op_assign,
-        $.op_colon,
-        $.op_arrow,
-        $.op_lparen,
-        $.op_rparen,
-        $.op_lbrace,
-        $.op_rbrace,
-        $.op_lbracket,
-        $.op_rbracket,
-        $.op_semi,
-        $.op_comma,
-        $.op_other,
-        // Keywords that can appear inside expressions/statements.
-        $.keyword_this,
-        $.keyword_super,
-        $.keyword_new,
+        $.return_statement,
+        $.assignment_statement,
+        $.expression_statement,
+        $.case_label,
+        // Control-flow lines (caught here in Phase 3; Phase 4 structures them).
+        $._control_flow_line,
+      ),
+
+    // `: (expr)` — a Case-of label line. Phase 4's case_of_statement will
+    // claim these; Phase 3 lets them parse standalone.
+    case_label: ($) =>
+      seq(
+        ":",
+        optional(field("condition", $._expression)),
+        $._newline,
+      ),
+
+    // `return` with an optional expression. Used both in Functions (with
+    // value) and in #DECLARE methods (without value when followed by `$0:=`).
+    return_statement: ($) =>
+      seq(
         $.keyword_return,
-        $.keyword_true,
-        $.keyword_false,
-        $.keyword_null,
-        $.keyword_formula,
-        // Control-flow keywords (caught here in Phase 2; Phase 4 structures them).
+        optional(field("value", $._expression)),
+        $._newline,
+      ),
+
+    // `target := value`, `target += value`, etc. Compound forms are emitted
+    // as a distinct `compound_assign_op` so the visitor can synthesize the
+    // implicit read.
+    assignment_statement: ($) =>
+      seq(
+        field("target", $._expression),
+        field(
+          "operator",
+          choice($.op_assign, $.compound_assign_op),
+        ),
+        field("value", $._expression),
+        $._newline,
+      ),
+
+    // Any expression appearing alone on a line — covers bare-name calls
+    // (`DispatchedMethod` with no parens), parenthesized calls, member
+    // chains, and special-form invocations like `CALL WORKER(...)`.
+    expression_statement: ($) =>
+      seq(field("expression", $._expression), $._newline),
+
+    // Placeholder for control-flow lines — Phase 4 replaces this with
+    // structured `if_statement`, `for_statement`, etc. Until then we accept
+    // them as raw sequences of tokens terminated by newline so the parser
+    // doesn't choke on real fixtures.
+    _control_flow_line: ($) =>
+      seq(
+        $._control_flow_head,
+        repeat($._control_flow_trailing),
+        $._newline,
+      ),
+
+    _control_flow_head: ($) =>
+      choice(
         $.keyword_if,
         $.keyword_else,
         $.keyword_end_if,
@@ -390,11 +437,238 @@ module.exports = grammar({
         $.keyword_try,
         $.keyword_catch,
         $.keyword_throw,
-        // Optional `End function` / `End class` in legacy code (also caught here).
         $.keyword_end_function,
       ),
 
-    // ---- Operators ----
+    // Tokens we accept on a control-flow line after the head keyword. Phase 4
+    // will replace this fallback with structured condition expressions.
+    _control_flow_trailing: ($) =>
+      choice(
+        $.identifier,
+        $.local_var,
+        $.parameter,
+        $.interprocess_var,
+        $.field_ref,
+        $.table_ref,
+        $.number,
+        $.string,
+        $.directive,
+        $.op_dot,
+        $.op_assign,
+        $.op_colon,
+        $.op_arrow,
+        $.op_lparen,
+        $.op_rparen,
+        $.op_lbrace,
+        $.op_rbrace,
+        $.op_lbracket,
+        $.op_rbracket,
+        $.op_semi,
+        $.op_comma,
+        $.op_other,
+        $.op_neq,
+        $.compound_assign_op,
+        $.keyword_this,
+        $.keyword_super,
+        $.keyword_new,
+        $.keyword_return,
+        $.keyword_true,
+        $.keyword_false,
+        $.keyword_null,
+        $.keyword_formula,
+        $.keyword_if,
+        $.keyword_else,
+        $.keyword_end_if,
+        $.keyword_else_if,
+        $.keyword_case_of,
+        $.keyword_end_case,
+        $.keyword_for,
+        $.keyword_for_each,
+        $.keyword_end_for,
+        $.keyword_end_for_each,
+        $.keyword_while,
+        $.keyword_end_while,
+        $.keyword_repeat,
+        $.keyword_until,
+      ),
+
+    // ---- Expressions ----
+
+    _expression: ($) =>
+      choice(
+        $._primary_expression,
+        $.member_expression,
+        $.call_expression,
+        $.subscript_expression,
+        $.binary_expression,
+        $.unary_expression,
+        $.parenthesized_expression,
+        $.object_literal,
+        $.collection_literal,
+      ),
+
+    _primary_expression: ($) =>
+      choice(
+        $.identifier,
+        $.local_var,
+        $.parameter,
+        $.interprocess_var,
+        $.field_ref,
+        $.table_ref,
+        $.number,
+        $.string,
+        $.keyword_this,
+        $.keyword_super,
+        $.keyword_true,
+        $.keyword_false,
+        $.keyword_null,
+        // Multi-word commands can appear without parens too — e.g.
+        // `This.entries:=New object` (where `New object` returns an empty
+        // object). Adding here means a bare `New object` is a complete
+        // expression; wrapping in `(args)` makes it a call.
+        $.multi_word_identifier,
+        // `*` as a builtin "wildcard" argument — e.g.
+        // `EXECUTE METHOD("name"; *; "arg")` passes `*` to mean
+        // "current process." Tree-sitter sees this in argument position.
+        $.wildcard,
+      ),
+
+    // Wildcard literal `*` used as a 4D builtin argument.
+    wildcard: ($) => "*",
+
+    // `expr.name` — member access. `name` can be a regular identifier or a
+    // contextual keyword (since 4D allows e.g. `cs.Foo.get(...)` and chains
+    // off `This.set`).
+    member_expression: ($) =>
+      prec.left(
+        PREC.MEMBER,
+        seq(
+          field("object", $._expression),
+          ".",
+          field("property", $._member_name),
+        ),
+      ),
+
+    _member_name: ($) =>
+      choice(
+        $.identifier,
+        alias($.keyword_get, $.identifier),
+        alias($.keyword_set, $.identifier),
+        alias($.keyword_new, $.identifier),
+      ),
+
+    // `expr[index]` — bracket subscript. Distinct from `[Table]` and
+    // `[Table]Field` tokens because those are lexed atomically.
+    subscript_expression: ($) =>
+      prec.left(
+        PREC.MEMBER,
+        seq(
+          field("object", $._expression),
+          "[",
+          field("index", $._expression),
+          "]",
+        ),
+      ),
+
+    // Function or method call: `expr(args)`. The callee can be any
+    // expression (covers `Foo(...)`, `cs.X.method(...)`, `$x.method(...)`,
+    // `This.method(...)`, and — via `multi_word_identifier` as a primary
+    // expression — `CALL WORKER(...)`, `New process(...)`, etc.).
+    call_expression: ($) =>
+      prec.left(
+        PREC.CALL,
+        seq(
+          field("function", $._expression),
+          field("arguments", $.argument_list),
+        ),
+      ),
+
+    // Multi-word command callee. Allows certain contextual keywords (`New`,
+    // `Get`, `Set`) as either the head or trailing words — necessary for
+    // `New object(...)`, `New collection(...)`, `OB Get(...)`, `OB Set(...)`,
+    // etc. Pure identifiers still cover the bulk: `CALL WORKER`,
+    // `EXECUTE METHOD`, `Open form window`.
+    multi_word_identifier: ($) =>
+      seq($._word_or_keyword, repeat1($._word_or_keyword)),
+
+    _word_or_keyword: ($) =>
+      choice(
+        $.identifier,
+        alias($.keyword_new, $.identifier),
+        alias($.keyword_get, $.identifier),
+        alias($.keyword_set, $.identifier),
+      ),
+
+    argument_list: ($) =>
+      seq(
+        "(",
+        optional(seq($._expression, repeat(seq(";", $._expression)))),
+        ")",
+      ),
+
+    parenthesized_expression: ($) => seq("(", $._expression, ")"),
+
+    // `{key: value; key: value; ...}` — 4D object literal. Keys are bare
+    // identifiers, separator is `;`.
+    object_literal: ($) =>
+      seq(
+        "{",
+        optional(seq($.object_entry, repeat(seq(";", $.object_entry)))),
+        "}",
+      ),
+
+    object_entry: ($) =>
+      seq(
+        field("key", choice($.identifier, $.string)),
+        ":",
+        field("value", $._expression),
+      ),
+
+    // `[1; 2; 3]` — Note this conflicts with `[Table]` token. Real 4D
+    // collections are usually built via `New collection(...)` rather than
+    // bracket literals. Including this rule for completeness; the
+    // `[Identifier]` shape wins via the token rule.
+    collection_literal: ($) =>
+      seq(
+        "[",
+        optional(seq($._expression, repeat(seq(";", $._expression)))),
+        "]",
+      ),
+
+    // Binary operators, precedence roughly mirroring 4D. We don't strictly
+    // need every level — the visitor walks the tree by node kind, not
+    // operator precedence — but accurate precedence keeps the CST shapes
+    // sensible.
+    binary_expression: ($) =>
+      choice(
+        prec.left(PREC.OR, seq($._expression, "|", $._expression)),
+        prec.left(PREC.AND, seq($._expression, "&", $._expression)),
+        prec.left(
+          PREC.COMPARE,
+          seq(
+            $._expression,
+            choice("=", "#", "<", ">", token(">="), token("<=")),
+            $._expression,
+          ),
+        ),
+        prec.left(
+          PREC.ADD,
+          seq($._expression, choice("+", "-"), $._expression),
+        ),
+        prec.left(
+          PREC.MUL,
+          seq($._expression, choice("*", "/", "^"), $._expression),
+        ),
+      ),
+
+    unary_expression: ($) =>
+      prec.right(PREC.UNARY, seq(choice("-", "+"), $._expression)),
+
+    // Compound-assignment operator: `+=`, `-=`, `*=`, `/=`. A single token so
+    // it doesn't collide with `+` followed by `=`.
+    compound_assign_op: ($) => token(/[+\-*/]=/),
+
+    // ---- Operators (named so the catch-all can reference them) ----
 
     op_dot: ($) => ".",
     op_assign: ($) => ":=",
@@ -408,12 +682,20 @@ module.exports = grammar({
     op_rbracket: ($) => "]",
     op_semi: ($) => ";",
     op_comma: ($) => ",",
-    // Single-char operators that don't need to be individually addressable yet.
-    op_other: ($) => token(/[+\-*/=#<>&|^]|>=|<=/),
+    // Single-char operators. `*` is multiplication AND the builtin wildcard
+    // (a separate `wildcard` rule); the grammar picks by context.
+    op_other: ($) => token(/[+\-*/=<>&|^]|>=|<=/),
+    // `#` as a comparison operator ("not equal"). Pulled out so the longer
+    // `directive` token at prec(3) wins when the lexer sees `#` at the
+    // start of `#PROJECT METHOD` / `#PROPERTIES`.
+    op_neq: ($) => "#",
 
     // ---- Token rules (Phase 1, unchanged) ----
 
-    identifier: ($) => /[A-Za-z_][A-Za-z0-9_]*/,
+    // Identifier — letters, digits, and underscore. Must contain at least one
+    // letter or underscore (otherwise it's a number). 4D allows constants and
+    // identifiers to start with a digit (`4Q_TYPE_X`).
+    identifier: ($) => /[A-Za-z0-9_]*[A-Za-z_][A-Za-z0-9_]*/,
     local_var: ($) =>
       /\$[A-Za-z_][A-Za-z0-9_]*|\$\d+[A-Za-z_][A-Za-z0-9_]*/,
     parameter: ($) => /\$\d+/,
@@ -421,11 +703,19 @@ module.exports = grammar({
     field_ref: ($) => /\[[A-Za-z_][A-Za-z0-9_]*\][A-Za-z_][A-Za-z0-9_]*/,
     table_ref: ($) => /\[[A-Za-z_][A-Za-z0-9_]*\]/,
 
+    // Number literals.
+    //
+    // Hex (`0xCAFE`) and scientific (`5e2`) forms need `prec(2)` to beat an
+    // identifier match of the same length (since `identifier` now allows
+    // digit-first and letter-middle: `5e2` matches identifier regex too).
+    // Plain integers (`42`) don't overlap with identifier (it requires at
+    // least one letter or underscore). Decimal (`3.14`), date, and time
+    // forms have characters that identifier can't accept.
     number: ($) =>
       choice(
-        token(/0[xX][0-9a-fA-F]+/),
+        token(prec(2, /0[xX][0-9a-fA-F]+/)),
         token(/\d+\.\d+([eE][+-]?\d+)?/),
-        token(/\d+[eE][+-]?\d+/),
+        token(prec(2, /\d+[eE][+-]?\d+/)),
         token(/\d+/),
         token(/![\d\-]{1,12}!/),
         token(/\?[\d:]{1,10}\?/),
@@ -446,12 +736,18 @@ module.exports = grammar({
       token(seq("/*", /([^*]|\*+[^*/])*/, /\*+\//)),
 
     // General-purpose directive (anything matching `#KEYWORD ...` at line
-    // start that isn't the structured `#DECLARE`). #DECLARE gets prec(2) so
-    // the structured path wins.
+    // start that isn't the structured `#DECLARE`). Case-insensitive regex
+    // for each keyword. `prec(3)` ensures these win at character zero over
+    // the bare `#` token used elsewhere (`binary_expression` choice).
     directive: ($) =>
-      choice(
-        token(kw("#PROJECT METHOD")),
-        token(kw("#PROPERTIES")),
+      token(
+        prec(
+          3,
+          choice(
+            /#[pP][rR][oO][jJ][eE][cC][tT][ \t]+[mM][eE][tT][hH][oO][dD]/,
+            /#[pP][rR][oO][pP][eE][rR][tT][iI][eE][sS]/,
+          ),
+        ),
       ),
 
     // ---- Keywords ----

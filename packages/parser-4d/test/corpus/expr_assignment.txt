@@ -1,0 +1,147 @@
+==================
+assignment — local var
+==================
+
+$x:=42
+
+---
+
+(source_file
+  (assignment_statement
+    target: (local_var)
+    operator: (op_assign)
+    value: (number)))
+
+==================
+assignment — to parameter
+==================
+
+$0:=Null
+
+---
+
+(source_file
+  (assignment_statement
+    target: (parameter)
+    operator: (op_assign)
+    value: (keyword_null)))
+
+==================
+assignment — to This property
+==================
+
+This.entries:=New object
+
+---
+
+(source_file
+  (assignment_statement
+    target: (member_expression
+      object: (keyword_this)
+      property: (identifier))
+    operator: (op_assign)
+    value: (multi_word_identifier
+      (identifier)
+      (identifier))))
+
+==================
+assignment — to subscript (This.dict[key])
+==================
+
+This.entries[$key]:=$value
+
+---
+
+(source_file
+  (assignment_statement
+    target: (subscript_expression
+      object: (member_expression
+        object: (keyword_this)
+        property: (identifier))
+      index: (local_var))
+    operator: (op_assign)
+    value: (local_var)))
+
+==================
+assignment — compound +=
+==================
+
+$count+=1
+
+---
+
+(source_file
+  (assignment_statement
+    target: (local_var)
+    operator: (compound_assign_op)
+    value: (number)))
+
+==================
+assignment — to interprocess var
+==================
+
+<>aGlobal:=True
+
+---
+
+(source_file
+  (assignment_statement
+    target: (interprocess_var)
+    operator: (op_assign)
+    value: (keyword_true)))
+
+==================
+assignment — string literal RHS
+==================
+
+$formName:="Commissions_Admin"
+
+---
+
+(source_file
+  (assignment_statement
+    target: (local_var)
+    operator: (op_assign)
+    value: (string)))
+
+==================
+assignment — call result RHS
+==================
+
+$entry:=cs.Order.new($id)
+
+---
+
+(source_file
+  (assignment_statement
+    target: (local_var)
+    operator: (op_assign)
+    value: (call_expression
+      function: (member_expression
+        object: (member_expression
+          object: (identifier)
+          property: (identifier))
+        property: (identifier))
+      arguments: (argument_list
+        (local_var)))))
+
+==================
+assignment — chain RHS
+==================
+
+$cached:=This.cache.get($key)
+
+---
+
+(source_file
+  (assignment_statement
+    target: (local_var)
+    operator: (op_assign)
+    value: (call_expression
+      function: (member_expression
+        object: (member_expression
+          object: (keyword_this)
+          property: (identifier))
+        property: (identifier))
+      arguments: (argument_list
+        (local_var)))))

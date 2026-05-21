@@ -1,0 +1,126 @@
+==================
+multi-word — New object (no args)
+==================
+
+New object
+
+---
+
+(source_file
+  (expression_statement
+    expression: (multi_word_identifier
+      (identifier)
+      (identifier))))
+
+==================
+multi-word — New object (with args)
+==================
+
+New object("key"; "value")
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (multi_word_identifier
+        (identifier)
+        (identifier))
+      arguments: (argument_list
+        (string)
+        (string)))))
+
+==================
+multi-word — CALL WORKER
+==================
+
+CALL WORKER("Worker_Backend"; "MethodName"; $params)
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (multi_word_identifier
+        (identifier)
+        (identifier))
+      arguments: (argument_list
+        (string)
+        (string)
+        (local_var)))))
+
+==================
+multi-word — New process
+==================
+
+New process("DispatchedMethod"; 1024; "name")
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (multi_word_identifier
+        (identifier)
+        (identifier))
+      arguments: (argument_list
+        (string)
+        (number)
+        (string)))))
+
+==================
+multi-word — EXECUTE METHOD IN SUBFORM (4 words)
+==================
+
+EXECUTE METHOD IN SUBFORM("Form"; "Method")
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (multi_word_identifier
+        (identifier)
+        (identifier)
+        (identifier)
+        (identifier))
+      arguments: (argument_list
+        (string)
+        (string)))))
+
+==================
+multi-word — Open form window
+==================
+
+Open form window("FormName")
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (multi_word_identifier
+        (identifier)
+        (identifier)
+        (identifier))
+      arguments: (argument_list
+        (string)))))
+
+==================
+multi-word — wildcard arg
+==================
+
+EXECUTE METHOD("name"; *; "arg")
+
+---
+
+(source_file
+  (expression_statement
+    expression: (call_expression
+      function: (multi_word_identifier
+        (identifier)
+        (identifier))
+      arguments: (argument_list
+        (string)
+        (wildcard)
+        (string)))))

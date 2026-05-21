@@ -7,7 +7,8 @@ directive — #PROJECT METHOD
 ---
 
 (source_file
-  (directive))
+  (directive_statement
+    (directive)))
 
 ==================
 directive — #PROPERTIES
@@ -18,4 +19,5 @@ directive — #PROPERTIES
 ---
 
 (source_file
-  (directive))
+  (directive_statement
+    (directive)))

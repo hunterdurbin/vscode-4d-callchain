@@ -18,8 +18,9 @@ MyMethod // trailing
 ---
 
 (source_file
-  (identifier)
-  (line_comment))
+  (expression_statement
+    expression: (identifier)
+    (line_comment)))
 
 ==================
 line comment — empty body
@@ -67,7 +68,7 @@ MyMethod
 
 (source_file
   (block_comment)
-  (identifier))
+  (expression_statement expression: (identifier)))
 
 ==================
 block comment — contains asterisks and slashes
@@ -93,5 +94,6 @@ MyMethod // trailing
 (source_file
   (line_comment)
   (block_comment)
-  (identifier)
-  (line_comment))
+  (expression_statement
+    expression: (identifier)
+    (line_comment)))

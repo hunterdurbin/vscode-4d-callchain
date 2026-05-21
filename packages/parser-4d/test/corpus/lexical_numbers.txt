@@ -7,7 +7,7 @@ number — integer
 ---
 
 (source_file
-  (number))
+  (expression_statement expression: (number)))
 
 ==================
 number — float
@@ -18,7 +18,7 @@ number — float
 ---
 
 (source_file
-  (number))
+  (expression_statement expression: (number)))
 
 ==================
 number — scientific lowercase
@@ -29,7 +29,7 @@ number — scientific lowercase
 ---
 
 (source_file
-  (number))
+  (expression_statement expression: (number)))
 
 ==================
 number — scientific uppercase with sign
@@ -40,7 +40,8 @@ number — scientific uppercase with sign
 ---
 
 (source_file
-  (number))
+  (expression_statement
+    expression: (number)))
 
 ==================
 number — integer in scientific notation
@@ -51,7 +52,7 @@ number — integer in scientific notation
 ---
 
 (source_file
-  (number))
+  (expression_statement expression: (number)))
 
 ==================
 number — hex
@@ -62,7 +63,7 @@ number — hex
 ---
 
 (source_file
-  (number))
+  (expression_statement expression: (number)))
 
 ==================
 number — hex uppercase prefix
@@ -73,7 +74,7 @@ number — hex uppercase prefix
 ---
 
 (source_file
-  (number))
+  (expression_statement expression: (number)))
 
 ==================
 date literal — full ISO
@@ -84,7 +85,7 @@ date literal — full ISO
 ---
 
 (source_file
-  (number))
+  (expression_statement expression: (number)))
 
 ==================
 date literal — short
@@ -95,7 +96,7 @@ date literal — short
 ---
 
 (source_file
-  (number))
+  (expression_statement expression: (number)))
 
 ==================
 time literal
@@ -106,7 +107,7 @@ time literal
 ---
 
 (source_file
-  (number))
+  (expression_statement expression: (number)))
 
 ==================
 time literal — single digit
@@ -117,4 +118,4 @@ time literal — single digit
 ---
 
 (source_file
-  (number))
+  (expression_statement expression: (number)))

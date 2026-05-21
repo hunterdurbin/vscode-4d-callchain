@@ -1,16 +1,39 @@
 ==================
-keyword — if (lowercase)
+keyword — return statement
 ==================
 
-if
+return
 
 ---
 
 (source_file
-  (keyword_if))
+  (return_statement
+    (keyword_return)))
 
 ==================
-keyword — If (titlecase)
+keyword — This expression
+==================
+
+This
+
+---
+
+(source_file
+  (expression_statement expression: (keyword_this)))
+
+==================
+keyword — Super expression
+==================
+
+Super
+
+---
+
+(source_file
+  (expression_statement expression: (keyword_super)))
+
+==================
+keyword — control flow head: If
 ==================
 
 If
@@ -21,48 +44,15 @@ If
   (keyword_if))
 
 ==================
-keyword — IF (uppercase)
+keyword — control flow head: if (lowercase)
 ==================
 
-IF
+if
 
 ---
 
 (source_file
   (keyword_if))
-
-==================
-keyword — return
-==================
-
-return
-
----
-
-(source_file
-  (keyword_return))
-
-==================
-keyword — This
-==================
-
-This
-
----
-
-(source_file
-  (keyword_this))
-
-==================
-keyword — New
-==================
-
-New
-
----
-
-(source_file
-  (keyword_new))
 
 ==================
 multi-word keyword — End if
@@ -117,4 +107,18 @@ IfFoo
 ---
 
 (source_file
-  (identifier))
+  (expression_statement expression: (identifier)))
+
+==================
+New as part of multi-word command
+==================
+
+New process
+
+---
+
+(source_file
+  (expression_statement
+    expression: (multi_word_identifier
+      (identifier)
+      (identifier))))

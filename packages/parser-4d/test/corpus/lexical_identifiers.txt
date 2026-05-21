@@ -10,10 +10,10 @@ Snake_Case_123
 ---
 
 (source_file
-  (identifier)
-  (identifier)
-  (identifier)
-  (identifier))
+  (expression_statement expression: (identifier))
+  (expression_statement expression: (identifier))
+  (expression_statement expression: (identifier))
+  (expression_statement expression: (identifier)))
 
 ==================
 identifiers — must not start with digit
@@ -24,7 +24,18 @@ abc123
 ---
 
 (source_file
-  (identifier))
+  (expression_statement expression: (identifier)))
+
+==================
+identifiers — may start with digit (4D constants)
+==================
+
+4Q_TYPE_AuditCreditCards
+
+---
+
+(source_file
+  (expression_statement expression: (identifier)))
 
 ==================
 local variable — letters only
@@ -35,7 +46,7 @@ $foo
 ---
 
 (source_file
-  (local_var))
+  (expression_statement expression: (local_var)))
 
 ==================
 local variable — with digits
@@ -46,7 +57,7 @@ $foo123
 ---
 
 (source_file
-  (local_var))
+  (expression_statement expression: (local_var)))
 
 ==================
 local variable — digits then letters (mixed)
@@ -57,7 +68,7 @@ $12abc
 ---
 
 (source_file
-  (local_var))
+  (expression_statement expression: (local_var)))
 
 ==================
 positional parameter — single digit
@@ -68,7 +79,7 @@ $0
 ---
 
 (source_file
-  (parameter))
+  (expression_statement expression: (parameter)))
 
 ==================
 positional parameter — multiple digits
@@ -79,7 +90,7 @@ $42
 ---
 
 (source_file
-  (parameter))
+  (expression_statement expression: (parameter)))
 
 ==================
 interprocess variable
@@ -90,7 +101,7 @@ interprocess variable
 ---
 
 (source_file
-  (interprocess_var))
+  (expression_statement expression: (interprocess_var)))
 
 ==================
 interprocess variable — underscore start
@@ -101,7 +112,7 @@ interprocess variable — underscore start
 ---
 
 (source_file
-  (interprocess_var))
+  (expression_statement expression: (interprocess_var)))
 
 ==================
 table reference
@@ -112,7 +123,7 @@ table reference
 ---
 
 (source_file
-  (table_ref))
+  (expression_statement expression: (table_ref)))
 
 ==================
 field reference
@@ -123,7 +134,7 @@ field reference
 ---
 
 (source_file
-  (field_ref))
+  (expression_statement expression: (field_ref)))
 
 ==================
 mixed identifiers and variables
@@ -139,9 +150,9 @@ $1
 ---
 
 (source_file
-  (identifier)
-  (local_var)
-  (parameter)
-  (interprocess_var)
-  (table_ref)
-  (field_ref))
+  (expression_statement expression: (identifier))
+  (expression_statement expression: (local_var))
+  (expression_statement expression: (parameter))
+  (expression_statement expression: (interprocess_var))
+  (expression_statement expression: (table_ref))
+  (expression_statement expression: (field_ref)))
