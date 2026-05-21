@@ -23,8 +23,10 @@ describeWithFixture("indexer/mini-counts — deterministic kind tallies", (root)
     const count = idx.symbols.filter((s) => s.kind === ("ProjectMethod" as any)).length;
     // 26 + 2 (Subform_Caller, Subform_Helper_Target — fixtures for the
     // EXECUTE METHOD IN SUBFORM ProjectMethod-fallback resolver test in
-    // mini-form.test.ts).
-    expect(count).toBe(28);
+    // mini-form.test.ts)
+    // + 1 (Backtick_Comment_User — fixture for the backtick-comment
+    // regression test in edges.test.ts).
+    expect(count).toBe(29);
   });
 
   it("Plugin / PluginCommand count is exact (1 bundle, 2 commands from Plugins/PgSQL.bundle)", () => {

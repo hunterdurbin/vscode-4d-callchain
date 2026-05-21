@@ -3083,6 +3083,22 @@
         ]
       }
     },
+    "backtick_comment": {
+      "type": "TOKEN",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "`"
+          },
+          {
+            "type": "PATTERN",
+            "value": "[^\\n]*"
+          }
+        ]
+      }
+    },
     "block_comment": {
       "type": "TOKEN",
       "content": {
@@ -3620,6 +3636,10 @@
     {
       "type": "SYMBOL",
       "name": "line_comment"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "backtick_comment"
     },
     {
       "type": "SYMBOL",

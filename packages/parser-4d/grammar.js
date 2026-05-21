@@ -106,6 +106,7 @@ module.exports = grammar({
     /[ \t\r]+/,
     /\\\r?\n/, // line-continuation: backslash + newline
     $.line_comment,
+    $.backtick_comment,
     $.block_comment,
   ],
 
@@ -982,6 +983,13 @@ module.exports = grammar({
       ),
 
     line_comment: ($) => token(seq("//", /[^\n]*/)),
+
+    // 4D v18+ also accepts a backtick at column-zero (or anywhere a token
+    // can start) as a single-line comment marker — Symphony-era code uses
+    // it for author/annotation lines like `` `assumes there is a record
+    // loaded in classic for $table ``. Treat the rest of the line as
+    // comment text, identical to `//`.
+    backtick_comment: ($) => token(seq("`", /[^\n]*/)),
 
     block_comment: ($) =>
       token(seq("/*", /([^*]|\*+[^*/])*/, /\*+\//)),

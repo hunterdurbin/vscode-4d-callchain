@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 33 after discoverComponents() picks up 4D-bundled components + ExecuteMethodInSubform falls back to ProjectMethod", () => {
-    expect(INDEX_VERSION).toBe(33);
+  it("INDEX_VERSION is 34 after backtick (`) became a 4D v18+ single-line comment marker", () => {
+    expect(INDEX_VERSION).toBe(34);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {

@@ -7,6 +7,19 @@ describe("cleanLine", () => {
     expect(text).toBe("$x := 1  ");
   });
 
+  it("strips backtick single-line comments (4D v18+)", () => {
+    // Anywhere a `` ` `` appears, the rest of the line is a comment. Found in
+    // Symphony-era code as inline author / behavior annotations like
+    // `` `assumes there is a record loaded in classic for $table ``.
+    const { text } = cleanLine("` assumes there is a record loaded in classic for $table");
+    expect(text).toBe("");
+  });
+
+  it("backtick comment in the middle of a line truncates from the backtick", () => {
+    const { text } = cleanLine("$x := 1  ` annotation");
+    expect(text).toBe("$x := 1  ");
+  });
+
   it("removes block comments inline", () => {
     const { text } = cleanLine("$x := /* skip me */ 1");
     expect(text).toBe("$x :=  1");

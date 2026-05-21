@@ -34,6 +34,24 @@ describeWithFixture("indexer/edges — resolution heuristics", (root) => {
     expect(sym("Unresolved", "RECORD")).toBeFalsy();
   });
 
+  it("backtick (`) comments do NOT produce Unresolved edges from comment text (v18+)", () => {
+    // The Backtick_Comment_User fixture contains a multi-word annotation
+    // after a `` ` `` — pre-fix the resolver picked up "assumes there is a
+    // record loaded in classic for" as a BareName, plus a fake call from
+    // line 8. Both must now be eliminated by cleanLine recognizing `` ` ``.
+    const caller = sym("ProjectMethod", "Backtick_Comment_User");
+    if (!caller) return;
+    const calleeNames = new Set(
+      calleesOf(idx, caller)
+        .map((e) => idx.symbols.find((s) => s.id === e.toId)?.name)
+        .filter(Boolean) as string[]
+    );
+    expect(calleeNames.has("assumes there is a record loaded in classic for")).toBe(false);
+    expect(calleeNames.has("Backtick_Comment_FakeCall")).toBe(false);
+    // The real call below the comment must still be linked.
+    expect(calleeNames.has("EmGetTransaction")).toBe(true);
+  });
+
   it("bare-name (parenthesis-less) project method calls are linked", () => {
     // Mini-fixture has Bare_ParenLessCalls → _Target1/_Target2.
     // Symphony historically uses WebOrder_Assign → _Assign2/_Assign3.

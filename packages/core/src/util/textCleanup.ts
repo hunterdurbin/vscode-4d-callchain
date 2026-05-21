@@ -4,6 +4,7 @@
  *
  * 4D supports:
  *   // single-line comments
+ *   ` backtick single-line comments (v18+)
  *   /* block comments *\/
  *   "double-quoted strings" with escaped quotes via doubling
  *
@@ -20,6 +21,11 @@ export function cleanLine(input: string): { text: string; strings: string[]; col
   while (i < input.length) {
     const ch = input[i];
     if (ch === "/" && input[i + 1] === "/") {
+      break;
+    }
+    if (ch === "`") {
+      // 4D v18+ line comment — everything from the backtick to EOL is a
+      // comment. Symphony-era code uses this for inline annotations.
       break;
     }
     if (ch === "/" && input[i + 1] === "*") {

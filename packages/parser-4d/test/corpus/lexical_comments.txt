@@ -34,6 +34,30 @@ line comment — empty body
   (line_comment))
 
 ==================
+backtick comment — alone (4D v18+)
+==================
+
+` assumes there is a record loaded in classic for $table
+
+---
+
+(source_file
+  (backtick_comment))
+
+==================
+backtick comment — after code
+==================
+
+MyMethod ` annotation
+
+---
+
+(source_file
+  (expression_statement
+    expression: (identifier)
+    (backtick_comment)))
+
+==================
 block comment — single line
 ==================
 

@@ -206,9 +206,12 @@ export interface ChainStep {
 // Bumped to 33 when discoverComponents() started picking up 4D-bundled
 // components (NetKit, Widgets, ViewPro, …) from the 4D app bundle, and
 // when ExecuteMethodInSubform gained a ProjectMethod fallback.
+// Bumped to 34 when cleanLine + the tree-sitter grammar started treating
+// the backtick (`) as a single-line comment marker (4D v18+) — cached
+// edges previously emitted from inside backtick comments must be flushed.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 33;
+export const INDEX_VERSION = 34;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

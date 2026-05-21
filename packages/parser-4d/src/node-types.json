@@ -5869,6 +5869,11 @@
     "named": true
   },
   {
+    "type": "backtick_comment",
+    "named": true,
+    "extra": true
+  },
+  {
     "type": "block_comment",
     "named": true,
     "extra": true
