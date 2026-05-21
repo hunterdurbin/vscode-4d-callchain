@@ -67,28 +67,82 @@ export class CstVisitor {
     ) {
       // Project method: one top-level symbol whose name is the filename.
       const name = path.basename(file.absolutePath, ".4dm");
+      const kind =
+        file.category === "compilerMethod"
+          ? SymbolKind.CompilerMethod
+          : SymbolKind.ProjectMethod;
       const sym: SymbolRecord = {
-        id: symbolIdFor(
-          file.category === "compilerMethod"
-            ? SymbolKind.CompilerMethod
-            : SymbolKind.ProjectMethod,
-          name,
-        ),
+        id: symbolIdFor(kind, name),
         name,
-        kind:
-          file.category === "compilerMethod"
-            ? SymbolKind.CompilerMethod
-            : SymbolKind.ProjectMethod,
+        kind,
         location: { uri: this.fileUri, line: 0 },
       };
       this.symbols.push(sym);
-      this.currentSymbol = sym;
-      this.currentSymbolId = sym.id;
-      this.currentLocals = new Map();
-      this.currentStrings = new Map();
-      this.localTypes.set(sym.id, this.currentLocals);
-      this.localStrings.set(sym.id, this.currentStrings);
+      this.beginFileSymbol(sym);
+    } else if (file.category === "formMethod") {
+      // Forms/<formName>/method.4dm → FormMethod symbol named `<form>.method`.
+      const formName = file.containerName ?? "Form";
+      const name = `${formName}.method`;
+      const sym: SymbolRecord = {
+        id: symbolIdFor(SymbolKind.FormMethod, name),
+        name,
+        kind: SymbolKind.FormMethod,
+        location: { uri: this.fileUri, line: 0 },
+      };
+      this.symbols.push(sym);
+      this.beginFileSymbol(sym);
+    } else if (
+      file.category === "formObjectMethod" ||
+      file.category === "tableObjectMethod"
+    ) {
+      const objName = path.basename(file.absolutePath, ".4dm");
+      const containerName = file.containerName ?? "Form";
+      const name = `${containerName}.${objName}`;
+      const kind =
+        file.category === "formObjectMethod"
+          ? SymbolKind.FormObjectMethod
+          : SymbolKind.TableObjectMethod;
+      const ownerTable =
+        file.category === "tableObjectMethod" ? file.ownerTableId : undefined;
+      const sym: SymbolRecord = {
+        id: ownerTable
+          ? `${kind}:${ownerTable}.${name}`
+          : symbolIdFor(kind, name),
+        name,
+        kind,
+        ownerTable,
+        location: { uri: this.fileUri, line: 0 },
+      };
+      this.symbols.push(sym);
+      this.beginFileSymbol(sym);
+    } else if (file.category === "tableFormMethod") {
+      const formName = file.containerName ?? "Form";
+      const name = `${formName}.method`;
+      const sym: SymbolRecord = {
+        id: file.ownerTableId
+          ? `${SymbolKind.TableFormMethod}:${file.ownerTableId}.${name}`
+          : symbolIdFor(SymbolKind.TableFormMethod, name),
+        name,
+        kind: SymbolKind.TableFormMethod,
+        ownerTable: file.ownerTableId,
+        location: { uri: this.fileUri, line: 0 },
+      };
+      this.symbols.push(sym);
+      this.beginFileSymbol(sym);
+    } else if (file.category === "databaseMethod") {
+      const name = path.basename(file.absolutePath, ".4dm");
+      const sym: SymbolRecord = {
+        id: symbolIdFor(SymbolKind.DatabaseMethod, name),
+        name,
+        kind: SymbolKind.DatabaseMethod,
+        location: { uri: this.fileUri, line: 0 },
+      };
+      this.symbols.push(sym);
+      this.beginFileSymbol(sym);
     }
+    // formDefinition / tableFormDefinition are JSON form files — the regex
+    // parser handles them separately (extractFormDataSourceCalls). They're
+    // not .4dm files, so the visitor never sees them via this code path.
   }
 
   visit(root: Node): ParsedFile {
@@ -148,19 +202,40 @@ export class CstVisitor {
         if (value) this.visitExpression(value);
         break;
       }
-      // Control flow — recurse into bodies so calls inside if/for/etc. land
-      // on the enclosing symbol.
+      // Control flow — recurse into bodies AND walk condition expressions
+      // so calls and refs inside `If (...)` / `For ($i; ...)` etc. land on
+      // the enclosing symbol.
       case "if_statement":
       case "else_if_clause":
-      case "else_clause":
-      case "case_of_statement":
       case "case_label_arm":
-      case "case_else_clause":
-      case "for_statement":
-      case "for_each_statement":
       case "while_statement":
       case "repeat_statement":
       case "use_statement":
+        this.visitExpression(node.childForFieldName("condition"));
+        this.visitExpression(node.childForFieldName("semaphore"));
+        for (let i = 0; i < node.childCount; i++) {
+          this.visitTopLevel(node.child(i)!);
+        }
+        break;
+      case "for_statement":
+        this.visitExpression(node.childForFieldName("counter"));
+        this.visitExpression(node.childForFieldName("start"));
+        this.visitExpression(node.childForFieldName("end"));
+        this.visitExpression(node.childForFieldName("step"));
+        for (let i = 0; i < node.childCount; i++) {
+          this.visitTopLevel(node.child(i)!);
+        }
+        break;
+      case "for_each_statement":
+        this.visitExpression(node.childForFieldName("element"));
+        this.visitExpression(node.childForFieldName("collection"));
+        for (let i = 0; i < node.childCount; i++) {
+          this.visitTopLevel(node.child(i)!);
+        }
+        break;
+      case "else_clause":
+      case "case_of_statement":
+      case "case_else_clause":
       case "try_statement":
       case "catch_clause":
         for (let i = 0; i < node.childCount; i++) {
@@ -388,6 +463,11 @@ export class CstVisitor {
       this.emitPropertyAssign(target, node);
     }
 
+    // Interprocess var write: `<>aGlobal := value`.
+    if (target.type === "interprocess_var") {
+      this.emitInterprocessRef(target);
+    }
+
     // Visit the RHS for any nested calls. The target is handled above —
     // we deliberately skip recursing into it so we don't double-emit a
     // ThisGet/VarGet for `This.prop:=…`.
@@ -534,20 +614,17 @@ export class CstVisitor {
     const parent = member.parent;
     if (!parent) return true;
     // If we're the function of a call, the call path will emit the hint —
-    // skip the property read.
-    if (
-      parent.type === "call_expression" &&
-      parent.childForFieldName("function") === member
-    ) {
-      return false;
+    // skip the property read. Web-tree-sitter doesn't guarantee node `===`
+    // identity, so compare by id.
+    if (parent.type === "call_expression") {
+      const fn = parent.childForFieldName("function");
+      if (fn && fn.id === member.id) return false;
     }
     // If we're the LHS of an assignment, visitAssignment already emits
     // the set hint.
-    if (
-      parent.type === "assignment_statement" &&
-      parent.childForFieldName("target") === member
-    ) {
-      return false;
+    if (parent.type === "assignment_statement") {
+      const target = parent.childForFieldName("target");
+      if (target && target.id === member.id) return false;
     }
     // If we're an intermediate member in a longer chain, the outer
     // member-expression's emit covers us.
@@ -581,6 +658,37 @@ export class CstVisitor {
     const line = node.startPosition.row;
     const raw = this.lineText(line);
     const expression = node.text;
+
+    // Multi-word commands: emit BOTH the specific hint (NewProcess /
+    // ExecuteMethodLiteral / ExecuteMethodDynamic / Formula / etc.) AND a
+    // BuiltinChain for the command-name token itself, matching the legacy
+    // regex parser's double-emit shape.
+    if (fn.type === "multi_word_identifier") {
+      const specific = this.classifySpecialMultiWord(fn, node);
+      if (specific) {
+        this.rawCalls.push({
+          fromSymbolId: this.currentSymbolId,
+          line,
+          raw,
+          expression,
+          hint: specific,
+          column: fn.startPosition.column,
+          endColumn: fn.endPosition.column,
+        });
+      }
+      const cmdName = this.multiWordName(fn);
+      this.rawCalls.push({
+        fromSymbolId: this.currentSymbolId,
+        line,
+        raw,
+        expression: `${cmdName}(`,
+        hint: { kind: "BuiltinChain", name: cmdName },
+        column: fn.startPosition.column,
+        endColumn: fn.endPosition.column,
+      });
+      return;
+    }
+
     const callSite: RawCallSite = {
       fromSymbolId: this.currentSymbolId,
       line,
@@ -590,11 +698,142 @@ export class CstVisitor {
 
     const hint = this.classifyCallee(fn, node);
     if (hint) callSite.hint = hint;
-    // Column position of the callee identifier.
     callSite.column = fn.startPosition.column;
     callSite.endColumn = fn.endPosition.column;
 
     this.rawCalls.push(callSite);
+  }
+
+  private multiWordName(fn: Node): string {
+    const parts: string[] = [];
+    for (let i = 0; i < fn.childCount; i++) {
+      const c = fn.child(i);
+      if (c && c.type === "identifier") parts.push(c.text);
+    }
+    return parts.join(" ");
+  }
+
+  /**
+   * Map well-known multi-word commands to their specific CallHint shapes.
+   * Matches the legacy regex parser's handling of CALL WORKER, New process,
+   * EXECUTE METHOD, EXECUTE METHOD IN SUBFORM, Formula from string, and
+   * the form-opener family (DIALOG, Open form window, etc.).
+   */
+  private classifySpecialMultiWord(
+    fn: Node,
+    callNode: Node,
+  ): CallHint | undefined {
+    const name = this.multiWordName(fn).toUpperCase();
+    const args = callNode.childForFieldName("arguments");
+    if (!args) return undefined;
+    const argList = this.argChildren(args);
+
+    // CALL WORKER(target; "MethodName"; ...) — second arg is the method.
+    if (name === "CALL WORKER" && argList.length >= 2) {
+      const second = argList[1];
+      if (second.type === "string") {
+        return {
+          kind: "CallWorker",
+          methodName: stripQuotes(second.text),
+        };
+      }
+    }
+    // New process("MethodName"; ...).
+    if (name === "NEW PROCESS" && argList.length >= 1) {
+      const first = argList[0];
+      if (first.type === "string") {
+        return {
+          kind: "NewProcess",
+          methodName: stripQuotes(first.text),
+        };
+      }
+    }
+    // EXECUTE METHOD("MethodName"; ...) — literal form.
+    // EXECUTE METHOD($var; ...) — dynamic form.
+    if (name === "EXECUTE METHOD" && argList.length >= 1) {
+      const first = argList[0];
+      if (first.type === "string") {
+        return {
+          kind: "ExecuteMethodLiteral",
+          methodName: stripQuotes(first.text),
+        };
+      }
+      if (first.type === "local_var") {
+        return {
+          kind: "ExecuteMethodDynamic",
+          variable: first.text.replace(/^\$/, ""),
+        };
+      }
+    }
+    // EXECUTE METHOD IN SUBFORM("Form"; "Method"; ...).
+    if (name === "EXECUTE METHOD IN SUBFORM" && argList.length >= 2) {
+      const a = argList[0];
+      const b = argList[1];
+      if (a.type === "string" && b.type === "string") {
+        return {
+          kind: "ExecuteMethodInSubform",
+          formName: stripQuotes(a.text),
+          methodName: stripQuotes(b.text),
+        };
+      }
+    }
+    // Formula from string("body").
+    if (name === "FORMULA FROM STRING" && argList.length >= 1) {
+      const first = argList[0];
+      if (first.type === "string") {
+        return { kind: "Formula", body: stripQuotes(first.text) };
+      }
+    }
+    // Form openers — DIALOG, FORM LOAD, MODIFY SELECTION, etc. The form
+    // name is either the 1st arg (no table) or 2nd arg (with table). We
+    // detect by checking for a leading table_ref / field_ref.
+    if (this.isFormOpener(name)) {
+      let nameArgIdx = 0;
+      if (argList.length > 0 && argList[0].type === "table_ref") nameArgIdx = 1;
+      if (argList.length > nameArgIdx) {
+        const a = argList[nameArgIdx];
+        if (a.type === "string") {
+          return { kind: "FormRef", formName: stripQuotes(a.text) };
+        }
+        // Variable form-name — recover from intra-method string assignments
+        // if we've seen one.
+        if (a.type === "local_var" && this.currentStrings) {
+          const varName = a.text.replace(/^\$/, "");
+          const recovered = this.currentStrings.get(varName);
+          if (recovered) {
+            return { kind: "FormRef", formName: recovered };
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+
+  private isFormOpener(upperName: string): boolean {
+    return (
+      upperName === "DIALOG" ||
+      upperName === "OPEN FORM WINDOW" ||
+      upperName === "FORM LOAD" ||
+      upperName === "PRINT FORM" ||
+      upperName === "MODIFY SELECTION" ||
+      upperName === "DISPLAY SELECTION"
+    );
+  }
+
+  /**
+   * Return the direct argument-list children of an `argument_list` node,
+   * skipping the `(`, `;`, `,`, `)` tokens.
+   */
+  private argChildren(args: Node): Node[] {
+    const out: Node[] = [];
+    for (let i = 0; i < args.childCount; i++) {
+      const c = args.child(i);
+      if (!c) continue;
+      if (c.type === "(" || c.type === ")" || c.type === ";" || c.type === ",")
+        continue;
+      out.push(c);
+    }
+    return out;
   }
 
   private classifyCallee(fn: Node, callNode: Node): CallHint | undefined {
@@ -772,6 +1011,20 @@ export class CstVisitor {
   }
 
   // ---- Helpers ----
+
+  /**
+   * Sets up an enclosing file-level symbol — project method, form method,
+   * database method, etc. Used in the constructor for categories that
+   * implicitly synthesize one top-level symbol per file.
+   */
+  private beginFileSymbol(sym: SymbolRecord): void {
+    this.currentSymbol = sym;
+    this.currentSymbolId = sym.id;
+    this.currentLocals = new Map();
+    this.currentStrings = new Map();
+    this.localTypes.set(sym.id, this.currentLocals);
+    this.localStrings.set(sym.id, this.currentStrings);
+  }
 
   private beginSymbol(sym: SymbolRecord, params: SymbolParam[]): void {
     this.currentSymbol = sym;
