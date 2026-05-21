@@ -141,7 +141,7 @@ export class CstVisitor {
         this.visitAssignment(node);
         break;
       case "expression_statement":
-        this.visitExpression(node.childForFieldName("expression"));
+        this.visitExpressionStatement(node);
         break;
       case "return_statement": {
         const value = node.childForFieldName("value");
@@ -332,16 +332,34 @@ export class CstVisitor {
   }
 
   private visitLegacyDecl(node: Node): void {
-    if (!this.currentLocals) return;
     const typeKw = node.child(0);
     if (!typeKw) return;
-    // c_type_keyword text is `C_<TYPE>`; array_type_keyword is `ARRAY <TYPE>`.
+    const isArray = node.type === "legacy_array_declaration";
     const canon = this.canonicalLegacyType(typeKw.text);
-    if (!canon) return;
+    // Emit a BareName/BuiltinChain call for the C_*/ARRAY * keyword itself
+    // — matches the legacy regex parser's behavior so the indexer sees this
+    // as a builtin invocation. ARRAY * is multi-word → BuiltinChain.
+    if (this.currentSymbolId) {
+      this.rawCalls.push({
+        fromSymbolId: this.currentSymbolId,
+        line: typeKw.startPosition.row,
+        raw: this.lineText(typeKw.startPosition.row),
+        expression: `${typeKw.text}(`,
+        hint: isArray
+          ? { kind: "BuiltinChain", name: typeKw.text }
+          : { kind: "BareName", name: typeKw.text },
+        column: typeKw.startPosition.column,
+        endColumn: typeKw.endPosition.column,
+      });
+    }
+    // Walk children: record local-type aliases AND emit InterprocessRef for
+    // any `<>name` references inside the body.
     for (let i = 1; i < node.childCount; i++) {
       const c = node.child(i)!;
-      if (c.type === "local_var") {
+      if (c.type === "local_var" && canon && this.currentLocals) {
         this.currentLocals.set(c.text.replace(/^\$/, ""), canon);
+      } else if (c.type === "interprocess_var") {
+        this.emitInterprocessRef(c);
       }
     }
   }
@@ -370,9 +388,17 @@ export class CstVisitor {
       this.emitPropertyAssign(target, node);
     }
 
-    // Visit both sides for any nested calls (RHS commonly has the call).
-    this.visitExpression(target);
+    // Visit the RHS for any nested calls. The target is handled above —
+    // we deliberately skip recursing into it so we don't double-emit a
+    // ThisGet/VarGet for `This.prop:=…`.
     this.visitExpression(value);
+    // The target may contain nested expressions worth walking (e.g.
+    // `$x.dict[Compute()]:=val` — the index has a call). Walk subscript
+    // indices only.
+    if (target.type === "subscript_expression") {
+      const index = target.childForFieldName("index");
+      if (index) this.visitExpression(index);
+    }
   }
 
   private visitExpression(node: Node | null | undefined): void {
@@ -396,16 +422,153 @@ export class CstVisitor {
         }
         break;
       case "member_expression":
+        // Property read — emit ThisGet / VarGet hints. Tree-sitter walks
+        // member expressions left-to-right; we treat any member that isn't
+        // the LHS of an assignment as a read.
+        this.emitMemberRead(node);
+        for (let i = 0; i < node.childCount; i++) {
+          this.visitExpression(node.child(i)!);
+        }
+        break;
       case "subscript_expression":
         for (let i = 0; i < node.childCount; i++) {
           this.visitExpression(node.child(i)!);
         }
+        break;
+      case "interprocess_var":
+        this.emitInterprocessRef(node);
         break;
       default:
         // primary expressions, multi_word_identifier alone, etc. — no
         // recursion needed.
         break;
     }
+  }
+
+  /**
+   * Statement-level dispatch for an `expression_statement`. Whereas
+   * `visitExpression` walks an embedded expression looking for nested calls,
+   * this entry-point treats the WHOLE statement as a potential call —
+   * specifically the paren-less bare-name form `MyMethod` and standalone
+   * multi-word commands like `DispatchedMethod` or `New object`.
+   */
+  private visitExpressionStatement(stmt: Node): void {
+    const expr = stmt.childForFieldName("expression");
+    if (!expr) return;
+
+    // Bare identifier as a complete statement: paren-less project-method
+    // call. Emit a BareName hint.
+    if (expr.type === "identifier" && this.currentSymbolId) {
+      this.rawCalls.push({
+        fromSymbolId: this.currentSymbolId,
+        line: expr.startPosition.row,
+        raw: this.lineText(expr.startPosition.row),
+        expression: expr.text,
+        hint: { kind: "BareName", name: expr.text },
+        column: expr.startPosition.column,
+        endColumn: expr.endPosition.column,
+      });
+      return;
+    }
+
+    // Multi-word identifier alone (no `(...)`): treat as a builtin/command
+    // reference — same shape the regex parser emits for `New object` etc.
+    if (expr.type === "multi_word_identifier" && this.currentSymbolId) {
+      const parts: string[] = [];
+      for (let i = 0; i < expr.childCount; i++) {
+        const c = expr.child(i);
+        if (c && c.type === "identifier") parts.push(c.text);
+      }
+      this.rawCalls.push({
+        fromSymbolId: this.currentSymbolId,
+        line: expr.startPosition.row,
+        raw: this.lineText(expr.startPosition.row),
+        expression: expr.text,
+        hint: { kind: "BareName", name: parts.join(" ") },
+        column: expr.startPosition.column,
+        endColumn: expr.endPosition.column,
+      });
+      return;
+    }
+
+    this.visitExpression(expr);
+  }
+
+  /**
+   * Emit a ThisGet / VarGet hint for a member access used as a read.
+   * Tree-sitter doesn't tell us whether a member is the LHS of an
+   * assignment from the node alone; we already handle the LHS path in
+   * `visitAssignment` and skip emission there.
+   */
+  private emitMemberRead(node: Node): void {
+    if (!this.currentSymbolId) return;
+    if (!this.isReadContext(node)) return;
+    const object = node.childForFieldName("object");
+    const property = node.childForFieldName("property");
+    if (!object || !property) return;
+    const propName = property.text;
+    let hint: CallHint | undefined;
+    if (object.type === "keyword_this") {
+      hint = { kind: "ThisGet", property: propName };
+    } else if (object.type === "local_var") {
+      hint = {
+        kind: "VarGet",
+        variable: object.text.replace(/^\$/, ""),
+        property: propName,
+      };
+    }
+    if (!hint) return;
+    this.rawCalls.push({
+      fromSymbolId: this.currentSymbolId,
+      line: node.startPosition.row,
+      raw: this.lineText(node.startPosition.row),
+      expression: node.text,
+      hint,
+      column: property.startPosition.column,
+      endColumn: property.endPosition.column,
+    });
+  }
+
+  /** True when `member` is read, not written or called. */
+  private isReadContext(member: Node): boolean {
+    const parent = member.parent;
+    if (!parent) return true;
+    // If we're the function of a call, the call path will emit the hint —
+    // skip the property read.
+    if (
+      parent.type === "call_expression" &&
+      parent.childForFieldName("function") === member
+    ) {
+      return false;
+    }
+    // If we're the LHS of an assignment, visitAssignment already emits
+    // the set hint.
+    if (
+      parent.type === "assignment_statement" &&
+      parent.childForFieldName("target") === member
+    ) {
+      return false;
+    }
+    // If we're an intermediate member in a longer chain, the outer
+    // member-expression's emit covers us.
+    if (parent.type === "member_expression") return false;
+    return true;
+  }
+
+  private emitInterprocessRef(node: Node): void {
+    if (!this.currentSymbolId) return;
+    const text = node.text;
+    // text starts with `<>` — strip the prefix.
+    const name = text.replace(/^<>/, "");
+    this.rawCalls.push({
+      fromSymbolId: this.currentSymbolId,
+      line: node.startPosition.row,
+      raw: this.lineText(node.startPosition.row),
+      expression: text,
+      hint: { kind: "InterprocessRef", name },
+      column: node.startPosition.column,
+      endColumn: node.endPosition.column,
+    });
   }
 
   // ---- Call-site emission ----

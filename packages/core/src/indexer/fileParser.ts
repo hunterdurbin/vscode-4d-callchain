@@ -127,6 +127,20 @@ function isAssignmentChained(line: string, openParenIdx: number): boolean {
 }
 
 export function parseFile(file: DiscoveredFile, projectRootUri: string, constantsSet?: Set<string>): ParsedFile {
+  // Experimental tree-sitter dispatch (TODO #13). Behind FOURD_PARSER=treesitter.
+  // Falls through to the legacy regex parser if tree-sitter isn't initialized
+  // yet — see packages/core/src/parser/parseWithTreeSitter.ts for init.
+  if (process.env.FOURD_PARSER === "treesitter") {
+    try {
+      // Lazy-required so the legacy path doesn't pay the import cost.
+      const ts: typeof import("../parser/parseWithTreeSitter") = require("../parser/parseWithTreeSitter");
+      if (ts.isTreeSitterReady()) {
+        return ts.parseFileWithTreeSitter(file, constantsSet);
+      }
+    } catch {
+      // Fall through to the regex parser silently.
+    }
+  }
   let source: string;
   try {
     source = fs.readFileSync(file.absolutePath, "utf8");

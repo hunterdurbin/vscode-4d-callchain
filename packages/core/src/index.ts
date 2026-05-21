@@ -44,3 +44,12 @@ export {
 } from "./indexer/builtinTypeApi";
 export type { BuiltinReturn } from "./indexer/builtinTypeApi";
 export { inferLocals, normalizeLocalType, findEnclosingFunction } from "./indexer/localInference";
+
+// Experimental tree-sitter parser (TODO #13, opt-in via FOURD_PARSER=treesitter).
+// `initTreeSitterParser()` must be awaited once before any parseFile() call
+// when the env flag is set, otherwise the legacy regex parser is used.
+export {
+  initTreeSitterParser,
+  parseFileWithTreeSitter,
+  isTreeSitterReady
+} from "./parser/parseWithTreeSitter";
