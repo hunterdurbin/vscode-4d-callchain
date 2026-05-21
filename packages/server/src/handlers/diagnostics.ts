@@ -29,16 +29,16 @@ export function registerDiagnostics(state: ServerState): {
 } {
   const connection: Connection = state.connection;
 
-  const publishForFile = (uri: string) => {
+  // Internal: emit diagnostics for one URI given its already-filtered symbol
+  // list. The bulk `publishForAllSymbols` pre-buckets symbols by URI in one
+  // O(N) pass and reuses this helper, avoiding the previous
+  // O(URIs × allSymbols) re-scan.
+  const publishSymbols = (uri: string, symbols: Iterable<{ id: string; kind: SymbolKind }>): number => {
     const graph = state.graph;
-    if (!graph) return;
-    const t0 = Date.now();
-
+    if (!graph) return 0;
     const diags: Diagnostic[] = [];
     const seen = new Set<string>();
-    // Collect symbols defined in this file — their outgoing edges live in this file.
-    for (const sym of graph.allSymbols()) {
-      if (sym.location.uri !== uri) continue;
+    for (const sym of symbols) {
       for (const edge of graph.callees(sym.id)) {
         if (edge.resolved) continue;
         if (diags.length >= MAX_PER_FILE) break;
@@ -63,9 +63,24 @@ export function registerDiagnostics(state: ServerState): {
       }
     }
     connection.sendDiagnostics({ uri, diagnostics: diags });
+    return diags.length;
+  };
+
+  const publishForFile = (uri: string) => {
+    const graph = state.graph;
+    if (!graph) return;
+    const t0 = Date.now();
+    // Single-URI publish: scan all symbols once filtering on URI. This is
+    // the warm/edit path, called once per save — the project-wide bulk
+    // path uses `publishForAllSymbols` which buckets first.
+    const fileSymbols: Array<{ id: string; kind: SymbolKind }> = [];
+    for (const sym of graph.allSymbols()) {
+      if (sym.location.uri === uri) fileSymbols.push(sym);
+    }
+    const count = publishSymbols(uri, fileSymbols);
     const elapsed = Date.now() - t0;
     if (elapsed >= SLOW_PUBLISH_MS) {
-      connection.console.info(`[Diagnostics] publishForFile ${uri} took ${elapsed}ms (${diags.length} diags)`);
+      connection.console.info(`[Diagnostics] publishForFile ${uri} took ${elapsed}ms (${count} diags)`);
     }
   };
 
@@ -73,14 +88,21 @@ export function registerDiagnostics(state: ServerState): {
     const graph = state.graph;
     if (!graph) return;
     const t0 = Date.now();
-    const uris = new Set<string>();
+    // Pre-bucket symbols by URI in one pass — without this we'd scan all
+    // graph.allSymbols() once per URI (O(URIs × symbols) ≈ N² for large
+    // projects: ~625M iterations on Symphony's 25k files).
+    const byUri = new Map<string, Array<{ id: string; kind: SymbolKind }>>();
     for (const sym of graph.allSymbols()) {
-      if (sym.location.uri) uris.add(sym.location.uri);
+      const uri = sym.location.uri;
+      if (!uri) continue;
+      let list = byUri.get(uri);
+      if (!list) { list = []; byUri.set(uri, list); }
+      list.push(sym);
     }
-    for (const uri of uris) publishForFile(uri);
+    for (const [uri, syms] of byUri) publishSymbols(uri, syms);
     const elapsed = Date.now() - t0;
     if (elapsed >= SLOW_PUBLISH_MS) {
-      connection.console.info(`[Diagnostics] publishForAllSymbols across ${uris.size} URIs took ${elapsed}ms`);
+      connection.console.info(`[Diagnostics] publishForAllSymbols across ${byUri.size} URIs took ${elapsed}ms`);
     }
   };
 

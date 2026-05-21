@@ -429,9 +429,24 @@ export class Indexer {
       (c) => /\/Compiler_[^/]*\.4dm$/i.test(c.path),
     );
     if (hasCompilerEdit) {
-      this.opts.logger.info(`[Indexer] Compiler_*.4dm change in batch — full rebuild`);
-      await this.rebuild();
-      return;
+      // Compiler_*.4dm declares the project-wide variadic-params map
+      // consumed by augmentVariadicParams. A full rebuild is only needed
+      // if the edit changed a `C_<TYPE>(<method>; $N)` declaration —
+      // comment / whitespace / `#DECLARE` edits leave the map intact,
+      // and the file's own ProjectMethod symbols can be patched like any
+      // other .4dm. Re-discover and compare; downgrade to incremental
+      // when unchanged.
+      const fresh = discoverCompilerMethodTypes(this.opts.projectRoot);
+      const same = this.compilerMethodTypes
+        ? compilerMethodTypesEqual(this.compilerMethodTypes, fresh)
+        : false;
+      if (!same) {
+        this.opts.logger.info(`[Indexer] Compiler_*.4dm signature change — full rebuild`);
+        await this.rebuild();
+        return;
+      }
+      this.opts.logger.info(`[Indexer] Compiler_*.4dm edit but signatures unchanged — incremental patch`);
+      // Fall through to normal .4dm patch path.
     }
     if (categories.some((cat) => cat === "catalog" || cat === "constants" || cat === "components")) {
       const which = categories.find((c) => c === "catalog" || c === "constants" || c === "components");
@@ -1155,4 +1170,30 @@ function augmentVariadicParams(
     // (e.g. method file has no `#DECLARE … -> …` arrow form).
     if (info.returnType && !sym.returnType) sym.returnType = info.returnType;
   }
+}
+
+/**
+ * Compare two `Map<string, CompilerMethodTypes>` for semantic equality.
+ * Used by `patchFiles` to decide whether a `Compiler_*.4dm` edit actually
+ * changed any declared signature (vs. a comment / whitespace / `#DECLARE`
+ * edit, where the variadic-params map is unaffected and we can skip the
+ * full rebuild).
+ */
+function compilerMethodTypesEqual(
+  a: Map<string, CompilerMethodTypes>,
+  b: Map<string, CompilerMethodTypes>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [k, va] of a) {
+    const vb = b.get(k);
+    if (!vb) return false;
+    if (va.returnType !== vb.returnType) return false;
+    if (va.variadicFrom !== vb.variadicFrom) return false;
+    if (va.variadicType !== vb.variadicType) return false;
+    if (va.paramTypes.size !== vb.paramTypes.size) return false;
+    for (const [pos, t] of va.paramTypes) {
+      if (vb.paramTypes.get(pos) !== t) return false;
+    }
+  }
+  return true;
 }

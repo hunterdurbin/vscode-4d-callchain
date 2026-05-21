@@ -98,7 +98,15 @@ export function startServer(): void {
 
     try {
       await state.indexer.load();
-      diagnostics.publishForAllSymbols();
+      // Publish diagnostics only for documents the user actually has open.
+      // The blanket `publishForAllSymbols()` we used to call here was
+      // O(URIs × symbols) on the graph and added seconds of latency on
+      // large projects — VS Code never renders diagnostics for unopened
+      // files anyway, so the work was wasted. Files that get opened later
+      // are covered by the `onDidOpen` handler below.
+      for (const doc of documents.all()) {
+        diagnostics.publishForFile(doc.uri);
+      }
       // The semantic-tokens handler reads PluginCommand symbols out of the
       // graph to feed plugin-command names into the lexer. If a `.4dm` file
       // was open before the index finished, VS Code already cached an empty
@@ -133,9 +141,12 @@ export function startServer(): void {
     }
   });
 
-  documents.onDidSave((e) => {
-    diagnostics.publishForFile(e.document.uri);
-  });
+  // Note: we intentionally do NOT publish on `documents.onDidSave`. The
+  // workspace file-watcher (`onDidChangeWatchedFiles` above) fires on every
+  // save, runs the incremental patch, and publishes for each changed URI
+  // — a duplicate `onDidSave` publish would re-walk the symbol list for
+  // no diagnostic change. `onDidOpen` still publishes because the watcher
+  // doesn't fire when the user just opens an existing file.
   documents.onDidOpen((e) => {
     diagnostics.publishForFile(e.document.uri);
   });
