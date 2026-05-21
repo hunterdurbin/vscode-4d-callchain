@@ -20,8 +20,21 @@ async function main() {
     initTreeSitterParser,
   } = require("../packages/core/dist/parser/parseWithTreeSitter");
   const { parseFile } = require("../packages/core/dist/indexer/fileParser");
+  const { discoverConstants, discoverBuiltinConstants, DEFAULT_BUILTIN_CONSTANTS_PROBES } = require("../packages/core/dist/indexer/constantsScanner");
 
   await initTreeSitterParser();
+
+  // Build the constants set the same way the indexer would — project
+  // user-defined constants plus the 4D built-in constants — so both parsers
+  // see the same vocabulary.
+  const constantsSet = new Set();
+  for (const c of discoverConstants(target)) {
+    constantsSet.add(c.name.toLowerCase());
+  }
+  for (const c of discoverBuiltinConstants(DEFAULT_BUILTIN_CONSTANTS_PROBES)) {
+    constantsSet.add(c.name.toLowerCase());
+  }
+  console.log(`Loaded ${constantsSet.size} constants\n`);
 
   const files = collectDotFourDM(path.join(target, "Project", "Sources"));
   console.log(`Found ${files.length} .4dm files\n`);
@@ -36,13 +49,13 @@ async function main() {
     const discovered = discoveredFor(target, file);
     let regex, ts;
     try {
-      regex = parseFile(discovered, new Set(), new Map());
+      regex = parseFile(discovered, "", constantsSet);
     } catch (e) {
       console.log(`  regex parser FAILED on ${discovered.relativePath}:`, e.message);
       continue;
     }
     try {
-      ts = parseFileWithTreeSitter(discovered, new Set());
+      ts = parseFileWithTreeSitter(discovered, constantsSet);
     } catch (e) {
       console.log(`  treesitter parser FAILED on ${discovered.relativePath}:`, e.message);
       continue;

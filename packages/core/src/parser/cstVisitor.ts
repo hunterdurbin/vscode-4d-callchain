@@ -42,12 +42,22 @@ export class CstVisitor {
   private currentLocals: Map<string, string> | null = null;
   private currentStrings: Map<string, string> | null = null;
   private fileUri: string;
+  private file: DiscoveredFile;
+  private source: string;
+  // Lowercased project-defined constant names. Bare identifiers (and
+  // multi-word identifier sequences) that hit this set are promoted from
+  // BareName → ConstantRef, mirroring the legacy regex parser's
+  // constants-tokenizer pass.
+  private constants: Set<string>;
 
   constructor(
-    private file: DiscoveredFile,
-    private source: string,
-    _constants?: Set<string>,
+    file: DiscoveredFile,
+    source: string,
+    constants?: Set<string>,
   ) {
+    this.file = file;
+    this.source = source;
+    this.constants = constants ?? new Set();
     this.fileUri = `file://${file.absolutePath}`;
     if (file.category === "class") {
       const className = path.basename(file.absolutePath, ".4dm");
@@ -500,6 +510,7 @@ export class CstVisitor {
       case "parenthesized_expression":
       case "binary_expression":
       case "unary_expression":
+      case "ternary_expression":
       case "object_literal":
       case "collection_literal":
       case "object_entry":
@@ -512,23 +523,70 @@ export class CstVisitor {
         // member expressions left-to-right; we treat any member that isn't
         // the LHS of an assignment as a read.
         this.emitMemberRead(node);
-        for (let i = 0; i < node.childCount; i++) {
-          this.visitExpression(node.child(i)!);
-        }
+        // Recurse into the OBJECT only (the property is just a name, not
+        // an expression — never a constant ref by itself).
+        this.visitExpression(node.childForFieldName("object"));
         break;
       case "subscript_expression":
-        for (let i = 0; i < node.childCount; i++) {
-          this.visitExpression(node.child(i)!);
-        }
+        this.visitExpression(node.childForFieldName("object"));
+        this.visitExpression(node.childForFieldName("index"));
         break;
       case "interprocess_var":
         this.emitInterprocessRef(node);
         break;
+      case "identifier":
+        // A bare identifier in expression position (RHS of assignment,
+        // argument, comparison side). If it's a project constant, emit
+        // ConstantRef.
+        this.maybeEmitConstantRef(node, node.text);
+        break;
+      case "multi_word_identifier":
+        // A multi-word identifier in expression position (`On Load`,
+        // `Char Quote`). Same idea — promote to ConstantRef when known.
+        this.maybeEmitConstantRefMultiWord(node);
+        break;
       default:
-        // primary expressions, multi_word_identifier alone, etc. — no
-        // recursion needed.
+        // primary expressions other than identifier (strings, numbers,
+        // local_var, parameter, etc.) — no recursion needed.
         break;
     }
+  }
+
+  /** Emit ConstantRef for a bare identifier if it matches the project's
+   * constants set. No-op otherwise. */
+  private maybeEmitConstantRef(node: Node, name: string): void {
+    if (!this.currentSymbolId) return;
+    if (!this.constants.has(name.toLowerCase())) return;
+    this.rawCalls.push({
+      fromSymbolId: this.currentSymbolId,
+      line: node.startPosition.row,
+      raw: this.lineText(node.startPosition.row),
+      expression: name,
+      hint: { kind: "ConstantRef", name },
+      column: node.startPosition.column,
+      endColumn: node.endPosition.column,
+    });
+  }
+
+  /** Multi-word variant — joins child identifiers with single spaces. */
+  private maybeEmitConstantRefMultiWord(node: Node): void {
+    if (!this.currentSymbolId) return;
+    const parts: string[] = [];
+    for (let i = 0; i < node.childCount; i++) {
+      const c = node.child(i);
+      if (c && c.type === "identifier") parts.push(c.text);
+    }
+    const joined = parts.join(" ");
+    if (!this.constants.has(joined.toLowerCase())) return;
+    this.rawCalls.push({
+      fromSymbolId: this.currentSymbolId,
+      line: node.startPosition.row,
+      raw: this.lineText(node.startPosition.row),
+      expression: joined,
+      hint: { kind: "ConstantRef", name: joined },
+      column: node.startPosition.column,
+      endColumn: node.endPosition.column,
+    });
   }
 
   /**
@@ -543,14 +601,18 @@ export class CstVisitor {
     if (!expr) return;
 
     // Bare identifier as a complete statement: paren-less project-method
-    // call. Emit a BareName hint.
+    // call. If the name is in the constants set, emit ConstantRef instead.
     if (expr.type === "identifier" && this.currentSymbolId) {
+      const name = expr.text;
+      const hint: CallHint = this.constants.has(name.toLowerCase())
+        ? { kind: "ConstantRef", name }
+        : { kind: "BareName", name };
       this.rawCalls.push({
         fromSymbolId: this.currentSymbolId,
         line: expr.startPosition.row,
         raw: this.lineText(expr.startPosition.row),
         expression: expr.text,
-        hint: { kind: "BareName", name: expr.text },
+        hint,
         column: expr.startPosition.column,
         endColumn: expr.endPosition.column,
       });
@@ -558,19 +620,24 @@ export class CstVisitor {
     }
 
     // Multi-word identifier alone (no `(...)`): treat as a builtin/command
-    // reference — same shape the regex parser emits for `New object` etc.
+    // reference. If the joined name matches a multi-word constant
+    // (`On Load`, `Char Quote`, etc.), prefer ConstantRef.
     if (expr.type === "multi_word_identifier" && this.currentSymbolId) {
       const parts: string[] = [];
       for (let i = 0; i < expr.childCount; i++) {
         const c = expr.child(i);
         if (c && c.type === "identifier") parts.push(c.text);
       }
+      const joined = parts.join(" ");
+      const hint: CallHint = this.constants.has(joined.toLowerCase())
+        ? { kind: "ConstantRef", name: joined }
+        : { kind: "BareName", name: joined };
       this.rawCalls.push({
         fromSymbolId: this.currentSymbolId,
         line: expr.startPosition.row,
         raw: this.lineText(expr.startPosition.row),
         expression: expr.text,
-        hint: { kind: "BareName", name: parts.join(" ") },
+        hint,
         column: expr.startPosition.column,
         endColumn: expr.endPosition.column,
       });
