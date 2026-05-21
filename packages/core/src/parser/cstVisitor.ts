@@ -1265,9 +1265,16 @@ export class CstVisitor {
     };
   }
 
+  /**
+   * Per-line view of `this.source`. Lazily initialized on first call —
+   * pays the split cost once instead of per-call (the visitor reads
+   * `lineText()` ~once per raw call site, which on a 3kLOC file with
+   * thousands of calls dominated parse time at ~900 ms before caching).
+   */
+  private _lines: string[] | null = null;
   private lineText(line: number): string {
-    const lines = this.source.split(/\r?\n/);
-    return lines[line] ?? "";
+    if (this._lines === null) this._lines = this.source.split(/\r?\n/);
+    return this._lines[line] ?? "";
   }
 }
 

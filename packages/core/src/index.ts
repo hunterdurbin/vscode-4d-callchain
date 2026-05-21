@@ -51,5 +51,6 @@ export { inferLocals, normalizeLocalType, findEnclosingFunction } from "./indexe
 export {
   initTreeSitterParser,
   parseFileWithTreeSitter,
-  isTreeSitterReady
+  isTreeSitterReady,
+  invalidateTreeCache
 } from "./parser/parseWithTreeSitter";

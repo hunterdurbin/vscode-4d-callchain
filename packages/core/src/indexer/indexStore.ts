@@ -418,6 +418,13 @@ export class Indexer {
 
       if (effective === "delete") {
         delete this.currentIndex.fileMtimes[change.path];
+        // Evict the tree-sitter cache entry too so a future create at the
+        // same path doesn't accidentally diff against the deleted file's
+        // stale source.
+        try {
+          const ts: typeof import("../parser/parseWithTreeSitter") = require("../parser/parseWithTreeSitter");
+          ts.invalidateTreeCache(change.path);
+        } catch {/* parser module not loaded — nothing to evict */}
         continue;
       }
 
