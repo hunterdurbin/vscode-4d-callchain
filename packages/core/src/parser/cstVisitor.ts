@@ -472,12 +472,18 @@ export class CstVisitor {
     // we deliberately skip recursing into it so we don't double-emit a
     // ThisGet/VarGet for `This.prop:=…`.
     this.visitExpression(value);
-    // The target may contain nested expressions worth walking (e.g.
-    // `$x.dict[Compute()]:=val` — the index has a call). Walk subscript
-    // indices only.
+    // The target may contain nested expressions worth walking. For a
+    // subscript assignment like `This.entries[$key] := val`:
+    //   * walk the index for any nested calls
+    //   * emit a property-read on the inner member-expression (the legacy
+    //     parser emits a ThisGet for `This.entries` here)
     if (target.type === "subscript_expression") {
       const index = target.childForFieldName("index");
       if (index) this.visitExpression(index);
+      const inner = target.childForFieldName("object");
+      if (inner && inner.type === "member_expression") {
+        this.emitMemberRead(inner);
+      }
     }
   }
 
@@ -626,9 +632,10 @@ export class CstVisitor {
       const target = parent.childForFieldName("target");
       if (target && target.id === member.id) return false;
     }
-    // If we're an intermediate member in a longer chain, the outer
-    // member-expression's emit covers us.
-    if (parent.type === "member_expression") return false;
+    // Intermediate members in a longer chain (`This.cache.get(...)` → the
+    // `This.cache` part) ARE read contexts — the legacy regex parser emits
+    // a ThisGet/VarGet on each intermediate step alongside the terminal
+    // ThisChainCall. Keep parity by treating them as reads.
     return true;
   }
 
