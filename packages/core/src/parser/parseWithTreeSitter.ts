@@ -97,13 +97,13 @@ export function parseFileWithTreeSitter(
   if (!tree) {
     throw new Error(`Failed to parse ${file.absolutePath}`);
   }
-  // Legacy regex parser expects constant names in lowercase for its
-  // case-insensitive lookup. Normalize once here so the visitor doesn't
-  // have to lowercase on every check.
+  // CONTRACT: the caller passes constant names already lowercased — both
+  // the indexer (indexStore.doRebuild) and the patch path (indexStore
+  // .patchFiles) lowercase once when building the set. Re-lowercasing
+  // here per-file cost ~5k toLowerCase() × 27k files = 135M ops on
+  // Symphony cold load, all redundant.
   const constants =
-    constantsSet && constantsSet.size > 0
-      ? new Set(Array.from(constantsSet, (s) => s.toLowerCase()))
-      : undefined;
+    constantsSet && constantsSet.size > 0 ? constantsSet : undefined;
   const visitor = new CstVisitor(file, source, constants);
   return visitor.visit(tree.rootNode);
 }
