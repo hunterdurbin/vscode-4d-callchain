@@ -1,0 +1,188 @@
+==================
+function — no params, no return
+==================
+
+Function foo()
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    name: (identifier)
+    parameters: (parameter_list)))
+
+==================
+function — empty parens
+==================
+
+Function noParams ()
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    name: (identifier)
+    parameters: (parameter_list)))
+
+==================
+function — one typed param
+==================
+
+Function greet($name : Text)
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))))
+
+==================
+function — two params with semicolon
+==================
+
+Function add($a : Number; $b : Number)
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier)))
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))))
+
+==================
+function — untyped param mixed with typed
+==================
+
+Function mixed($a; $b : Text)
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var))
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))))
+
+==================
+function — return type
+==================
+
+Function get_count() : Number
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    name: (identifier)
+    parameters: (parameter_list)
+    return_type: (return_type_annotation
+      type: (type_reference (identifier)))))
+
+==================
+function — dotted return type (cs.NS.Class)
+==================
+
+Function getThing() : cs.NS.Result
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    name: (identifier)
+    parameters: (parameter_list)
+    return_type: (return_type_annotation
+      type: (type_reference (identifier) (identifier) (identifier)))))
+
+==================
+function — getter
+==================
+
+Function get count() : Number
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    accessor: (keyword_get)
+    name: (identifier)
+    parameters: (parameter_list)
+    return_type: (return_type_annotation
+      type: (type_reference (identifier)))))
+
+==================
+function — setter
+==================
+
+Function set count($value : Number)
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    accessor: (keyword_set)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))))
+
+==================
+function — local scope
+==================
+
+local Function helper($x : Text)
+
+---
+
+(source_file
+  (function_declaration
+    scope: (keyword_local)
+    (keyword_function)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))))
+
+==================
+function — shared scope
+==================
+
+shared Function open($url : Text) : cs.Repo
+
+---
+
+(source_file
+  (function_declaration
+    scope: (keyword_shared)
+    (keyword_function)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))
+    return_type: (return_type_annotation
+      type: (type_reference (identifier) (identifier)))))

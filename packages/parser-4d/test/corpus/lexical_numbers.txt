@@ -1,0 +1,120 @@
+==================
+number — integer
+==================
+
+42
+
+---
+
+(source_file
+  (number))
+
+==================
+number — float
+==================
+
+3.14
+
+---
+
+(source_file
+  (number))
+
+==================
+number — scientific lowercase
+==================
+
+1.5e10
+
+---
+
+(source_file
+  (number))
+
+==================
+number — scientific uppercase with sign
+==================
+
+2E-3
+
+---
+
+(source_file
+  (number))
+
+==================
+number — integer in scientific notation
+==================
+
+5e2
+
+---
+
+(source_file
+  (number))
+
+==================
+number — hex
+==================
+
+0xCAFE
+
+---
+
+(source_file
+  (number))
+
+==================
+number — hex uppercase prefix
+==================
+
+0XDEADBEEF
+
+---
+
+(source_file
+  (number))
+
+==================
+date literal — full ISO
+==================
+
+!2026-05-20!
+
+---
+
+(source_file
+  (number))
+
+==================
+date literal — short
+==================
+
+!00-00-00!
+
+---
+
+(source_file
+  (number))
+
+==================
+time literal
+==================
+
+?12:00:00?
+
+---
+
+(source_file
+  (number))
+
+==================
+time literal — single digit
+==================
+
+?9:30?
+
+---
+
+(source_file
+  (number))

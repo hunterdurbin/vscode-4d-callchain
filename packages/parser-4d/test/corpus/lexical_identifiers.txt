@@ -1,0 +1,147 @@
+==================
+identifiers — basic
+==================
+
+MyMethod
+_private
+camelCase
+Snake_Case_123
+
+---
+
+(source_file
+  (identifier)
+  (identifier)
+  (identifier)
+  (identifier))
+
+==================
+identifiers — must not start with digit
+==================
+
+abc123
+
+---
+
+(source_file
+  (identifier))
+
+==================
+local variable — letters only
+==================
+
+$foo
+
+---
+
+(source_file
+  (local_var))
+
+==================
+local variable — with digits
+==================
+
+$foo123
+
+---
+
+(source_file
+  (local_var))
+
+==================
+local variable — digits then letters (mixed)
+==================
+
+$12abc
+
+---
+
+(source_file
+  (local_var))
+
+==================
+positional parameter — single digit
+==================
+
+$0
+
+---
+
+(source_file
+  (parameter))
+
+==================
+positional parameter — multiple digits
+==================
+
+$42
+
+---
+
+(source_file
+  (parameter))
+
+==================
+interprocess variable
+==================
+
+<>aGlobal
+
+---
+
+(source_file
+  (interprocess_var))
+
+==================
+interprocess variable — underscore start
+==================
+
+<>_legacy
+
+---
+
+(source_file
+  (interprocess_var))
+
+==================
+table reference
+==================
+
+[Order]
+
+---
+
+(source_file
+  (table_ref))
+
+==================
+field reference
+==================
+
+[Order]Number
+
+---
+
+(source_file
+  (field_ref))
+
+==================
+mixed identifiers and variables
+==================
+
+MyMethod
+$local
+$1
+<>shared
+[Order]
+[Order]Number
+
+---
+
+(source_file
+  (identifier)
+  (local_var)
+  (parameter)
+  (interprocess_var)
+  (table_ref)
+  (field_ref))

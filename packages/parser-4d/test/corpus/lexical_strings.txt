@@ -1,0 +1,80 @@
+==================
+string — simple
+==================
+
+"hello"
+
+---
+
+(source_file
+  (string))
+
+==================
+string — empty
+==================
+
+""
+
+---
+
+(source_file
+  (string))
+
+==================
+string — doubled-quote escape (4D classic)
+==================
+
+"She said ""hi"""
+
+---
+
+(source_file
+  (string))
+
+==================
+string — backslash-quote escape (4D v18+)
+==================
+
+"path is C:\"foo\""
+
+---
+
+(source_file
+  (string))
+
+==================
+string — backslash other escapes
+==================
+
+"line1\nline2\tend"
+
+---
+
+(source_file
+  (string))
+
+==================
+string — embedded brackets and dollar signs
+==================
+
+"[$param]"
+
+---
+
+(source_file
+  (string))
+
+==================
+multiple strings on separate lines
+==================
+
+"first"
+"second"
+"third"
+
+---
+
+(source_file
+  (string)
+  (string)
+  (string))

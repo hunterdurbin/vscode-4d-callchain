@@ -1,0 +1,139 @@
+==================
+class — extends simple
+==================
+
+Class extends Entity
+
+---
+
+(source_file
+  (class_extends_header
+    (keyword_class_extends)
+    base: (type_reference (identifier))))
+
+==================
+class — extends dotted
+==================
+
+Class extends cs.Base
+
+---
+
+(source_file
+  (class_extends_header
+    (keyword_class_extends)
+    base: (type_reference (identifier) (identifier))))
+
+==================
+class constructor — no params
+==================
+
+Class constructor
+
+---
+
+(source_file
+  (constructor_declaration
+    (keyword_class_constructor)))
+
+==================
+class constructor — with typed params
+==================
+
+Class constructor($url : Text; $port : Number)
+
+---
+
+(source_file
+  (constructor_declaration
+    (keyword_class_constructor)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier)))
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))))
+
+==================
+class constructor — empty parens
+==================
+
+Class constructor()
+
+---
+
+(source_file
+  (constructor_declaration
+    (keyword_class_constructor)
+    parameters: (parameter_list)))
+
+==================
+property — no type
+==================
+
+property url
+
+---
+
+(source_file
+  (property_declaration
+    (keyword_property)
+    name: (identifier)))
+
+==================
+property — typed
+==================
+
+property url : Text
+
+---
+
+(source_file
+  (property_declaration
+    (keyword_property)
+    name: (identifier)
+    type: (return_type_annotation
+      type: (type_reference (identifier)))))
+
+==================
+property — dotted type
+==================
+
+property cache : cs.Map
+
+---
+
+(source_file
+  (property_declaration
+    (keyword_property)
+    name: (identifier)
+    type: (return_type_annotation
+      type: (type_reference (identifier) (identifier)))))
+
+==================
+multiple properties on separate lines
+==================
+
+property url : Text
+property port : Number
+property cache : cs.Map
+
+---
+
+(source_file
+  (property_declaration
+    (keyword_property)
+    name: (identifier)
+    type: (return_type_annotation
+      type: (type_reference (identifier))))
+  (property_declaration
+    (keyword_property)
+    name: (identifier)
+    type: (return_type_annotation
+      type: (type_reference (identifier))))
+  (property_declaration
+    (keyword_property)
+    name: (identifier)
+    type: (return_type_annotation
+      type: (type_reference (identifier) (identifier)))))

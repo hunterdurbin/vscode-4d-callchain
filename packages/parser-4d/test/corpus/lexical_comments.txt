@@ -1,0 +1,97 @@
+==================
+line comment — alone
+==================
+
+// just a comment
+
+---
+
+(source_file
+  (line_comment))
+
+==================
+line comment — after code
+==================
+
+MyMethod // trailing
+
+---
+
+(source_file
+  (identifier)
+  (line_comment))
+
+==================
+line comment — empty body
+==================
+
+//
+
+---
+
+(source_file
+  (line_comment))
+
+==================
+block comment — single line
+==================
+
+/* inline */
+
+---
+
+(source_file
+  (block_comment))
+
+==================
+block comment — empty
+==================
+
+/**/
+
+---
+
+(source_file
+  (block_comment))
+
+==================
+block comment — multi-line
+==================
+
+/* first line
+   second line
+   third line */
+MyMethod
+
+---
+
+(source_file
+  (block_comment)
+  (identifier))
+
+==================
+block comment — contains asterisks and slashes
+==================
+
+/* path *  *  /usr/bin/foo */
+
+---
+
+(source_file
+  (block_comment))
+
+==================
+mixed comments
+==================
+
+// header
+/* block */
+MyMethod // trailing
+
+---
+
+(source_file
+  (line_comment)
+  (block_comment)
+  (identifier)
+  (line_comment))

@@ -1,0 +1,116 @@
+==================
+#DECLARE — no params
+==================
+
+#DECLARE()
+
+---
+
+(source_file
+  (declare_directive
+    (declare_keyword)
+    parameters: (parameter_list)))
+
+==================
+#DECLARE — one typed param
+==================
+
+#DECLARE($name : Text)
+
+---
+
+(source_file
+  (declare_directive
+    (declare_keyword)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))))
+
+==================
+#DECLARE — multiple typed params
+==================
+
+#DECLARE($url : Text; $verbose : Boolean)
+
+---
+
+(source_file
+  (declare_directive
+    (declare_keyword)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier)))
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))))
+
+==================
+#DECLARE — arrow return
+==================
+
+#DECLARE($mode : Text) -> $result : Variant
+
+---
+
+(source_file
+  (declare_directive
+    (declare_keyword)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))
+    return: (declare_return
+      name: (local_var)
+      type: (type_reference (identifier)))))
+
+==================
+#DECLARE — arrow return, dotted type
+==================
+
+#DECLARE($id : Number) -> $result : cs.Order
+
+---
+
+(source_file
+  (declare_directive
+    (declare_keyword)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))
+    return: (declare_return
+      name: (local_var)
+      type: (type_reference (identifier) (identifier)))))
+
+==================
+#DECLARE — arrow return without type annotation
+==================
+
+#DECLARE() -> $out
+
+---
+
+(source_file
+  (declare_directive
+    (declare_keyword)
+    parameters: (parameter_list)
+    return: (declare_return
+      name: (local_var))))
+
+==================
+#DECLARE — case insensitive
+==================
+
+#declare($x : Text)
+
+---
+
+(source_file
+  (declare_directive
+    (declare_keyword)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))))

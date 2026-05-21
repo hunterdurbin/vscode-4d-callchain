@@ -1,0 +1,177 @@
+==================
+var — single typed local
+==================
+
+var $name : Text
+
+---
+
+(source_file
+  (var_declaration
+    (keyword_var)
+    (local_var)
+    type: (type_reference (identifier))))
+
+==================
+var — dotted type
+==================
+
+var $entry : cs.NormalizedOrder
+
+---
+
+(source_file
+  (var_declaration
+    (keyword_var)
+    (local_var)
+    type: (type_reference (identifier) (identifier))))
+
+==================
+var — untyped
+==================
+
+var $tmp
+
+---
+
+(source_file
+  (var_declaration
+    (keyword_var)
+    (local_var)))
+
+==================
+var — multiple names shared type
+==================
+
+var $a; $b : Number
+
+---
+
+(source_file
+  (var_declaration
+    (keyword_var)
+    (local_var)
+    (local_var)
+    type: (type_reference (identifier))))
+
+==================
+var — interprocess
+==================
+
+var <>shared : Boolean
+
+---
+
+(source_file
+  (var_declaration
+    (keyword_var)
+    (interprocess_var)
+    type: (type_reference (identifier))))
+
+==================
+legacy C_LONGINT — single var
+==================
+
+C_LONGINT($count)
+
+---
+
+(source_file
+  (legacy_var_declaration
+    (c_type_keyword)
+    (local_var)))
+
+==================
+legacy C_TEXT — single var
+==================
+
+C_TEXT($name)
+
+---
+
+(source_file
+  (legacy_var_declaration
+    (c_type_keyword)
+    (local_var)))
+
+==================
+legacy C_LONGINT — multiple vars
+==================
+
+C_LONGINT($a; $b; $c)
+
+---
+
+(source_file
+  (legacy_var_declaration
+    (c_type_keyword)
+    (local_var)
+    (local_var)
+    (local_var)))
+
+==================
+legacy C_LONGINT — interprocess
+==================
+
+C_LONGINT(<>aGlobal)
+
+---
+
+(source_file
+  (legacy_var_declaration
+    (c_type_keyword)
+    (interprocess_var)))
+
+==================
+legacy C_LONGINT — process variable (bare identifier)
+==================
+
+C_LONGINT(aLineItems_Count)
+
+---
+
+(source_file
+  (legacy_var_declaration
+    (c_type_keyword)
+    (identifier)))
+
+==================
+legacy ARRAY TEXT — name and size
+==================
+
+ARRAY TEXT($arr; 10)
+
+---
+
+(source_file
+  (legacy_array_declaration
+    (array_type_keyword)
+    (local_var)
+    (number)))
+
+==================
+legacy ARRAY LONGINT — process array
+==================
+
+ARRAY LONGINT(aIDs; 0)
+
+---
+
+(source_file
+  (legacy_array_declaration
+    (array_type_keyword)
+    (identifier)
+    (number)))
+
+==================
+legacy C_TEXT — case insensitive
+==================
+
+c_text($foo)
+
+---
+
+(source_file
+  (legacy_var_declaration
+    (c_type_keyword)
+    (local_var)))

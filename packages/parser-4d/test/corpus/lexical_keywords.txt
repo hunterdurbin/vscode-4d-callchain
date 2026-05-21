@@ -1,0 +1,120 @@
+==================
+keyword — if (lowercase)
+==================
+
+if
+
+---
+
+(source_file
+  (keyword_if))
+
+==================
+keyword — If (titlecase)
+==================
+
+If
+
+---
+
+(source_file
+  (keyword_if))
+
+==================
+keyword — IF (uppercase)
+==================
+
+IF
+
+---
+
+(source_file
+  (keyword_if))
+
+==================
+keyword — return
+==================
+
+return
+
+---
+
+(source_file
+  (keyword_return))
+
+==================
+keyword — This
+==================
+
+This
+
+---
+
+(source_file
+  (keyword_this))
+
+==================
+keyword — New
+==================
+
+New
+
+---
+
+(source_file
+  (keyword_new))
+
+==================
+multi-word keyword — End if
+==================
+
+End if
+
+---
+
+(source_file
+  (keyword_end_if))
+
+==================
+multi-word keyword — END IF (uppercase)
+==================
+
+END IF
+
+---
+
+(source_file
+  (keyword_end_if))
+
+==================
+multi-word keyword — extra whitespace
+==================
+
+End    if
+
+---
+
+(source_file
+  (keyword_end_if))
+
+==================
+multi-word keyword — For each
+==================
+
+For each
+
+---
+
+(source_file
+  (keyword_for_each))
+
+==================
+keyword vs identifier — longer identifier wins
+==================
+
+IfFoo
+
+---
+
+(source_file
+  (identifier))

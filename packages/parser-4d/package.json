@@ -1,0 +1,36 @@
+{
+  "name": "@4d/parser-4d",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar and Node.js bindings for the 4D programming language.",
+  "main": "bindings/node",
+  "types": "bindings/node/index.d.ts",
+  "scripts": {
+    "build": "tree-sitter generate && node-gyp rebuild",
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "files": [
+    "grammar.js",
+    "binding.gyp",
+    "bindings/node",
+    "queries",
+    "src",
+    "prebuilds"
+  ],
+  "dependencies": {
+    "node-addon-api": "^7.1.0",
+    "node-gyp-build": "^4.8.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.26.9"
+  },
+  "peerDependencies": {
+    "tree-sitter": "^0.21.0"
+  },
+  "peerDependenciesMeta": {
+    "tree-sitter": {
+      "optional": true
+    }
+  }
+}

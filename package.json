@@ -3,13 +3,15 @@
   "private": true,
   "version": "0.1.16",
   "workspaces": [
+    "packages/parser-4d",
     "packages/core",
     "packages/server",
     "packages/ide-server",
     "packages/vscode-client"
   ],
   "scripts": {
-    "build": "npm run build -w @4d/core && npm run build -w @4d/language-server && npm run build -w @4d/ide-server && npm run compile -w vscode-4d-callchain",
+    "build": "npm run build -w @4d/parser-4d && npm run build -w @4d/core && npm run build -w @4d/language-server && npm run build -w @4d/ide-server && npm run compile -w vscode-4d-callchain",
+    "build:parser": "npm run build -w @4d/parser-4d",
     "watch": "npm run watch -w vscode-4d-callchain",
     "build-builtins": "node ./scripts/build-builtins.js",
     "pretest": "npm run build",
@@ -20,6 +22,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "node-gyp": "^12.3.0",
+    "prebuildify": "^6.0.1",
+    "tree-sitter-cli": "^0.26.9",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   }
