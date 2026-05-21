@@ -36,8 +36,10 @@ zig-out/
 # Example dirs
 /examples/*/
 
-# Grammar volatiles
+# Grammar volatiles — but commit the parser's own WASM so consumers can
+# load it via web-tree-sitter without rebuilding.
 *.wasm
+!/tree-sitter-fourd.wasm
 *.obj
 *.o
 

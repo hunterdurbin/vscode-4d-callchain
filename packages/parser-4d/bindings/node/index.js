@@ -5,13 +5,25 @@ const fs = require("node:fs");
 
 const root = path.resolve(__dirname, "..", "..");
 
+// Absolute path to the WASM build of the parser, for use with
+// `web-tree-sitter`. The native binding (below) targets `tree-sitter` (the
+// Node package) which is faster but requires ABI-compatible Node versions.
+// On Node 25+ the native runtime is currently broken, so consumers prefer
+// the WASM path.
+const wasmPath = path.join(root, "tree-sitter-fourd.wasm");
+
+// Try to load the native binding; tolerate failure so consumers can still
+// access `wasmPath` for `web-tree-sitter` even when the native ABI doesn't
+// match (e.g. tree-sitter@0.22's prebuilt runtime is broken on Node 25).
 let binding;
-if (typeof process.versions.bun === "string") {
-  // Support `bun build --compile` by being statically analyzable enough to find
-  // the .node file at build-time.
-  binding = require(`${root}/prebuilds/${process.platform}-${process.arch}/tree-sitter-fourd.node`);
-} else {
-  binding = require("node-gyp-build")(root);
+try {
+  if (typeof process.versions.bun === "string") {
+    binding = require(`${root}/prebuilds/${process.platform}-${process.arch}/tree-sitter-fourd.node`);
+  } else {
+    binding = require("node-gyp-build")(root);
+  }
+} catch {
+  binding = {};
 }
 
 try {
@@ -42,5 +54,10 @@ for (const [prop, queryPath] of queries) {
     },
   });
 }
+
+// Expose the WASM path even when the native binding isn't loaded; consumers
+// using `web-tree-sitter` use this to find the .wasm file in the published
+// package layout.
+binding.wasmPath = wasmPath;
 
 module.exports = binding;

@@ -9,8 +9,10 @@
     "watch": "tsc -watch -p ./"
   },
   "dependencies": {
+    "@4d/parser-4d": "*",
     "fast-xml-parser": "^4.4.0",
-    "msgpackr": "^1.11.2"
+    "msgpackr": "^1.11.2",
+    "web-tree-sitter": "^0.25.10"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

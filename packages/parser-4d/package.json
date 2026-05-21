@@ -16,7 +16,8 @@
     "bindings/node",
     "queries",
     "src",
-    "prebuilds"
+    "prebuilds",
+    "tree-sitter-fourd.wasm"
   ],
   "dependencies": {
     "node-addon-api": "^7.1.0",
@@ -26,7 +27,7 @@
     "tree-sitter-cli": "^0.26.9"
   },
   "peerDependencies": {
-    "tree-sitter": "^0.21.0"
+    "tree-sitter": ">=0.22.0"
   },
   "peerDependenciesMeta": {
     "tree-sitter": {
