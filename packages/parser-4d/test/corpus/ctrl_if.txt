@@ -112,3 +112,21 @@ End if
         arguments: (argument_list)))
       (keyword_end_if))
     (keyword_end_if)))
+
+==================
+if — compound boolean expression (4D pattern)
+==================
+
+If ($a>0) && ($b<10)
+End if
+
+---
+
+(source_file
+  (if_statement
+    (keyword_if)
+    condition: (binary_expression (local_var) (number))
+    (op_other)
+    (op_other)
+    (parenthesized_expression (binary_expression (local_var) (number)))
+    (keyword_end_if)))

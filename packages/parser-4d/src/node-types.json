@@ -572,6 +572,14 @@
           "named": true
         },
         {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
           "type": "repeat_statement",
           "named": true
         },
@@ -593,6 +601,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -722,6 +734,10 @@
           "named": true
         },
         {
+          "type": "field_ref",
+          "named": true
+        },
+        {
           "type": "for_each_statement",
           "named": true
         },
@@ -730,7 +746,75 @@
           "named": true
         },
         {
+          "type": "identifier",
+          "named": true
+        },
+        {
           "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "interprocess_var",
+          "named": true
+        },
+        {
+          "type": "keyword_false",
+          "named": true
+        },
+        {
+          "type": "keyword_new",
+          "named": true
+        },
+        {
+          "type": "keyword_null",
+          "named": true
+        },
+        {
+          "type": "keyword_super",
+          "named": true
+        },
+        {
+          "type": "keyword_this",
+          "named": true
+        },
+        {
+          "type": "keyword_true",
+          "named": true
+        },
+        {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
+          "type": "local_var",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "op_dot",
+          "named": true
+        },
+        {
+          "type": "op_neq",
+          "named": true
+        },
+        {
+          "type": "op_other",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        },
+        {
+          "type": "parenthesized_expression",
           "named": true
         },
         {
@@ -746,6 +830,14 @@
           "named": true
         },
         {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "table_ref",
+          "named": true
+        },
+        {
           "type": "throw_statement",
           "named": true
         },
@@ -755,6 +847,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -826,6 +922,14 @@
           "named": true
         },
         {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
           "type": "repeat_statement",
           "named": true
         },
@@ -847,6 +951,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -893,6 +1001,14 @@
           "named": true
         },
         {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
           "type": "repeat_statement",
           "named": true
         },
@@ -914,6 +1030,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -1207,6 +1327,14 @@
           "named": true
         },
         {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
           "type": "repeat_statement",
           "named": true
         },
@@ -1228,6 +1356,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -1357,6 +1489,10 @@
           "named": true
         },
         {
+          "type": "field_ref",
+          "named": true
+        },
+        {
           "type": "for_each_statement",
           "named": true
         },
@@ -1365,11 +1501,79 @@
           "named": true
         },
         {
+          "type": "identifier",
+          "named": true
+        },
+        {
           "type": "if_statement",
           "named": true
         },
         {
+          "type": "interprocess_var",
+          "named": true
+        },
+        {
           "type": "keyword_else_if",
+          "named": true
+        },
+        {
+          "type": "keyword_false",
+          "named": true
+        },
+        {
+          "type": "keyword_new",
+          "named": true
+        },
+        {
+          "type": "keyword_null",
+          "named": true
+        },
+        {
+          "type": "keyword_super",
+          "named": true
+        },
+        {
+          "type": "keyword_this",
+          "named": true
+        },
+        {
+          "type": "keyword_true",
+          "named": true
+        },
+        {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
+          "type": "local_var",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "op_dot",
+          "named": true
+        },
+        {
+          "type": "op_neq",
+          "named": true
+        },
+        {
+          "type": "op_other",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        },
+        {
+          "type": "parenthesized_expression",
           "named": true
         },
         {
@@ -1385,6 +1589,14 @@
           "named": true
         },
         {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "table_ref",
+          "named": true
+        },
+        {
           "type": "throw_statement",
           "named": true
         },
@@ -1394,6 +1606,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -1789,6 +2005,14 @@
           "named": true
         },
         {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
           "type": "local_var",
           "named": true
         },
@@ -1854,6 +2078,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -2301,6 +2529,14 @@
           "named": true
         },
         {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
           "type": "repeat_statement",
           "named": true
         },
@@ -2322,6 +2558,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -2556,6 +2796,14 @@
             "named": true
           },
           {
+            "type": "legacy_array_declaration",
+            "named": true
+          },
+          {
+            "type": "legacy_var_declaration",
+            "named": true
+          },
+          {
             "type": "repeat_statement",
             "named": true
           },
@@ -2580,6 +2828,10 @@
             "named": true
           },
           {
+            "type": "var_declaration",
+            "named": true
+          },
+          {
             "type": "while_statement",
             "named": true
           }
@@ -2591,11 +2843,83 @@
       "required": true,
       "types": [
         {
+          "type": "field_ref",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "interprocess_var",
+          "named": true
+        },
+        {
           "type": "keyword_end_if",
           "named": true
         },
         {
+          "type": "keyword_false",
+          "named": true
+        },
+        {
           "type": "keyword_if",
+          "named": true
+        },
+        {
+          "type": "keyword_new",
+          "named": true
+        },
+        {
+          "type": "keyword_null",
+          "named": true
+        },
+        {
+          "type": "keyword_super",
+          "named": true
+        },
+        {
+          "type": "keyword_this",
+          "named": true
+        },
+        {
+          "type": "keyword_true",
+          "named": true
+        },
+        {
+          "type": "local_var",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "op_dot",
+          "named": true
+        },
+        {
+          "type": "op_neq",
+          "named": true
+        },
+        {
+          "type": "op_other",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        },
+        {
+          "type": "parenthesized_expression",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "table_ref",
           "named": true
         }
       ]
@@ -3305,6 +3629,10 @@
           "named": true
         },
         {
+          "type": "field_ref",
+          "named": true
+        },
+        {
           "type": "for_each_statement",
           "named": true
         },
@@ -3313,7 +3641,27 @@
           "named": true
         },
         {
+          "type": "identifier",
+          "named": true
+        },
+        {
           "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "interprocess_var",
+          "named": true
+        },
+        {
+          "type": "keyword_false",
+          "named": true
+        },
+        {
+          "type": "keyword_new",
+          "named": true
+        },
+        {
+          "type": "keyword_null",
           "named": true
         },
         {
@@ -3321,7 +3669,55 @@
           "named": true
         },
         {
+          "type": "keyword_super",
+          "named": true
+        },
+        {
+          "type": "keyword_this",
+          "named": true
+        },
+        {
+          "type": "keyword_true",
+          "named": true
+        },
+        {
           "type": "keyword_until",
+          "named": true
+        },
+        {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
+          "type": "local_var",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "op_dot",
+          "named": true
+        },
+        {
+          "type": "op_neq",
+          "named": true
+        },
+        {
+          "type": "op_other",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        },
+        {
+          "type": "parenthesized_expression",
           "named": true
         },
         {
@@ -3337,6 +3733,14 @@
           "named": true
         },
         {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "table_ref",
+          "named": true
+        },
+        {
           "type": "throw_statement",
           "named": true
         },
@@ -3346,6 +3750,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -4078,6 +4486,14 @@
             "named": true
           },
           {
+            "type": "legacy_array_declaration",
+            "named": true
+          },
+          {
+            "type": "legacy_var_declaration",
+            "named": true
+          },
+          {
             "type": "repeat_statement",
             "named": true
           },
@@ -4099,6 +4515,10 @@
           },
           {
             "type": "use_statement",
+            "named": true
+          },
+          {
+            "type": "var_declaration",
             "named": true
           },
           {
@@ -4391,6 +4811,14 @@
           "named": true
         },
         {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
           "type": "repeat_statement",
           "named": true
         },
@@ -4412,6 +4840,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -4583,6 +5015,10 @@
           "named": true
         },
         {
+          "type": "field_ref",
+          "named": true
+        },
+        {
           "type": "for_each_statement",
           "named": true
         },
@@ -4591,7 +5027,15 @@
           "named": true
         },
         {
+          "type": "identifier",
+          "named": true
+        },
+        {
           "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "interprocess_var",
           "named": true
         },
         {
@@ -4599,7 +5043,67 @@
           "named": true
         },
         {
+          "type": "keyword_false",
+          "named": true
+        },
+        {
+          "type": "keyword_new",
+          "named": true
+        },
+        {
+          "type": "keyword_null",
+          "named": true
+        },
+        {
+          "type": "keyword_super",
+          "named": true
+        },
+        {
+          "type": "keyword_this",
+          "named": true
+        },
+        {
+          "type": "keyword_true",
+          "named": true
+        },
+        {
           "type": "keyword_while",
+          "named": true
+        },
+        {
+          "type": "legacy_array_declaration",
+          "named": true
+        },
+        {
+          "type": "legacy_var_declaration",
+          "named": true
+        },
+        {
+          "type": "local_var",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "op_dot",
+          "named": true
+        },
+        {
+          "type": "op_neq",
+          "named": true
+        },
+        {
+          "type": "op_other",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        },
+        {
+          "type": "parenthesized_expression",
           "named": true
         },
         {
@@ -4615,6 +5119,14 @@
           "named": true
         },
         {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "table_ref",
+          "named": true
+        },
+        {
           "type": "throw_statement",
           "named": true
         },
@@ -4624,6 +5136,10 @@
         },
         {
           "type": "use_statement",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
           "named": true
         },
         {
@@ -4644,6 +5160,10 @@
   },
   {
     "type": "&",
+    "named": false
+  },
+  {
+    "type": "&&",
     "named": false
   },
   {
@@ -4954,6 +5474,10 @@
   },
   {
     "type": "|",
+    "named": false
+  },
+  {
+    "type": "||",
     "named": false
   },
   {

@@ -99,8 +99,15 @@ module.exports = grammar({
   name: "fourd",
 
   // Whitespace except newline is auto-skipped. Comments too. `\n` is *not* in
-  // extras because we use it as a statement separator.
-  extras: ($) => [/[ \t\r]+/, $.line_comment, $.block_comment],
+  // extras because we use it as a statement separator. A `\` at the end of a
+  // line is 4D's explicit line-continuation marker and is also skipped — it
+  // lets declarations like `C_BOOLEAN(\` span multiple physical lines.
+  extras: ($) => [
+    /[ \t\r]+/,
+    /\\\r?\n/, // line-continuation: backslash + newline
+    $.line_comment,
+    $.block_comment,
+  ],
 
   // `identifier` is the "word" token. Combined with `prec(1)` on each
   // keyword's regex, this gives us: `If` is `keyword_if`, but `IfFoo` is
@@ -372,18 +379,36 @@ module.exports = grammar({
         $.throw_statement,
       ),
 
-    // Block contents: same as statements, plus blank lines. We don't allow
-    // nested declarations (4D doesn't permit a `Function` inside an `If`).
-    _block_item: ($) => choice($._statement, $._newline),
+    // Block contents: statements + variable declarations + blank lines. 4D
+    // allows `var` and legacy `C_*`/`ARRAY *` declarations inside `If` /
+    // `For` / `While` / etc. (but NOT `Function` / `Class` declarations —
+    // those stay top-level only).
+    _block_item: ($) =>
+      choice(
+        $._statement,
+        $.var_declaration,
+        $.legacy_var_declaration,
+        $.legacy_array_declaration,
+        $._newline,
+      ),
 
     // ---- Control flow ----
 
+    // `If (expr) ... End if`. The outer parens are syntactic — the parser
+    // tracks them so the if_statement's boundary is unambiguous. 4D code
+    // that writes `If (a) && (b)` puts the && OUTSIDE the if's parens —
+    // we model that as: condition is `(a)`, the trailing `&& (b)` falls
+    // through to a separate expression-statement on the same line. Not
+    // semantically faithful, but parses without cascade-erroring the
+    // whole block. (TODO: revisit with a proper if-condition rule that
+    // permits trailing && / || tail expressions.)
     if_statement: ($) =>
       seq(
         $.keyword_if,
         "(",
         field("condition", $._expression),
         ")",
+        optional($._if_tail),
         $._newline,
         field("then", repeat($._block_item)),
         repeat(field("else_if", $.else_if_clause)),
@@ -392,12 +417,40 @@ module.exports = grammar({
         $._newline,
       ),
 
+    // Tail expression after `If (...)` — captures the `&& (b)` part of
+    // `If (a) && (b)` so the if_statement doesn't terminate at `)` and
+    // try to parse `&& (b)` as a new statement.
+    _if_tail: ($) =>
+      repeat1(
+        choice(
+          $.op_other,
+          $.op_neq,
+          $.parenthesized_expression,
+          $.identifier,
+          $.local_var,
+          $.parameter,
+          $.interprocess_var,
+          $.field_ref,
+          $.table_ref,
+          $.number,
+          $.string,
+          $.keyword_this,
+          $.keyword_super,
+          $.keyword_new,
+          $.keyword_true,
+          $.keyword_false,
+          $.keyword_null,
+          $.op_dot,
+        ),
+      ),
+
     else_if_clause: ($) =>
       seq(
         $.keyword_else_if,
         "(",
         field("condition", $._expression),
         ")",
+        optional($._if_tail),
         $._newline,
         repeat($._block_item),
       ),
@@ -424,6 +477,7 @@ module.exports = grammar({
         "(",
         field("condition", $._expression),
         ")",
+        optional($._if_tail),
         $._newline,
         repeat($._block_item),
       ),
@@ -479,6 +533,7 @@ module.exports = grammar({
         "(",
         field("condition", $._expression),
         ")",
+        optional($._if_tail),
         $._newline,
         repeat($._block_item),
         $.keyword_end_while,
@@ -494,6 +549,7 @@ module.exports = grammar({
         "(",
         field("condition", $._expression),
         ")",
+        optional($._if_tail),
         $._newline,
       ),
 
@@ -760,7 +816,12 @@ module.exports = grammar({
     // sensible.
     binary_expression: ($) =>
       choice(
+        // `||` and `&&` are 4D's logical "or" / "and" (same as `|`/`&` but
+        // commonly written doubled in v18+). Token() so they don't lex as
+        // two separate `|`/`&` chars.
+        prec.left(PREC.OR, seq($._expression, token("||"), $._expression)),
         prec.left(PREC.OR, seq($._expression, "|", $._expression)),
+        prec.left(PREC.AND, seq($._expression, token("&&"), $._expression)),
         prec.left(PREC.AND, seq($._expression, "&", $._expression)),
         prec.left(
           PREC.COMPARE,
@@ -781,7 +842,17 @@ module.exports = grammar({
       ),
 
     unary_expression: ($) =>
-      prec.right(PREC.UNARY, seq(choice("-", "+"), $._expression)),
+      prec.right(
+        PREC.UNARY,
+        seq(
+          // `->expr` (pointer-to operator), `-expr` (negate), `+expr`.
+          // 4D's `->` overloads with the `#DECLARE` arrow return; the
+          // parser disambiguates by context (return is only valid right
+          // after `)` in a declare_directive).
+          choice("-", "+", token("->")),
+          $._expression,
+        ),
+      ),
 
     // Compound-assignment operator: `+=`, `-=`, `*=`, `/=`. A single token so
     // it doesn't collide with `+` followed by `=`.
