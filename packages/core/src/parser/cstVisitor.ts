@@ -696,17 +696,22 @@ export class CstVisitor {
       return;
     }
 
+    const hint = this.classifyCallee(fn, node);
+    // Skip emission when we have no hint — the regex parser doesn't track
+    // intermediate chained calls like `.new().foo().bar()`, so emitting
+    // them inflates the raw-call count without producing resolvable edges.
+    // Bare-name calls and member-call shapes always have hints.
+    if (!hint) return;
+
     const callSite: RawCallSite = {
       fromSymbolId: this.currentSymbolId,
       line,
       raw,
       expression,
+      hint,
+      column: fn.startPosition.column,
+      endColumn: fn.endPosition.column,
     };
-
-    const hint = this.classifyCallee(fn, node);
-    if (hint) callSite.hint = hint;
-    callSite.column = fn.startPosition.column;
-    callSite.endColumn = fn.endPosition.column;
 
     this.rawCalls.push(callSite);
   }

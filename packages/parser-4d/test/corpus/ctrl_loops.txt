@@ -70,7 +70,8 @@ End while
 (source_file
   (while_statement
     (keyword_while)
-    condition: (binary_expression (local_var) (number))
+    condition: (parenthesized_expression
+      (binary_expression (local_var) (number)))
     (assignment_statement
       target: (local_var)
       operator: (compound_assign_op)
@@ -95,7 +96,8 @@ Until ($i>10)
       operator: (compound_assign_op)
       value: (number))
     (keyword_until)
-    condition: (binary_expression (local_var) (number))))
+    condition: (parenthesized_expression
+      (binary_expression (local_var) (number)))))
 
 ==================
 use — semaphore

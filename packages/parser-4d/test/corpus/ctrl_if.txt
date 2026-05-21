@@ -11,7 +11,8 @@ End if
 (source_file
   (if_statement
     (keyword_if)
-    condition: (binary_expression (local_var) (number))
+    condition: (parenthesized_expression
+      (binary_expression (local_var) (number)))
     then: (assignment_statement
       target: (local_var)
       operator: (op_assign)
@@ -33,7 +34,8 @@ End if
 (source_file
   (if_statement
     (keyword_if)
-    condition: (binary_expression (local_var) (string))
+    condition: (parenthesized_expression
+      (binary_expression (local_var) (string)))
     then: (assignment_statement
       target: (local_var)
       operator: (op_assign)
@@ -65,19 +67,22 @@ End if
 (source_file
   (if_statement
     (keyword_if)
-    condition: (binary_expression (local_var) (number))
+    condition: (parenthesized_expression
+      (binary_expression (local_var) (number)))
     then: (expression_statement expression: (call_expression
       function: (identifier)
       arguments: (argument_list)))
     else_if: (else_if_clause
       (keyword_else_if)
-      condition: (binary_expression (local_var) (number))
+      condition: (parenthesized_expression
+        (binary_expression (local_var) (number)))
       (expression_statement expression: (call_expression
         function: (identifier)
         arguments: (argument_list))))
     else_if: (else_if_clause
       (keyword_else_if)
-      condition: (binary_expression (local_var) (number))
+      condition: (parenthesized_expression
+        (binary_expression (local_var) (number)))
       (expression_statement expression: (call_expression
         function: (identifier)
         arguments: (argument_list))))
@@ -103,10 +108,10 @@ End if
 (source_file
   (if_statement
     (keyword_if)
-    condition: (local_var)
+    condition: (parenthesized_expression (local_var))
     then: (if_statement
       (keyword_if)
-      condition: (local_var)
+      condition: (parenthesized_expression (local_var))
       then: (expression_statement expression: (call_expression
         function: (identifier)
         arguments: (argument_list)))
@@ -125,8 +130,28 @@ End if
 (source_file
   (if_statement
     (keyword_if)
-    condition: (binary_expression (local_var) (number))
-    (op_other)
-    (op_other)
-    (parenthesized_expression (binary_expression (local_var) (number)))
+    condition: (binary_expression
+      (parenthesized_expression
+        (binary_expression (local_var) (number)))
+      (parenthesized_expression
+        (binary_expression (local_var) (number))))
+    (keyword_end_if)))
+
+==================
+if — paren-less condition
+==================
+
+If $bReady
+  DoIt()
+End if
+
+---
+
+(source_file
+  (if_statement
+    (keyword_if)
+    condition: (local_var)
+    then: (expression_statement expression: (call_expression
+      function: (identifier)
+      arguments: (argument_list)))
     (keyword_end_if)))

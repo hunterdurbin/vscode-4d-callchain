@@ -44,7 +44,7 @@ End if
 (source_file
   (if_statement
     (keyword_if)
-    condition: (local_var)
+    condition: (parenthesized_expression (local_var))
     (keyword_end_if)))
 
 ==================
@@ -59,7 +59,7 @@ end if
 (source_file
   (if_statement
     (keyword_if)
-    condition: (local_var)
+    condition: (parenthesized_expression (local_var))
     (keyword_end_if)))
 
 ==================
@@ -74,7 +74,7 @@ END IF
 (source_file
   (if_statement
     (keyword_if)
-    condition: (local_var)
+    condition: (parenthesized_expression (local_var))
     (keyword_end_if)))
 
 ==================
@@ -89,7 +89,7 @@ End    if
 (source_file
   (if_statement
     (keyword_if)
-    condition: (local_var)
+    condition: (parenthesized_expression (local_var))
     (keyword_end_if)))
 
 ==================

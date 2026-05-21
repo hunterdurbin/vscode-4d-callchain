@@ -114,7 +114,18 @@ module.exports = grammar({
   // `identifier`.
   word: ($) => $.identifier,
 
-  conflicts: ($) => [],
+  conflicts: ($) => [
+    // `If foo bar` is ambiguous: `foo` could be a primary expression
+    // (condition) followed by something else, OR `foo bar` could be a
+    // multi_word_identifier (condition). We let tree-sitter explore both
+    // and keep the longest match — multi-word wins when 2+ words follow.
+    [$._primary_expression, $._word_or_keyword],
+    // `If (expr)` could be parsed via _if_condition's parenthesized branch
+    // OR as a parenthesized_expression nested in _if_condition's bare-
+    // expression branch. Both produce equivalent trees; defer to the
+    // parser's preferred path.
+    [$._if_condition, $.parenthesized_expression],
+  ],
 
   rules: {
     // ---- File structure ----
@@ -339,22 +350,28 @@ module.exports = grammar({
         ),
       ),
 
-    // `#DECLARE($a : T; $b)` — optionally with `-> $result : Type` arrow form.
+    // `#DECLARE($a : T; $b)` — with optional return type. Two forms:
+    //   * arrow: `-> $result : Type` (4D v18+ canonical)
+    //   * colon: `: Type` (shorter form, used in some legacy / Symphony code)
     declare_directive: ($) =>
       seq(
         $.declare_keyword,
         field("parameters", $.parameter_list),
-        field("return", optional($.declare_return)),
+        field("return", optional(choice($.declare_return, $.declare_return_short))),
         $._newline,
       ),
 
-    // ` -> $result : Type` — the arrow return form unique to #DECLARE.
+    // ` -> $result : Type` — the arrow return form.
     declare_return: ($) =>
       seq(
         "->",
         field("name", $.local_var),
         optional(seq(":", field("type", $._type_ref))),
       ),
+
+    // ` : Type` — the short colon-only return form (no $name).
+    declare_return_short: ($) =>
+      seq(":", field("type", $._type_ref)),
 
     // The `#DECLARE` directive keyword, distinct from the general `directive`
     // token so the parser can take the structured path.
@@ -394,20 +411,14 @@ module.exports = grammar({
 
     // ---- Control flow ----
 
-    // `If (expr) ... End if`. The outer parens are syntactic — the parser
-    // tracks them so the if_statement's boundary is unambiguous. 4D code
-    // that writes `If (a) && (b)` puts the && OUTSIDE the if's parens —
-    // we model that as: condition is `(a)`, the trailing `&& (b)` falls
-    // through to a separate expression-statement on the same line. Not
-    // semantically faithful, but parses without cascade-erroring the
-    // whole block. (TODO: revisit with a proper if-condition rule that
-    // permits trailing && / || tail expressions.)
+    // `If <condition> ... End if`. 4D allows both `If (a)` and `If a`
+    // forms. When written `If (a) && (b)`, the && and trailing parens land
+    // in `_if_tail` so the if_statement boundary stays clean instead of
+    // cascade-erroring the whole block.
     if_statement: ($) =>
       seq(
         $.keyword_if,
-        "(",
-        field("condition", $._expression),
-        ")",
+        field("condition", $._if_condition),
         optional($._if_tail),
         $._newline,
         field("then", repeat($._block_item)),
@@ -415,6 +426,16 @@ module.exports = grammar({
         optional(field("else", $.else_clause)),
         $.keyword_end_if,
         $._newline,
+      ),
+
+    // Either `(expr)` (syntactic parens, conventional 4D style) or a bare
+    // `expr` (`If $x`, `If True`, ...). We prefer the parenthesized form
+    // when present because it makes the if's end-of-condition unambiguous
+    // (closing `)`).
+    _if_condition: ($) =>
+      choice(
+        seq("(", $._expression, ")"),
+        $._expression,
       ),
 
     // Tail expression after `If (...)` — captures the `&& (b)` part of
@@ -447,9 +468,7 @@ module.exports = grammar({
     else_if_clause: ($) =>
       seq(
         $.keyword_else_if,
-        "(",
-        field("condition", $._expression),
-        ")",
+        field("condition", $._if_condition),
         optional($._if_tail),
         $._newline,
         repeat($._block_item),
@@ -521,6 +540,8 @@ module.exports = grammar({
         field("collection", $._expression),
         repeat(seq(";", $._expression)),
         ")",
+        // Optional `Until (expr)` early-exit clause: `For each ($x; $c) Until ($cond)`.
+        optional(seq($.keyword_until, $._if_condition)),
         $._newline,
         repeat($._block_item),
         $.keyword_end_for_each,
@@ -530,9 +551,7 @@ module.exports = grammar({
     while_statement: ($) =>
       seq(
         $.keyword_while,
-        "(",
-        field("condition", $._expression),
-        ")",
+        field("condition", $._if_condition),
         optional($._if_tail),
         $._newline,
         repeat($._block_item),
@@ -546,9 +565,7 @@ module.exports = grammar({
         $._newline,
         repeat($._block_item),
         $.keyword_until,
-        "(",
-        field("condition", $._expression),
-        ")",
+        field("condition", $._if_condition),
         optional($._if_tail),
         $._newline,
       ),
@@ -677,9 +694,23 @@ module.exports = grammar({
         $.subscript_expression,
         $.binary_expression,
         $.unary_expression,
+        $.ternary_expression,
         $.parenthesized_expression,
         $.object_literal,
         $.collection_literal,
+      ),
+
+    // 4D ternary: `cond ? then_value : else_value`. Right-associative.
+    ternary_expression: ($) =>
+      prec.right(
+        PREC.OR - 1,
+        seq(
+          field("condition", $._expression),
+          "?",
+          field("then", $._expression),
+          ":",
+          field("else", $._expression),
+        ),
       ),
 
     _primary_expression: ($) =>
@@ -764,7 +795,7 @@ module.exports = grammar({
     // etc. Pure identifiers still cover the bulk: `CALL WORKER`,
     // `EXECUTE METHOD`, `Open form window`.
     multi_word_identifier: ($) =>
-      seq($._word_or_keyword, repeat1($._word_or_keyword)),
+      prec.left(seq($._word_or_keyword, repeat1($._word_or_keyword))),
 
     _word_or_keyword: ($) =>
       choice(
@@ -772,6 +803,10 @@ module.exports = grammar({
         alias($.keyword_new, $.identifier),
         alias($.keyword_get, $.identifier),
         alias($.keyword_set, $.identifier),
+        // `USE` appears in commands like `USE SET(...)` (uppercase, distinct
+        // from the `Use (lock)` block keyword) — alias so multi-word call
+        // recognizes it.
+        alias($.keyword_use, $.identifier),
       ),
 
     argument_list: ($) =>
@@ -842,15 +877,22 @@ module.exports = grammar({
       ),
 
     unary_expression: ($) =>
-      prec.right(
-        PREC.UNARY,
-        seq(
-          // `->expr` (pointer-to operator), `-expr` (negate), `+expr`.
-          // 4D's `->` overloads with the `#DECLARE` arrow return; the
-          // parser disambiguates by context (return is only valid right
-          // after `)` in a declare_directive).
-          choice("-", "+", token("->")),
-          $._expression,
+      choice(
+        prec.right(
+          PREC.UNARY,
+          seq(
+            // Prefix: `->expr` (pointer-to operator), `-expr` (negate), `+expr`.
+            choice("-", "+", token("->")),
+            $._expression,
+          ),
+        ),
+        // Postfix: `expr->` (pointer dereference, 4D's "read value pointed
+        // to" operator). Higher precedence so it binds tightly to its
+        // operand. Same `->` token as prefix; tree-sitter chooses by
+        // context.
+        prec.left(
+          PREC.MEMBER,
+          seq($._expression, token.immediate("->")),
         ),
       ),
 
