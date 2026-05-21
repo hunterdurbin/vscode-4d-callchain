@@ -896,21 +896,33 @@ export class CstVisitor {
       // We don't have enough context to classify; emit a generic BareName.
       return undefined;
     }
-    if (object.type === "member_expression") {
-      // Two-or-more-segment chain. Walk back to head to figure out the shape.
+    // Two-or-more-segment chain. Walk back to the head to classify.
+    //
+    // Cs/Ds heads (`cs.X.method()`, `ds.T.query()`) require a PURE property
+    // chain — no intermediate calls — because the resolver can't know what
+    // the intermediate call returned. `cs.X.new().foo()` would fall back
+    // to no hint (and be skipped, like the regex parser does).
+    //
+    // This/Var heads can have intermediate calls (the chain resolver in
+    // nameResolver walks return-types via `isCall` flags on each step).
+    if (
+      object.type === "member_expression" ||
+      object.type === "call_expression"
+    ) {
       const flat = this.flattenChain(member);
       if (!flat) return undefined;
       const { head, steps } = flat;
-      // The last step IS the call's method; preceding steps are intermediate.
       const path = steps.slice(0, -1);
       const finalMethod = steps[steps.length - 1].name;
-      // cs.Class.method / cs.NS.Class.method
-      if (head.type === "cs" && path.length === 1) {
+      const pureChain = path.every((s) => !s.isCall);
+
+      // cs.Class.method — only for pure chains.
+      if (head.type === "cs" && path.length === 1 && pureChain) {
         const className = path[0].name;
         if (finalMethod === "new") return { kind: "CsNew", className };
         return { kind: "CsCall", className, method: finalMethod };
       }
-      if (head.type === "cs" && path.length === 2) {
+      if (head.type === "cs" && path.length === 2 && pureChain) {
         const namespace = path[0].name;
         const className = path[1].name;
         if (finalMethod === "new")
@@ -922,7 +934,7 @@ export class CstVisitor {
           method: finalMethod,
         };
       }
-      if (head.type === "ds" && path.length === 1) {
+      if (head.type === "ds" && path.length === 1 && pureChain) {
         const className = path[0].name;
         return { kind: "DsCall", className, method: finalMethod };
       }
@@ -948,7 +960,13 @@ export class CstVisitor {
   /**
    * Walks a member_expression back to its head. Returns the head shape and
    * an ordered list of segments. The terminal segment is the call's
-   * property name.
+   * property name. Each segment carries an `isCall` flag so the resolver
+   * knows whether to walk a return-type vs a property-type.
+   *
+   * Handles two cases for intermediate nodes:
+   *  - `member_expression` (pure property/method chain): `$x.foo.bar`
+   *  - `call_expression` (a call's result feeding into the next member):
+   *    `$x.foo().bar()` — the inner call's function is itself a chain.
    */
   private flattenChain(
     member: Node,
@@ -957,10 +975,21 @@ export class CstVisitor {
     | undefined {
     const steps: ChainStep[] = [];
     let cursor: Node | null = member;
-    while (cursor && cursor.type === "member_expression") {
-      const prop = cursor.childForFieldName("property");
-      if (prop) steps.unshift({ name: prop.text, isCall: false });
-      cursor = cursor.childForFieldName("object");
+    while (cursor) {
+      if (cursor.type === "member_expression") {
+        const prop = cursor.childForFieldName("property");
+        if (prop) steps.unshift({ name: prop.text, isCall: false });
+        cursor = cursor.childForFieldName("object");
+        continue;
+      }
+      if (cursor.type === "call_expression") {
+        // Mark the most-recently-pushed segment as a call (it's the call's
+        // property/method) and step into the function for further walking.
+        if (steps.length > 0) steps[0].isCall = true;
+        cursor = cursor.childForFieldName("function");
+        continue;
+      }
+      break;
     }
     if (!cursor) return undefined;
     if (cursor.type === "keyword_this") return { head: { type: "this" }, steps };
@@ -990,7 +1019,7 @@ export class CstVisitor {
     return { kind: "BareName", name };
   }
 
-  private emitPropertyAssign(target: Node, _stmt: Node): void {
+  private emitPropertyAssign(target: Node, stmt: Node): void {
     if (!this.currentSymbolId) return;
     const object = target.childForFieldName("object");
     const property = target.childForFieldName("property");
@@ -999,23 +1028,40 @@ export class CstVisitor {
     const line = target.startPosition.row;
     const raw = this.lineText(line);
 
-    let hint: CallHint | undefined;
+    // Compound-assignment forms (`+=`, `-=`, etc.) are "read + write" —
+    // emit BOTH a get and a set hint, matching the regex parser's
+    // post-processing of RE_THIS_ASSIGN compound forms.
+    const op = stmt.childForFieldName("operator");
+    const isCompound = op?.type === "compound_assign_op";
+
+    let setHint: CallHint | undefined;
+    let getHint: CallHint | undefined;
     if (object.type === "keyword_this") {
-      hint = { kind: "ThisSet", property: propName };
+      setHint = { kind: "ThisSet", property: propName };
+      if (isCompound) getHint = { kind: "ThisGet", property: propName };
     } else if (object.type === "local_var") {
-      hint = {
-        kind: "VarSet",
-        variable: object.text.replace(/^\$/, ""),
-        property: propName,
-      };
+      const variable = object.text.replace(/^\$/, "");
+      setHint = { kind: "VarSet", variable, property: propName };
+      if (isCompound) getHint = { kind: "VarGet", variable, property: propName };
     }
-    if (hint) {
+    if (getHint) {
       this.rawCalls.push({
         fromSymbolId: this.currentSymbolId,
         line,
         raw,
         expression: target.text,
-        hint,
+        hint: getHint,
+        column: property.startPosition.column,
+        endColumn: property.endPosition.column,
+      });
+    }
+    if (setHint) {
+      this.rawCalls.push({
+        fromSymbolId: this.currentSymbolId,
+        line,
+        raw,
+        expression: target.text,
+        hint: setHint,
         column: property.startPosition.column,
         endColumn: property.endPosition.column,
       });

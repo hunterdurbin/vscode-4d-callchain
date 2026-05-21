@@ -764,15 +764,26 @@ module.exports = grammar({
       ),
 
     // `expr[index]` — bracket subscript. Distinct from `[Table]` and
-    // `[Table]Field` tokens because those are lexed atomically.
+    // `[Table]Field` tokens because those are lexed atomically. Also
+    // accepts `expr{index}` — 4D's legacy-array curly-brace subscript
+    // syntax (`aPrices{3}`), kept as the same node type since the
+    // semantic effect is the same.
     subscript_expression: ($) =>
       prec.left(
         PREC.MEMBER,
-        seq(
-          field("object", $._expression),
-          "[",
-          field("index", $._expression),
-          "]",
+        choice(
+          seq(
+            field("object", $._expression),
+            "[",
+            field("index", $._expression),
+            "]",
+          ),
+          seq(
+            field("object", $._expression),
+            "{",
+            field("index", $._expression),
+            "}",
+          ),
         ),
       ),
 
