@@ -1042,17 +1042,27 @@ export class CstVisitor {
     | undefined {
     const steps: ChainStep[] = [];
     let cursor: Node | null = member;
+    // When we walk through a call_expression we don't yet know WHICH step
+    // is the called one — that's the property of the *enclosing* member,
+    // which gets unshifted on the next iteration. Buffer the call-flag
+    // until then.
+    let pendingIsCall = false;
     while (cursor) {
       if (cursor.type === "member_expression") {
         const prop = cursor.childForFieldName("property");
-        if (prop) steps.unshift({ name: prop.text, isCall: false });
+        if (prop) {
+          steps.unshift({ name: prop.text, isCall: pendingIsCall });
+          pendingIsCall = false;
+        }
         cursor = cursor.childForFieldName("object");
         continue;
       }
       if (cursor.type === "call_expression") {
-        // Mark the most-recently-pushed segment as a call (it's the call's
-        // property/method) and step into the function for further walking.
-        if (steps.length > 0) steps[0].isCall = true;
+        // The function of this call is the next thing we walk into; the
+        // call applies to the FIRST member-property we encounter going
+        // outer-in (which is currently still unwalked). Mark the next
+        // unshift as a call.
+        pendingIsCall = true;
         cursor = cursor.childForFieldName("function");
         continue;
       }
