@@ -53,6 +53,7 @@ Effort estimates: **XS** < 30 min · **S** ~1 hr · **M** ~half-day · **L** ~1�
 | 21 | cSpell warnings (Interprocess, ORDA, vmatch, etc.) | XS |
 | 22 | `patchFile` could batch rapid file changes via debounce | S |
 | 23 | Caller-count caches O(N) on first miss — precompute once per index | S |
+| 24 | `#DECLARE` variadic param syntax | S | 4D doesn't currently provide a `#DECLARE` syntax for variadic params — variadic methods declare their tail type via `Compiler_*.4dm`'s `C_TYPE(method; ${N})` notation, which the indexer reads to materialize `SymbolParam.variadic`. When 4D ships an in-method syntax for this, we should parse it and stop requiring the Compiler_* round-trip. Watch the 4D v22+ release notes. |
 
 ---
 

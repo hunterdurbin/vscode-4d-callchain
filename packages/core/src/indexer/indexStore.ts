@@ -9,6 +9,7 @@ import { TypedEmitter } from "../util/emitter";
 import { discoverCatalogTableIdMap, discoverCatalogTables, discoverFiles, discoverPlugins } from "./projectScanner";
 import { DEFAULT_BUILTIN_CONSTANTS_PROBES, discoverBuiltinConstants, discoverConstants } from "./constantsScanner";
 import { discoverVariables } from "./variableScanner";
+import { discoverCompilerMethodTypes, mergeCompilerParamsWithDeclare, CompilerMethodTypes } from "./compilerMethodScanner";
 import { discoverComponents } from "./componentScanner";
 import { ParsedFile, parseFile } from "./fileParser";
 import { buildResolverScratch, buildSymbolIndex, resolveCallsForFile, ResolverInput } from "./nameResolver";
@@ -108,6 +109,10 @@ export class Indexer {
   private edgesByNameKey: Map<string, NameKeyEntry[]> | undefined;
   private resolverInput: ResolverInput | undefined;
   private constantsSet: Set<string> | undefined;
+  // Cached per-method parameter-type info from Compiler_*.4dm. Refreshed on
+  // full rebuild only — Compiler_* edits route through `patchFile` →
+  // full-rebuild bail (see patchFiles).
+  private compilerMethodTypes: Map<string, CompilerMethodTypes> | undefined;
   private pendingPersist: ReturnType<typeof setTimeout> | undefined;
   private inFlightPersist: Promise<void> | undefined;
   // Tracks an in-progress full rebuild so concurrent patch calls (or other
@@ -189,11 +194,24 @@ export class Indexer {
       ...variables.filter((v) => v.scope === "process").map((v) => v.name.toLowerCase())
     ]);
 
+    // Compiler_*.4dm parameter-type declarations for project methods. The
+    // augmentation pass below uses this to materialize variadic params
+    // (e.g. `C_LONGINT(Math_Minimum; ${1})` → `params[0] = {…, variadic: true}`).
+    const compilerMethodTypes = discoverCompilerMethodTypes(this.opts.projectRoot);
+    this.compilerMethodTypes = compilerMethodTypes;
+    if (compilerMethodTypes.size > 0) {
+      this.opts.logger.info(
+        `[Indexer] Discovered ${compilerMethodTypes.size} method-type declarations from Compiler_*.4dm`,
+      );
+    }
+
     const parsed = [];
     const mtimes: Record<string, number> = {};
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      parsed.push(parseFile(f, this.opts.projectRoot, constantsSet));
+      const file = parseFile(f, this.opts.projectRoot, constantsSet);
+      augmentVariadicParams(file, compilerMethodTypes);
+      parsed.push(file);
       try {
         mtimes[f.absolutePath] = fs.statSync(f.absolutePath).mtimeMs;
       } catch {/* skip */}
@@ -383,7 +401,18 @@ export class Indexer {
     // that's baked into every .4dm parse + resolve — partial reindex for
     // those types isn't viable today, so fall back to a single full rebuild
     // even when mixed with .4dm changes.
+    // Compiler_*.4dm edits change the project-wide variadic-params map; we
+    // bail to rebuild for those too rather than trying to reconcile the
+    // delta with every existing ProjectMethod symbol's `params[]`.
     const categories = changes.map((c) => classifyChange(c.path, this.opts.projectRoot));
+    const hasCompilerEdit = changes.some(
+      (c) => /\/Compiler_[^/]*\.4dm$/i.test(c.path),
+    );
+    if (hasCompilerEdit) {
+      this.opts.logger.info(`[Indexer] Compiler_*.4dm change in batch — full rebuild`);
+      await this.rebuild();
+      return;
+    }
     if (categories.some((cat) => cat === "catalog" || cat === "constants" || cat === "components")) {
       const which = categories.find((c) => c === "catalog" || c === "constants" || c === "components");
       this.opts.logger.info(`[Indexer] ${which} change in batch — full rebuild`);
@@ -433,6 +462,13 @@ export class Indexer {
       const t1 = Date.now();
       const parsed = parseFile(discovered, this.opts.projectRoot, this.constantsSet);
       tParse += Date.now() - t1;
+      // Re-apply variadic-param augmentation (Compiler_*.4dm types). The
+      // map is per-project and cached on the indexer; a Compiler_* edit
+      // would route to full rebuild via the explicit check below, so we
+      // can safely reuse the cached map here.
+      if (this.compilerMethodTypes) {
+        augmentVariadicParams(parsed, this.compilerMethodTypes);
+      }
       try { this.currentIndex.fileMtimes[change.path] = fs.statSync(change.path).mtimeMs; } catch {/* skip */}
 
       const t2 = Date.now();
@@ -1063,4 +1099,30 @@ function listComponentArchives(projectRoot: string): string[] {
     }
   } catch {/* ignore */}
   return out;
+}
+
+/**
+ * Augment a `ParsedFile`'s ProjectMethod symbols with parameter-type info
+ * from the project's Compiler_*.4dm declarations. Mutates `params[]` on
+ * each ProjectMethod / CompilerMethod symbol when a matching declaration
+ * exists, appending a variadic sentinel when the Compiler_* file uses
+ * `${N}` notation.
+ */
+function augmentVariadicParams(
+  file: ParsedFile,
+  compilerMethodTypes: Map<string, CompilerMethodTypes>,
+): void {
+  if (compilerMethodTypes.size === 0) return;
+  for (const sym of file.symbols) {
+    if (sym.kind !== SymbolKind.ProjectMethod && sym.kind !== SymbolKind.CompilerMethod) {
+      continue;
+    }
+    const info = compilerMethodTypes.get(sym.name);
+    if (!info) continue;
+    const merged = mergeCompilerParamsWithDeclare(sym.params, info);
+    if (merged) sym.params = merged;
+    // Pick up the return type too, if the symbol didn't already know it
+    // (e.g. method file has no `#DECLARE … -> …` arrow form).
+    if (info.returnType && !sym.returnType) sym.returnType = info.returnType;
+  }
 }

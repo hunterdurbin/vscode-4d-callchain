@@ -96,6 +96,18 @@ export interface SymbolRecord {
 export interface SymbolParam {
   name: string;
   type?: string;
+  /**
+   * Marks a "rest" parameter — the method accepts zero-or-more additional
+   * arguments of `type` after this position. Only set on the LAST entry in
+   * a `params[]` array. Used to model 4D's `${N}` notation found in
+   * `Compiler_*.4dm` files (e.g. `C_LONGINT(Math_Minimum; ${1})` means
+   * "any number of LONGINT args from $1 onward").
+   *
+   * 4D's `#DECLARE` syntax doesn't currently express variadic params —
+   * methods that take a variable number of args rely on the Compiler_*
+   * declaration alone. See TODO #24.
+   */
+  variadic?: boolean;
 }
 
 export interface RawCallSite {
@@ -189,9 +201,11 @@ export interface ChainStep {
 // Bumped to 31 after fixing flattenChain's call-flag annotation (`cs.X.new()
 // .method()` chains were emitting bogus `CsCallNs` edges; ~3k spurious
 // `Cannot resolve` diagnostics per Symphony project).
+// Bumped to 32 when variadic params from Compiler_*.4dm started landing
+// on `SymbolRecord.params[]`.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 31;
+export const INDEX_VERSION = 32;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

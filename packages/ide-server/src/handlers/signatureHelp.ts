@@ -42,17 +42,34 @@ export function registerSignatureHelpHandler(
     if (!doc) return null;
     const ctx = resolveCallContext(graph, doc, params);
     if (!ctx?.callee) return null;
+    // Clamp activeParameter to the variadic tail when present — so the
+    // editor keeps highlighting "...rest" for any arg position beyond
+    // the fixed params.
+    const calleeParams = ctx.callee.params ?? [];
+    let active = ctx.activeParameter;
+    const lastIdx = calleeParams.length - 1;
+    if (lastIdx >= 0 && calleeParams[lastIdx].variadic && active > lastIdx) {
+      active = lastIdx;
+    }
     return {
       signatures: [signatureFor(ctx.callee)],
       activeSignature: 0,
-      activeParameter: ctx.activeParameter
+      activeParameter: active
     };
   });
 }
 
 function signatureFor(sym: SymbolRecord): SignatureInformation {
   const params = sym.params ?? [];
-  const parts = params.map((p) => (p.type ? `$${p.name} : ${p.type}` : `$${p.name}`));
+  const parts = params.map((p) => {
+    // Variadic param: render as `…$rest : Type` so the editor's hover
+    // makes the "any number of args" semantics visible. Name comes from
+    // mergeCompilerParamsWithDeclare as the literal "...rest".
+    if (p.variadic) {
+      return p.type ? `…${p.name} : ${p.type}` : `…${p.name}`;
+    }
+    return p.type ? `$${p.name} : ${p.type}` : `$${p.name}`;
+  });
   const ret = sym.returnType ? ` : ${sym.returnType}` : "";
   const label = `${sym.name}(${parts.join("; ")})${ret}`;
   // Build ParameterInformation entries with character offsets into the label

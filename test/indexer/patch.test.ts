@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 31 after the flattenChain call-flag fix", () => {
-    expect(INDEX_VERSION).toBe(31);
+  it("INDEX_VERSION is 32 after Compiler_* variadic-params landed on SymbolRecord.params", () => {
+    expect(INDEX_VERSION).toBe(32);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {
