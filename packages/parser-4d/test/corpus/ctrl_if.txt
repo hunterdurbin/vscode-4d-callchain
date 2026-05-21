@@ -1,0 +1,114 @@
+==================
+if — simple
+==================
+
+If ($x>0)
+  $count:=1
+End if
+
+---
+
+(source_file
+  (if_statement
+    (keyword_if)
+    condition: (binary_expression (local_var) (number))
+    then: (assignment_statement
+      target: (local_var)
+      operator: (op_assign)
+      value: (number))
+    (keyword_end_if)))
+
+==================
+if — with else
+==================
+
+If ($mode="empty")
+  $result:=Null
+Else
+  $result:=42
+End if
+
+---
+
+(source_file
+  (if_statement
+    (keyword_if)
+    condition: (binary_expression (local_var) (string))
+    then: (assignment_statement
+      target: (local_var)
+      operator: (op_assign)
+      value: (keyword_null))
+    else: (else_clause
+      (keyword_else)
+      (assignment_statement
+        target: (local_var)
+        operator: (op_assign)
+        value: (number)))
+    (keyword_end_if)))
+
+==================
+if — else-if chain
+==================
+
+If ($x=1)
+  DoOne()
+Else if ($x=2)
+  DoTwo()
+Else if ($x=3)
+  DoThree()
+Else
+  DoOther()
+End if
+
+---
+
+(source_file
+  (if_statement
+    (keyword_if)
+    condition: (binary_expression (local_var) (number))
+    then: (expression_statement expression: (call_expression
+      function: (identifier)
+      arguments: (argument_list)))
+    else_if: (else_if_clause
+      (keyword_else_if)
+      condition: (binary_expression (local_var) (number))
+      (expression_statement expression: (call_expression
+        function: (identifier)
+        arguments: (argument_list))))
+    else_if: (else_if_clause
+      (keyword_else_if)
+      condition: (binary_expression (local_var) (number))
+      (expression_statement expression: (call_expression
+        function: (identifier)
+        arguments: (argument_list))))
+    else: (else_clause
+      (keyword_else)
+      (expression_statement expression: (call_expression
+        function: (identifier)
+        arguments: (argument_list))))
+    (keyword_end_if)))
+
+==================
+if — nested
+==================
+
+If ($outer)
+  If ($inner)
+    DoIt()
+  End if
+End if
+
+---
+
+(source_file
+  (if_statement
+    (keyword_if)
+    condition: (local_var)
+    then: (if_statement
+      (keyword_if)
+      condition: (local_var)
+      then: (expression_statement expression: (call_expression
+        function: (identifier)
+        arguments: (argument_list)))
+      (keyword_end_if))
+    (keyword_end_if)))

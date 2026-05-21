@@ -33,70 +33,64 @@ Super
   (expression_statement expression: (keyword_super)))
 
 ==================
-keyword — control flow head: If
+keyword — control flow: If block (empty body)
 ==================
 
-If
-
----
-
-(source_file
-  (keyword_if))
-
-==================
-keyword — control flow head: if (lowercase)
-==================
-
-if
-
----
-
-(source_file
-  (keyword_if))
-
-==================
-multi-word keyword — End if
-==================
-
+If ($x)
 End if
 
 ---
 
 (source_file
-  (keyword_end_if))
+  (if_statement
+    (keyword_if)
+    condition: (local_var)
+    (keyword_end_if)))
 
 ==================
-multi-word keyword — END IF (uppercase)
+keyword — control flow: if block (lowercase keywords)
 ==================
 
+if ($x)
+end if
+
+---
+
+(source_file
+  (if_statement
+    (keyword_if)
+    condition: (local_var)
+    (keyword_end_if)))
+
+==================
+keyword — END IF case-insensitive uppercase
+==================
+
+If ($x)
 END IF
 
 ---
 
 (source_file
-  (keyword_end_if))
+  (if_statement
+    (keyword_if)
+    condition: (local_var)
+    (keyword_end_if)))
 
 ==================
-multi-word keyword — extra whitespace
+keyword — End if with extra whitespace
 ==================
 
+If ($x)
 End    if
 
 ---
 
 (source_file
-  (keyword_end_if))
-
-==================
-multi-word keyword — For each
-==================
-
-For each
-
----
-
-(source_file
-  (keyword_for_each))
+  (if_statement
+    (keyword_if)
+    condition: (local_var)
+    (keyword_end_if)))
 
 ==================
 keyword vs identifier — longer identifier wins

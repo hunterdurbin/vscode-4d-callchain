@@ -360,19 +360,226 @@ module.exports = grammar({
         $.return_statement,
         $.assignment_statement,
         $.expression_statement,
-        $.case_label,
-        // Control-flow lines (caught here in Phase 3; Phase 4 structures them).
-        $._control_flow_line,
+        $.if_statement,
+        $.case_of_statement,
+        $.for_statement,
+        $.for_each_statement,
+        $.while_statement,
+        $.repeat_statement,
+        $.use_statement,
+        $.sql_block,
+        $.try_statement,
+        $.throw_statement,
       ),
 
-    // `: (expr)` — a Case-of label line. Phase 4's case_of_statement will
-    // claim these; Phase 3 lets them parse standalone.
+    // Block contents: same as statements, plus blank lines. We don't allow
+    // nested declarations (4D doesn't permit a `Function` inside an `If`).
+    _block_item: ($) => choice($._statement, $._newline),
+
+    // ---- Control flow ----
+
+    if_statement: ($) =>
+      seq(
+        $.keyword_if,
+        "(",
+        field("condition", $._expression),
+        ")",
+        $._newline,
+        field("then", repeat($._block_item)),
+        repeat(field("else_if", $.else_if_clause)),
+        optional(field("else", $.else_clause)),
+        $.keyword_end_if,
+        $._newline,
+      ),
+
+    else_if_clause: ($) =>
+      seq(
+        $.keyword_else_if,
+        "(",
+        field("condition", $._expression),
+        ")",
+        $._newline,
+        repeat($._block_item),
+      ),
+
+    else_clause: ($) =>
+      seq($.keyword_else, $._newline, repeat($._block_item)),
+
+    case_of_statement: ($) =>
+      seq(
+        $.keyword_case_of,
+        $._newline,
+        repeat($._block_item),
+        repeat(field("arm", $.case_label_arm)),
+        optional(field("else", $.case_else_clause)),
+        $.keyword_end_case,
+        $._newline,
+      ),
+
+    // A Case-of arm: the `:` label line plus the body up to the next arm or
+    // Else / End case.
+    case_label_arm: ($) =>
+      seq(
+        ":",
+        "(",
+        field("condition", $._expression),
+        ")",
+        $._newline,
+        repeat($._block_item),
+      ),
+
+    case_else_clause: ($) =>
+      seq($.keyword_else, $._newline, repeat($._block_item)),
+
+    // Standalone case label outside a Case of (kept as a fallback so loose
+    // `:` lines don't error). Not normally produced once `case_of_statement`
+    // is active.
     case_label: ($) =>
       seq(
         ":",
         optional(field("condition", $._expression)),
         $._newline,
       ),
+
+    for_statement: ($) =>
+      seq(
+        $.keyword_for,
+        "(",
+        field("counter", $._expression),
+        ";",
+        field("start", $._expression),
+        ";",
+        field("end", $._expression),
+        optional(seq(";", field("step", $._expression))),
+        ")",
+        $._newline,
+        repeat($._block_item),
+        $.keyword_end_for,
+        $._newline,
+      ),
+
+    for_each_statement: ($) =>
+      seq(
+        $.keyword_for_each,
+        "(",
+        field("element", $._expression),
+        ";",
+        field("collection", $._expression),
+        repeat(seq(";", $._expression)),
+        ")",
+        $._newline,
+        repeat($._block_item),
+        $.keyword_end_for_each,
+        $._newline,
+      ),
+
+    while_statement: ($) =>
+      seq(
+        $.keyword_while,
+        "(",
+        field("condition", $._expression),
+        ")",
+        $._newline,
+        repeat($._block_item),
+        $.keyword_end_while,
+        $._newline,
+      ),
+
+    repeat_statement: ($) =>
+      seq(
+        $.keyword_repeat,
+        $._newline,
+        repeat($._block_item),
+        $.keyword_until,
+        "(",
+        field("condition", $._expression),
+        ")",
+        $._newline,
+      ),
+
+    use_statement: ($) =>
+      seq(
+        $.keyword_use,
+        "(",
+        field("semaphore", $._expression),
+        ")",
+        $._newline,
+        repeat($._block_item),
+        $.keyword_end_use,
+        $._newline,
+      ),
+
+    // `Begin SQL ... End SQL`. The body is opaque — for now we accept any
+    // tokens between the keywords; a future external scanner could capture
+    // it as a single raw string. The `End SQL Without` variant is also
+    // recognized (4D's "no select" form).
+    sql_block: ($) =>
+      seq(
+        $.keyword_begin_sql,
+        $._newline,
+        repeat(choice($._sql_body_token, $._newline)),
+        choice($.keyword_end_sql, $.keyword_end_sql_without),
+        $._newline,
+      ),
+
+    keyword_end_sql_without: ($) =>
+      token(prec(1, kw("end sql without"))),
+
+    // Token classes we tolerate inside a SQL block. Doesn't aim to parse
+    // SQL — just to absorb anything until `End SQL`.
+    _sql_body_token: ($) =>
+      choice(
+        $.identifier,
+        $.local_var,
+        $.parameter,
+        $.interprocess_var,
+        $.field_ref,
+        $.table_ref,
+        $.number,
+        $.string,
+        $.op_dot,
+        $.op_assign,
+        $.op_colon,
+        $.op_arrow,
+        $.op_lparen,
+        $.op_rparen,
+        $.op_lbrace,
+        $.op_rbrace,
+        $.op_lbracket,
+        $.op_rbracket,
+        $.op_semi,
+        $.op_comma,
+        $.op_other,
+        $.op_neq,
+        // Most keywords are also valid as SQL identifiers; absorb them.
+        $.keyword_if,
+        $.keyword_else,
+        $.keyword_for,
+        $.keyword_while,
+        $.keyword_this,
+        $.keyword_new,
+        $.keyword_true,
+        $.keyword_false,
+        $.keyword_null,
+      ),
+
+    try_statement: ($) =>
+      seq(
+        $.keyword_try,
+        $._newline,
+        field("body", repeat($._block_item)),
+        optional(field("catch", $.catch_clause)),
+        $.keyword_end_try,
+        $._newline,
+      ),
+
+    keyword_end_try: ($) => token(prec(1, kw("end try"))),
+
+    catch_clause: ($) =>
+      seq($.keyword_catch, $._newline, repeat($._block_item)),
+
+    throw_statement: ($) =>
+      seq($.keyword_throw, optional($._expression), $._newline),
 
     // `return` with an optional expression. Used both in Functions (with
     // value) and in #DECLARE methods (without value when followed by `$0:=`).
@@ -403,94 +610,6 @@ module.exports = grammar({
     expression_statement: ($) =>
       seq(field("expression", $._expression), $._newline),
 
-    // Placeholder for control-flow lines — Phase 4 replaces this with
-    // structured `if_statement`, `for_statement`, etc. Until then we accept
-    // them as raw sequences of tokens terminated by newline so the parser
-    // doesn't choke on real fixtures.
-    _control_flow_line: ($) =>
-      seq(
-        $._control_flow_head,
-        repeat($._control_flow_trailing),
-        $._newline,
-      ),
-
-    _control_flow_head: ($) =>
-      choice(
-        $.keyword_if,
-        $.keyword_else,
-        $.keyword_end_if,
-        $.keyword_else_if,
-        $.keyword_case_of,
-        $.keyword_end_case,
-        $.keyword_for,
-        $.keyword_for_each,
-        $.keyword_end_for,
-        $.keyword_end_for_each,
-        $.keyword_while,
-        $.keyword_end_while,
-        $.keyword_repeat,
-        $.keyword_until,
-        $.keyword_use,
-        $.keyword_end_use,
-        $.keyword_begin_sql,
-        $.keyword_end_sql,
-        $.keyword_try,
-        $.keyword_catch,
-        $.keyword_throw,
-        $.keyword_end_function,
-      ),
-
-    // Tokens we accept on a control-flow line after the head keyword. Phase 4
-    // will replace this fallback with structured condition expressions.
-    _control_flow_trailing: ($) =>
-      choice(
-        $.identifier,
-        $.local_var,
-        $.parameter,
-        $.interprocess_var,
-        $.field_ref,
-        $.table_ref,
-        $.number,
-        $.string,
-        $.directive,
-        $.op_dot,
-        $.op_assign,
-        $.op_colon,
-        $.op_arrow,
-        $.op_lparen,
-        $.op_rparen,
-        $.op_lbrace,
-        $.op_rbrace,
-        $.op_lbracket,
-        $.op_rbracket,
-        $.op_semi,
-        $.op_comma,
-        $.op_other,
-        $.op_neq,
-        $.compound_assign_op,
-        $.keyword_this,
-        $.keyword_super,
-        $.keyword_new,
-        $.keyword_return,
-        $.keyword_true,
-        $.keyword_false,
-        $.keyword_null,
-        $.keyword_formula,
-        $.keyword_if,
-        $.keyword_else,
-        $.keyword_end_if,
-        $.keyword_else_if,
-        $.keyword_case_of,
-        $.keyword_end_case,
-        $.keyword_for,
-        $.keyword_for_each,
-        $.keyword_end_for,
-        $.keyword_end_for_each,
-        $.keyword_while,
-        $.keyword_end_while,
-        $.keyword_repeat,
-        $.keyword_until,
-      ),
 
     // ---- Expressions ----
 

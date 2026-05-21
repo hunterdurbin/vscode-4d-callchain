@@ -1,0 +1,82 @@
+==================
+case — basic with two arms
+==================
+
+Case of
+  : ($x=1)
+    DoOne()
+  : ($x=2)
+    DoTwo()
+End case
+
+---
+
+(source_file
+  (case_of_statement
+    (keyword_case_of)
+    arm: (case_label_arm
+      condition: (binary_expression (local_var) (number))
+      (expression_statement expression: (call_expression
+        function: (identifier)
+        arguments: (argument_list))))
+    arm: (case_label_arm
+      condition: (binary_expression (local_var) (number))
+      (expression_statement expression: (call_expression
+        function: (identifier)
+        arguments: (argument_list))))
+    (keyword_end_case)))
+
+==================
+case — with else
+==================
+
+Case of
+  : ($x=1)
+    DoOne()
+  : ($x=2)
+    DoTwo()
+  Else
+    DoOther()
+End case
+
+---
+
+(source_file
+  (case_of_statement
+    (keyword_case_of)
+    arm: (case_label_arm
+      condition: (binary_expression (local_var) (number))
+      (expression_statement expression: (call_expression
+        function: (identifier)
+        arguments: (argument_list))))
+    arm: (case_label_arm
+      condition: (binary_expression (local_var) (number))
+      (expression_statement expression: (call_expression
+        function: (identifier)
+        arguments: (argument_list))))
+    else: (case_else_clause
+      (keyword_else)
+      (expression_statement expression: (call_expression
+        function: (identifier)
+        arguments: (argument_list))))
+    (keyword_end_case)))
+
+==================
+case — empty arms
+==================
+
+Case of
+  : ($x=1)
+  : ($x=2)
+End case
+
+---
+
+(source_file
+  (case_of_statement
+    (keyword_case_of)
+    arm: (case_label_arm
+      condition: (binary_expression (local_var) (number)))
+    arm: (case_label_arm
+      condition: (binary_expression (local_var) (number)))
+    (keyword_end_case)))

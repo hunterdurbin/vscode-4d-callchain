@@ -1,0 +1,117 @@
+==================
+for — basic loop
+==================
+
+For ($i; 1; 10)
+  Process($i)
+End for
+
+---
+
+(source_file
+  (for_statement
+    (keyword_for)
+    counter: (local_var)
+    start: (number)
+    end: (number)
+    (expression_statement expression: (call_expression
+      function: (identifier)
+      arguments: (argument_list (local_var))))
+    (keyword_end_for)))
+
+==================
+for — with step
+==================
+
+For ($i; 1; 10; 2)
+End for
+
+---
+
+(source_file
+  (for_statement
+    (keyword_for)
+    counter: (local_var)
+    start: (number)
+    end: (number)
+    step: (number)
+    (keyword_end_for)))
+
+==================
+for each — collection
+==================
+
+For each ($item; $list)
+  Process($item)
+End for each
+
+---
+
+(source_file
+  (for_each_statement
+    (keyword_for_each)
+    element: (local_var)
+    collection: (local_var)
+    (expression_statement expression: (call_expression
+      function: (identifier)
+      arguments: (argument_list (local_var))))
+    (keyword_end_for_each)))
+
+==================
+while — basic
+==================
+
+While ($count<10)
+  $count+=1
+End while
+
+---
+
+(source_file
+  (while_statement
+    (keyword_while)
+    condition: (binary_expression (local_var) (number))
+    (assignment_statement
+      target: (local_var)
+      operator: (compound_assign_op)
+      value: (number))
+    (keyword_end_while)))
+
+==================
+repeat — basic
+==================
+
+Repeat
+  $i+=1
+Until ($i>10)
+
+---
+
+(source_file
+  (repeat_statement
+    (keyword_repeat)
+    (assignment_statement
+      target: (local_var)
+      operator: (compound_assign_op)
+      value: (number))
+    (keyword_until)
+    condition: (binary_expression (local_var) (number))))
+
+==================
+use — semaphore
+==================
+
+Use ($lock)
+  DoWork()
+End use
+
+---
+
+(source_file
+  (use_statement
+    (keyword_use)
+    semaphore: (local_var)
+    (expression_statement expression: (call_expression
+      function: (identifier)
+      arguments: (argument_list)))
+    (keyword_end_use)))
