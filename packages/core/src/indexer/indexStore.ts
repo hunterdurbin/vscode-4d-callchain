@@ -209,15 +209,25 @@ export class Indexer {
 
     const tParse = Date.now();
     const parsed = [];
+    // `isFresh` only inspects the first ~100 entries of `fileMtimes` (see
+    // `isFresh` for the sample cap), so capturing an mtime per file
+    // (25k statSync calls on Symphony) is wasted I/O in the parse loop.
+    // Sample at a stride that yields ~100 entries; the patch path still
+    // adds/removes single-file entries on `change`/`delete` events so
+    // edited files always stay current.
+    const SAMPLE_TARGET = 120; // a little slack above isFresh's 100 cap
+    const mtimeStride = Math.max(1, Math.floor(files.length / SAMPLE_TARGET));
     const mtimes: Record<string, number> = {};
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       const file = parseFile(f, this.opts.projectRoot, constantsSet);
       augmentVariadicParams(file, compilerMethodTypes);
       parsed.push(file);
-      try {
-        mtimes[f.absolutePath] = fs.statSync(f.absolutePath).mtimeMs;
-      } catch {/* skip */}
+      if (i % mtimeStride === 0) {
+        try {
+          mtimes[f.absolutePath] = fs.statSync(f.absolutePath).mtimeMs;
+        } catch {/* skip */}
+      }
       if (i % 500 === 0 && i > 0) {
         this.opts.logger.info(`[Indexer]   parsed ${i}/${files.length}`);
       }

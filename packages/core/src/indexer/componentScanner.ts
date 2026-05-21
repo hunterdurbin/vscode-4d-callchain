@@ -1,5 +1,6 @@
 import * as cp from "child_process";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 export interface DiscoveredComponentClassProp {
@@ -91,9 +92,15 @@ export function discoverComponents(
       seen.add(name);
       const bundlePath = path.join(componentsRoot, entry);
       const zipPath = findArchive(bundlePath);
-      const methods = zipPath ? readMethodNamesFromZip(zipPath) : [];
-      const classStoreName = (zipPath && readClassStoreName(zipPath)) || name;
-      const classes = zipPath ? readClassesFromZip(zipPath) : [];
+      // One spawnSync per .4DZ instead of three — extract all three
+      // metadata files in a single `unzip` call and parse the resulting
+      // strings. Saves ~2/3 of the unzip startup cost per component
+      // (a typical 4D install ships 10+ components, so ~20-40 fewer
+      // spawns on cold load).
+      const extracted = zipPath ? extractMetadataFromZip(zipPath) : EMPTY_EXTRACT;
+      const methods = parseMethodNames(extracted.methodAttributes);
+      const classStoreName = parseClassStoreName(extracted.settings) ?? name;
+      const classes = parseClasses(extracted.classes);
       out.push({ name, bundlePath, zipPath, methods, classStoreName, classes });
     }
   };
@@ -166,19 +173,72 @@ function findArchive(bundlePath: string): string | undefined {
 }
 
 /**
- * Extract `methodAttributes.json` from the `.4DZ` and pull the method-name
- * keys. Shells out to `unzip -p` — almost always available on macOS/Linux
- * and on Windows 10+ via the `bsdtar`/`unzip` shims. Returns [] on any
- * failure (missing tool, malformed JSON, etc.).
+ * Three metadata files the component scanner reads from each `.4DZ`.
+ * Shells out to `unzip` once per component (instead of three times) to
+ * extract them all into a temp directory, then parses the resulting
+ * strings in pure JS. Files absent from the archive come back as
+ * `undefined`; downstream parsers tolerate that.
  */
-function readMethodNamesFromZip(zipPath: string): string[] {
-  const result = cp.spawnSync("unzip", ["-p", zipPath, "Project/DerivedData/methodAttributes.json"], {
-    encoding: "utf8",
-    maxBuffer: 16 * 1024 * 1024
-  });
-  if (result.status !== 0 || !result.stdout) return [];
-  let raw = result.stdout;
-  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+interface ExtractedMetadata {
+  methodAttributes: string | undefined;
+  settings: string | undefined;
+  classes: string | undefined;
+}
+const EMPTY_EXTRACT: ExtractedMetadata = {
+  methodAttributes: undefined,
+  settings: undefined,
+  classes: undefined,
+};
+
+const ZIP_PATH_METHOD_ATTRS = "Project/DerivedData/methodAttributes.json";
+const ZIP_PATH_SETTINGS = "Project/Sources/settings.4DSettings";
+const ZIP_PATH_CLASSES = "Project/DerivedData/CompiledCode/classes.json";
+
+function extractMetadataFromZip(zipPath: string): ExtractedMetadata {
+  // `unzip -d <tmpdir> <archive> <files...>` runs a single subprocess
+  // that extracts all named entries at once. unzip silently skips
+  // entries that don't exist in the archive, so we don't need to
+  // pre-check membership. `unzip` is almost always present on
+  // macOS/Linux; on Windows 10+ the same syntax works via the
+  // bundled shim.
+  let tmpDir: string | undefined;
+  try {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fourd-comp-"));
+  } catch {
+    return EMPTY_EXTRACT;
+  }
+  try {
+    const result = cp.spawnSync(
+      "unzip",
+      ["-qq", "-o", zipPath, ZIP_PATH_METHOD_ATTRS, ZIP_PATH_SETTINGS, ZIP_PATH_CLASSES, "-d", tmpDir],
+      { encoding: "utf8" },
+    );
+    if (result.error) return EMPTY_EXTRACT;
+    // unzip returns 11 when nothing matched (e.g. component ships none
+    // of these). That's not an error from our perspective.
+    if (result.status !== 0 && result.status !== 11) return EMPTY_EXTRACT;
+    return {
+      methodAttributes: readIfPresent(path.join(tmpDir, ZIP_PATH_METHOD_ATTRS)),
+      settings: readIfPresent(path.join(tmpDir, ZIP_PATH_SETTINGS)),
+      classes: readIfPresent(path.join(tmpDir, ZIP_PATH_CLASSES)),
+    };
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {/* ignore */}
+  }
+}
+
+function readIfPresent(p: string): string | undefined {
+  try {
+    let raw = fs.readFileSync(p, "utf8");
+    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+    return raw;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseMethodNames(raw: string | undefined): string[] {
+  if (!raw) return [];
   let doc: any;
   try { doc = JSON.parse(raw); } catch { return []; }
   const methods = doc?.methods;
@@ -186,18 +246,9 @@ function readMethodNamesFromZip(zipPath: string): string[] {
   return Object.keys(methods);
 }
 
-/**
- * Pull `component_classStore_name` from the .4DZ's settings.4DSettings.
- * Returns undefined when the attribute is missing — callers should fall
- * back to the component directory name.
- */
-function readClassStoreName(zipPath: string): string | undefined {
-  const result = cp.spawnSync("unzip", ["-p", zipPath, "Project/Sources/settings.4DSettings"], {
-    encoding: "utf8",
-    maxBuffer: 4 * 1024 * 1024
-  });
-  if (result.status !== 0 || !result.stdout) return undefined;
-  const m = result.stdout.match(/component_classStore_name\s*=\s*"([^"]+)"/);
+function parseClassStoreName(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const m = raw.match(/component_classStore_name\s*=\s*"([^"]+)"/);
   return m ? m[1] : undefined;
 }
 
@@ -206,14 +257,8 @@ function readClassStoreName(zipPath: string): string | undefined {
  * The shape is `{ "ClassName": { functions: { "fnName": <numeric-id>, ... },
  * properties?: {...}, constructorID?: <numeric-id> } }`.
  */
-function readClassesFromZip(zipPath: string): DiscoveredComponentClass[] {
-  const result = cp.spawnSync("unzip", ["-p", zipPath, "Project/DerivedData/CompiledCode/classes.json"], {
-    encoding: "utf8",
-    maxBuffer: 32 * 1024 * 1024
-  });
-  if (result.status !== 0 || !result.stdout) return [];
-  let raw = result.stdout;
-  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+function parseClasses(raw: string | undefined): DiscoveredComponentClass[] {
+  if (!raw) return [];
   let doc: any;
   try { doc = JSON.parse(raw); } catch { return []; }
   if (!doc || typeof doc !== "object") return [];
