@@ -382,6 +382,8 @@ module.exports = grammar({
     _statement: ($) =>
       choice(
         $.return_statement,
+        $.break_statement,
+        $.continue_statement,
         $.assignment_statement,
         $.expression_statement,
         $.if_statement,
@@ -662,6 +664,12 @@ module.exports = grammar({
         optional(field("value", $._expression)),
         $._newline,
       ),
+
+    // `break` exits the enclosing loop (4D v18+).
+    break_statement: ($) => seq($.keyword_break, $._newline),
+
+    // `continue` skips to the next iteration of the enclosing loop (4D v18+).
+    continue_statement: ($) => seq($.keyword_continue, $._newline),
 
     // `target := value`, `target += value`, etc. Compound forms are emitted
     // as a distinct `compound_assign_op` so the visitor can synthesize the
@@ -1031,6 +1039,8 @@ module.exports = grammar({
     keyword_end_sql: ($) => token(prec(1, kw("end sql"))),
 
     keyword_return: ($) => token(prec(1, kw("return"))),
+    keyword_break: ($) => token(prec(1, kw("break"))),
+    keyword_continue: ($) => token(prec(1, kw("continue"))),
     keyword_var: ($) => token(prec(1, kw("var"))),
     keyword_this: ($) => token(prec(1, kw("this"))),
     keyword_super: ($) => token(prec(1, kw("super"))),
