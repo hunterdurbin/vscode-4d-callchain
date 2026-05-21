@@ -43,7 +43,7 @@ export function registerDiagnostics(state: ServerState): {
         // those represent calls the resolver chose to treat as known (e.g. ORDA
         // .save / .first) and shouldn't surface as warnings.
         if (target && (target.kind === SymbolKind.Builtin || target.kind === SymbolKind.TableBuiltin)) continue;
-        if (!shouldSurface(target?.name)) continue;
+        if (!shouldSurface(target?.name, sym.kind)) continue;
         const range = edgeRange(edge);
         const key = `${range.start.line}:${range.start.character}-${edge.toId}`;
         if (seen.has(key)) continue;
@@ -104,18 +104,22 @@ function describeUnresolved(edge: CallEdge, calleeName: string | undefined): str
  *
  * Surfaced (likely-real typos / actionable):
  *   - bare names ("Foo()")
- *   - `This.method` where method is a single identifier
+ *   - `This.method` ONLY from inside a ClassFunction/ClassConstructor (the
+ *     resolver knows the enclosing class, so a miss is a real typo)
  *   - `cs.X.method` / `cs.NS.X.method` (the resolver knows the class names)
  *   - `EXECUTE METHOD("Foo")` literal callees
  *
  * Suppressed (resolver limitations, not user-actionable):
  *   - `Super` (no-extends and synthetic-super noise)
  *   - `This.X.Y` / `This.X().Y` (multi-step chain — resolver can't walk)
+ *   - `This.X` from inside a ProjectMethod / FormMethod / FormObjectMethod /
+ *     etc. — `This` in those contexts is bound by the caller (Formula(...),
+ *     form event, callback) and its class is unknowable. A miss isn't a typo.
  *   - `$x.<anything>` (local-type inference is best-effort; absent type ≠ typo)
  *   - `ds[X].method` (bracket-table access where the catalog scanner couldn't
  *     find the table — config issue, not user typo)
  */
-function shouldSurface(targetName: string | undefined): boolean {
+export function shouldSurface(targetName: string | undefined, callerKind?: SymbolKind): boolean {
   if (!targetName) return true;
   if (targetName === "Super") return false;
   if (targetName.startsWith("ds[")) return false;
@@ -128,6 +132,16 @@ function shouldSurface(targetName: string | undefined): boolean {
   if (thisMatch) {
     const rest = thisMatch[1];
     if (rest.includes(".") || rest.includes("(")) return false;
+    // Single-step `This.X` is only actionable when the caller is a class
+    // member (ClassFunction / ClassConstructor) — there the resolver knows
+    // the class. Elsewhere (project methods, form methods, …) `This` is
+    // bound dynamically by the caller (Formula / form / callback), so a
+    // miss is a resolver limitation, not a typo.
+    if (callerKind !== undefined &&
+        callerKind !== SymbolKind.ClassFunction &&
+        callerKind !== SymbolKind.ClassConstructor) {
+      return false;
+    }
     return true;
   }
   // `$var.<anything>` — local type wasn't captured; not actionable.
