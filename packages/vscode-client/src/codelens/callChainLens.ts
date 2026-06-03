@@ -41,10 +41,15 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     const decorator = this.testStatusGetter();
     const coverage = this.coverageGetter();
 
+    const cfg = vscode.workspace.getConfiguration("callchain");
+    const showCallers = cfg.get<boolean>("codeLens.showCallers", true);
+    const showCallees = cfg.get<boolean>("codeLens.showCallees", false);
+    const showGraph = cfg.get<boolean>("codeLens.showGraph", false);
+
     const out: vscode.CodeLens[] = [];
     for (const s of symbols) {
       if (s.kind === SymbolKind.Class) {
-        out.push(...this.lensesForClass(s, docUri));
+        out.push(...this.lensesForClass(s, docUri, showGraph));
         continue;
       }
       const callerCount = graph.callers(s.id).length;
@@ -52,17 +57,17 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
       const line = this.mapLine(docUri, s.location.line);
       const range = new vscode.Range(line, 0, line, 1);
 
-      out.push(new vscode.CodeLens(range, {
+      if (showCallers) out.push(new vscode.CodeLens(range, {
         title: `▲ ${callerCount} callers`,
         command: "callchain.pinAndReveal",
         arguments: [s.id, "callers"]
       }));
-      out.push(new vscode.CodeLens(range, {
+      if (showCallees) out.push(new vscode.CodeLens(range, {
         title: `▼ ${calleeCount} callees`,
         command: "callchain.pinAndReveal",
         arguments: [s.id, "callees"]
       }));
-      out.push(new vscode.CodeLens(range, {
+      if (showGraph) out.push(new vscode.CodeLens(range, {
         title: `◎ Graph`,
         command: "callchain.showGraph",
         arguments: [s.id]
@@ -101,7 +106,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     return out;
   }
 
-  private lensesForClass(s: SymbolRecord, docUri: string): vscode.CodeLens[] {
+  private lensesForClass(s: SymbolRecord, docUri: string, showGraph: boolean): vscode.CodeLens[] {
     const line = this.mapLine(docUri, s.location.line);
     const range = new vscode.Range(line, 0, line, 1);
     const lenses: vscode.CodeLens[] = [];
@@ -112,7 +117,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
         arguments: [s.name]
       }));
     }
-    lenses.push(new vscode.CodeLens(range, {
+    if (showGraph) lenses.push(new vscode.CodeLens(range, {
       title: `◎ Graph class`,
       command: "callchain.showGraph",
       arguments: [s.id]

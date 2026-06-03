@@ -484,6 +484,21 @@
           "default": true,
           "description": "When a caller/callee has multiple call sites in the same file, show the source-line snippet next to the line number. Disable to show 'line N' only."
         },
+        "callchain.codeLens.showCallers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the '▲ N callers' code lens above functions and methods."
+        },
+        "callchain.codeLens.showCallees": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the '▼ N callees' code lens above functions and methods."
+        },
+        "callchain.codeLens.showGraph": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the '◎ Graph' code lens above functions/methods and the '◎ Graph class' lens on class declarations."
+        },
         "callchain.builtinConstantsPaths": {
           "type": "array",
           "items": {

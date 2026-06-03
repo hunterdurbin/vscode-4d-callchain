@@ -166,6 +166,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.languages.registerCodeLensProvider({ pattern: "**/*.{4dm,4DForm}" }, lensProvider)
   );
 
+  // Re-render lenses when their visibility toggles change.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (
+        e.affectsConfiguration("callchain.codeLens.showCallers") ||
+        e.affectsConfiguration("callchain.codeLens.showCallees") ||
+        e.affectsConfiguration("callchain.codeLens.showGraph")
+      ) {
+        lensProvider.refresh();
+      }
+    })
+  );
+
   // Wire indexer → views
   indexer.onDidUpdate((graph) => {
     callers.setGraph(graph);
