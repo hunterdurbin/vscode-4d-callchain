@@ -266,8 +266,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       callers.pinRoot(sym.id);
       callees.pinRoot(sym.id);
       tracker.pin(sym);
-      const view = which === "callers" ? callersView : calleesView;
-      try { await view.reveal(undefined as any, { focus: true }); } catch { /* ignore */ }
+      // `<viewId>.focus` opens the activity-bar container and focuses the view —
+      // `view.reveal` only scrolls within an already-visible tree, so it can't
+      // bring the pane forward when it's hidden behind another view.
+      const focusCmd = which === "callers" ? "callchain.callers.focus" : "callchain.callees.focus";
+      try { await vscode.commands.executeCommand(focusCmd); } catch { /* ignore */ }
     }),
     vscode.commands.registerCommand("callchain.lockCallers", () => {
       callers.setLocked(true);
