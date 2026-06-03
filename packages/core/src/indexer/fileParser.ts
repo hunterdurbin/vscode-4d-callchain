@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { ClassFlavor, FileLocation, RawCallSite, SymbolKind, SymbolParam, SymbolRecord, symbolIdFor } from "../model/symbol";
+import { ClassFlavor, FileLocation, LocalUsageSite, RawCallSite, SymbolKind, SymbolParam, SymbolRecord, symbolIdFor } from "../model/symbol";
 import { DiscoveredFile } from "./projectScanner";
 import { extractCallSitesFromLine } from "./callExtractor";
 import { stripBlockComments, cleanLine } from "../util/textCleanup";
@@ -51,6 +51,32 @@ export interface ParsedFile {
    * carries plain functions.
    */
   classMethodReturnsByName?: Map<string, string>;
+  /**
+   * Per-symbol map of `$var → read sites`. Populated by the tree-sitter
+   * parser only — the regex fallback leaves it empty. Consumed by the
+   * linter's unused-local / unused-parameter rules. Reads are every
+   * non-LHS appearance of a `local_var` node (RHS of assignments, call
+   * args, conditions, return values, for-loop bounds, etc.).
+   */
+  localReads: Map<string, Map<string, LocalUsageSite[]>>;
+  /**
+   * Per-symbol map of `$var → write sites`. Tracks every assignment
+   * (`$x := …`) target. Distinct from `localTypes`, which only records
+   * the *type* of writes whose RHS the inferer could classify. Used by
+   * unused-local (a name with writes but no reads is dead) and by
+   * `decl/implicit-local` (combined with `localDeclMode`). Tree-sitter
+   * parser only; regex fallback leaves it empty.
+   */
+  localWrites: Map<string, Map<string, LocalUsageSite[]>>;
+  /**
+   * Per-symbol map of `$var → "declared" | "implicit"`. "declared" means
+   * the variable was introduced via `var`, legacy `C_*`, `#DECLARE`, or
+   * a parameter list — anywhere in the function body, in any order.
+   * "implicit" means the only mention is an assignment target with no
+   * preceding declaration in scope. Used by the `decl/implicit-local`
+   * rule. Tree-sitter parser only; regex fallback leaves it empty.
+   */
+  localDeclMode: Map<string, Map<string, "declared" | "implicit">>;
 }
 
 const CLASS_HEADER = /^\s*Class\s+extends\s+([\w.]+)/i;
@@ -151,7 +177,10 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
       symbols: [],
       rawCalls: [],
       localTypes: new Map(),
-      localStrings: new Map()
+      localStrings: new Map(),
+      localReads: new Map(),
+      localWrites: new Map(),
+      localDeclMode: new Map()
     };
   }
   const cleaned = stripBlockComments(source);
@@ -257,7 +286,16 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
     };
     symbols.push(formSym);
     extractFormDataSourceCalls(source, formSym.id, constantsSet, rawCalls);
-    return { file, symbols, rawCalls, localTypes, localStrings };
+    return {
+      file,
+      symbols,
+      rawCalls,
+      localTypes,
+      localStrings,
+      localReads: new Map(),
+      localWrites: new Map(),
+      localDeclMode: new Map()
+    };
   }
 
   // ---------- Inner functions (class only) + collect call sites ----------
@@ -473,7 +511,11 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
     localStrings,
     classInfo,
     classPropertyTypes: classPropertyTypes.size > 0 ? classPropertyTypes : undefined,
-    classMethodReturnsByName: classMethodReturnsByName.size > 0 ? classMethodReturnsByName : undefined
+    classMethodReturnsByName: classMethodReturnsByName.size > 0 ? classMethodReturnsByName : undefined,
+    // Regex fallback doesn't populate these — Phase A is tree-sitter only.
+    localReads: new Map(),
+    localWrites: new Map(),
+    localDeclMode: new Map()
   };
 }
 

@@ -1,9 +1,15 @@
 import { Connection } from "vscode-languageserver/node";
 import { Indexer, CallGraph, Logger, SymbolRecord } from "@4d/core";
+import type { LintConfig } from "./lint/rule";
 
 export class ServerState {
   indexer: Indexer | undefined;
   projectRoot: string | undefined;
+  /** Current value of the `callchain.lint.rules` VSCode setting, mirrored
+   *  here so the diagnostics handler doesn't need an async fetch on every
+   *  publish. Refreshed on `workspace/didChangeConfiguration`. Starts
+   *  empty — every rule is off-by-default. */
+  lintConfig: LintConfig = {};
 
   constructor(public readonly connection: Connection) {}
 

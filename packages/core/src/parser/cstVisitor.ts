@@ -19,6 +19,7 @@ import {
   ChainStep,
   ClassFlavor,
   FileLocation,
+  LocalUsageSite,
   RawCallSite,
   SymbolKind,
   SymbolParam,
@@ -31,6 +32,9 @@ export class CstVisitor {
   private rawCalls: RawCallSite[] = [];
   private localTypes = new Map<string, Map<string, string>>();
   private localStrings = new Map<string, Map<string, string>>();
+  private localReads = new Map<string, Map<string, LocalUsageSite[]>>();
+  private localWrites = new Map<string, Map<string, LocalUsageSite[]>>();
+  private localDeclMode = new Map<string, Map<string, "declared" | "implicit">>();
   private classPropertyTypes = new Map<string, string>();
   private classMethodReturnsByName = new Map<string, string>();
 
@@ -41,6 +45,9 @@ export class CstVisitor {
   private currentSymbol: SymbolRecord | null = null;
   private currentLocals: Map<string, string> | null = null;
   private currentStrings: Map<string, string> | null = null;
+  private currentReads: Map<string, LocalUsageSite[]> | null = null;
+  private currentWrites: Map<string, LocalUsageSite[]> | null = null;
+  private currentDeclMode: Map<string, "declared" | "implicit"> | null = null;
   private fileUri: string;
   private file: DiscoveredFile;
   private source: string;
@@ -159,12 +166,26 @@ export class CstVisitor {
     for (let i = 0; i < root.childCount; i++) {
       this.visitTopLevel(root.child(i)!);
     }
+    // File-level symbols (project method, form method, database method,
+    // etc.) span the whole file. Class method bodySpans are set at
+    // declaration time. The Class symbol itself doesn't get a bodySpan —
+    // it's a wrapper around per-function bodies, not a body itself.
+    const fileEndLine = root.endPosition.row;
+    for (const sym of this.symbols) {
+      if (sym.bodySpan) continue;
+      if (sym.kind === SymbolKind.Class) continue;
+      if (sym.location.uri !== this.fileUri) continue;
+      sym.bodySpan = { startLine: 0, endLine: fileEndLine };
+    }
     return {
       file: this.file,
       symbols: this.symbols,
       rawCalls: this.rawCalls,
       localTypes: this.localTypes,
       localStrings: this.localStrings,
+      localReads: this.localReads,
+      localWrites: this.localWrites,
+      localDeclMode: this.localDeclMode,
       classInfo: this.classInfo,
       classPropertyTypes:
         this.classPropertyTypes.size > 0 ? this.classPropertyTypes : undefined,
@@ -296,6 +317,10 @@ export class CstVisitor {
       accessor: "function",
       scope: "public",
       location: this.locationOf(node, node),
+      bodySpan: {
+        startLine: node.startPosition.row,
+        endLine: node.endPosition.row,
+      },
     };
     const params = this.collectParams(node.childForFieldName("parameters"));
     if (params.length) sym.params = params;
@@ -337,6 +362,10 @@ export class CstVisitor {
       accessor: accessorTag,
       scope: scopeTag,
       location: this.locationOf(nameNode, nameNode),
+      bodySpan: {
+        startLine: node.startPosition.row,
+        endLine: node.endPosition.row,
+      },
     };
 
     const params = this.collectParams(node.childForFieldName("parameters"));
@@ -380,10 +409,11 @@ export class CstVisitor {
         if (params.length) this.currentSymbol.params = params;
       }
       // Park param types in the current symbol's local table so $-completion
-      // can find them.
+      // can find them. Mark each as a declared local for the linter.
       if (this.currentLocals) {
         for (const p of params) {
           if (p.type) this.currentLocals.set(p.name, p.type);
+          this.recordDeclared(p.name);
         }
       }
     }
@@ -398,6 +428,7 @@ export class CstVisitor {
         // `$result : Type` — register the local too.
         const localName = retName.text.replace(/^\$/, "");
         this.currentLocals.set(localName, retType.text);
+        this.recordDeclared(localName);
       }
     }
   }
@@ -406,12 +437,19 @@ export class CstVisitor {
     if (!this.currentLocals) return;
     const typeAnn = node.childForFieldName("type");
     const typeStr = typeAnn?.text;
-    // Collect every var-decl-name child as a target.
+    // Collect every var-decl-name child as a target. Mark each as a
+    // declared local so `decl/implicit-local` won't flag later
+    // assignments, AND record the declaration site in localWrites so
+    // `unused/local` can flag a `var $x : T` that's never used. We
+    // treat declarations as a form of "write" for the unused-vars
+    // analysis — same convention ESLint uses.
     for (let i = 0; i < node.childCount; i++) {
       const c = node.child(i)!;
       if (c.type === "local_var") {
         const name = c.text.replace(/^\$/, "");
         if (typeStr) this.currentLocals.set(name, typeStr);
+        this.recordDeclared(name);
+        this.recordWrite(name, c);
       }
     }
   }
@@ -438,11 +476,22 @@ export class CstVisitor {
       });
     }
     // Walk children: record local-type aliases AND emit InterprocessRef for
-    // any `<>name` references inside the body.
+    // any `<>name` references inside the body. Local vars listed inside a
+    // `C_*` / `ARRAY *` block count as declared (the legacy 4D form of
+    // `var $x : T`). Skip purely-numeric names like `$1` / `$2` — those
+    // are positional parameters being typed, not new locals (`C_LONGINT($1)`
+    // is "$1 is a LONGINT", not "introduce a local named 1").
     for (let i = 1; i < node.childCount; i++) {
       const c = node.child(i)!;
-      if (c.type === "local_var" && canon && this.currentLocals) {
-        this.currentLocals.set(c.text.replace(/^\$/, ""), canon);
+      if (c.type === "local_var") {
+        const name = c.text.replace(/^\$/, "");
+        if (canon && this.currentLocals) {
+          this.currentLocals.set(name, canon);
+        }
+        this.recordDeclared(name);
+        if (!/^[0-9]+$/.test(name)) {
+          this.recordWrite(name, c);
+        }
       } else if (c.type === "interprocess_var") {
         this.emitInterprocessRef(c);
       }
@@ -456,7 +505,10 @@ export class CstVisitor {
     const value = node.childForFieldName("value");
     if (!target || !value) return;
 
-    // Local-type inference: `$x := cs.Y.new()` etc.
+    // Local-type inference: `$x := cs.Y.new()` etc. Also record the write
+    // site for the linter, and mark the local as implicitly-declared when
+    // it isn't already known (params and `var` decls win via
+    // recordDeclared() so they're never flipped to "implicit").
     if (target.type === "local_var" && this.currentLocals) {
       const localName = target.text.replace(/^\$/, "");
       const inferred = this.inferRhsType(value);
@@ -466,11 +518,18 @@ export class CstVisitor {
         const literal = stripQuotes(value.text);
         this.currentStrings.set(localName, literal);
       }
+      this.recordWrite(localName, target);
+      this.recordImplicitIfUnknown(localName);
     }
 
     // Property write: `This.prop := value` or `$x.prop := value`.
     if (target.type === "member_expression") {
       this.emitPropertyAssign(target, node);
+      // The receiver of a property-set is still a USE of the underlying
+      // var — walk into it so `$x.prop := value` records a read of `$x`
+      // (and longer chains record reads for every intermediate var).
+      const obj = target.childForFieldName("object");
+      if (obj) this.visitExpression(obj);
     }
 
     // Interprocess var write: `<>aGlobal := value`.
@@ -485,14 +544,19 @@ export class CstVisitor {
     // The target may contain nested expressions worth walking. For a
     // subscript assignment like `This.entries[$key] := val`:
     //   * walk the index for any nested calls
-    //   * emit a property-read on the inner member-expression (the legacy
-    //     parser emits a ThisGet for `This.entries` here)
+    //   * walk the receiver (member_expression) so its property-read
+    //     emits AND any deeper `$var` reads are recorded
+    //   * record a read for a bare `$x[i] := val` shape
     if (target.type === "subscript_expression") {
       const index = target.childForFieldName("index");
       if (index) this.visitExpression(index);
       const inner = target.childForFieldName("object");
-      if (inner && inner.type === "member_expression") {
-        this.emitMemberRead(inner);
+      if (inner) {
+        if (inner.type === "member_expression") {
+          this.visitExpression(inner);
+        } else if (inner.type === "local_var") {
+          this.recordReadFromNode(inner);
+        }
       }
     }
   }
@@ -533,6 +597,14 @@ export class CstVisitor {
         break;
       case "interprocess_var":
         this.emitInterprocessRef(node);
+        break;
+      case "local_var":
+        // A bare `$x` in expression position (RHS of assignment, call
+        // argument, condition, return value, for-loop bound, etc.). The
+        // visitor doesn't visit LHS-of-assignment local_vars through
+        // this path — those go through visitAssignment.recordWrite —
+        // so reaching here always means a read.
+        this.recordReadFromNode(node);
         break;
       case "identifier":
         // A bare identifier in expression position (RHS of assignment,
@@ -1157,8 +1229,14 @@ export class CstVisitor {
     this.currentSymbolId = sym.id;
     this.currentLocals = new Map();
     this.currentStrings = new Map();
+    this.currentReads = new Map();
+    this.currentWrites = new Map();
+    this.currentDeclMode = new Map();
     this.localTypes.set(sym.id, this.currentLocals);
     this.localStrings.set(sym.id, this.currentStrings);
+    this.localReads.set(sym.id, this.currentReads);
+    this.localWrites.set(sym.id, this.currentWrites);
+    this.localDeclMode.set(sym.id, this.currentDeclMode);
   }
 
   private beginSymbol(sym: SymbolRecord, params: SymbolParam[]): void {
@@ -1166,12 +1244,75 @@ export class CstVisitor {
     this.currentSymbolId = sym.id;
     this.currentLocals = new Map();
     this.currentStrings = new Map();
+    this.currentReads = new Map();
+    this.currentWrites = new Map();
+    this.currentDeclMode = new Map();
     this.localTypes.set(sym.id, this.currentLocals);
     this.localStrings.set(sym.id, this.currentStrings);
-    // Pre-populate param types into the local table.
+    this.localReads.set(sym.id, this.currentReads);
+    this.localWrites.set(sym.id, this.currentWrites);
+    this.localDeclMode.set(sym.id, this.currentDeclMode);
+    // Pre-populate param types into the local table and mark each param
+    // as declared. Params are always declared (never implicit), so an
+    // assignment like `$param := …` should not flip declMode to "implicit".
     for (const p of params) {
       if (p.type) this.currentLocals.set(p.name, p.type);
+      this.currentDeclMode.set(p.name, "declared");
     }
+  }
+
+  /** Convenience wrapper that strips the leading `$` and forwards to
+   *  recordRead(). Called from visitExpression's local_var case where we
+   *  have a Node but not yet the name. */
+  private recordReadFromNode(node: Node): void {
+    const name = node.text.replace(/^\$/, "");
+    this.recordRead(name, node);
+  }
+
+  /** Record a read site for `$name` in the current symbol's body. */
+  private recordRead(name: string, node: Node): void {
+    if (!this.currentReads) return;
+    let sites = this.currentReads.get(name);
+    if (!sites) {
+      sites = [];
+      this.currentReads.set(name, sites);
+    }
+    sites.push({
+      line: node.startPosition.row,
+      column: node.startPosition.column,
+      endColumn: node.endPosition.column,
+    });
+  }
+
+  /** Record a write site for `$name` in the current symbol's body. */
+  private recordWrite(name: string, node: Node): void {
+    if (!this.currentWrites) return;
+    let sites = this.currentWrites.get(name);
+    if (!sites) {
+      sites = [];
+      this.currentWrites.set(name, sites);
+    }
+    sites.push({
+      line: node.startPosition.row,
+      column: node.startPosition.column,
+      endColumn: node.endPosition.column,
+    });
+  }
+
+  /** Mark `$name` as explicitly declared (var / C_* / #DECLARE / param).
+   *  Wins over any prior "implicit" mark — once declared, always declared. */
+  private recordDeclared(name: string): void {
+    if (!this.currentDeclMode) return;
+    this.currentDeclMode.set(name, "declared");
+  }
+
+  /** Mark `$name` as implicitly declared (assignment target with no prior
+   *  declaration). No-op if the name is already known to declMode — a
+   *  later `var $x : T` will upgrade it to "declared" via recordDeclared(). */
+  private recordImplicitIfUnknown(name: string): void {
+    if (!this.currentDeclMode) return;
+    if (this.currentDeclMode.has(name)) return;
+    this.currentDeclMode.set(name, "implicit");
   }
 
   private collectParams(paramList: Node | null | undefined): SymbolParam[] {

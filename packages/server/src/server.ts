@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   createConnection,
+  DidChangeConfigurationNotification,
   ProposedFeatures,
   TextDocuments,
   TextDocumentSyncKind,
@@ -12,6 +13,7 @@ import {
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
 import { Indexer, initTreeSitterParser } from "@4d/core";
+import type { LintConfig } from "./lint/rule";
 
 import { ServerState } from "./state";
 import { registerSymbolHandlers } from "./handlers/symbols";
@@ -35,6 +37,9 @@ export function startServer(): void {
   const documents = new TextDocuments(TextDocument);
   const state = new ServerState(connection);
   let initOptions: InitOptions = {};
+  // Whether the client advertises pull-style configuration support (the
+  // VSCode language client always does; bare LSP clients may not).
+  let hasConfigurationCapability = false;
 
   connection.onInitialize((params: InitializeParams): InitializeResult => {
     const folder = params.workspaceFolders?.[0];
@@ -45,6 +50,8 @@ export function startServer(): void {
       state.projectRoot = params.rootPath;
     }
     initOptions = (params.initializationOptions ?? {}) as InitOptions;
+    hasConfigurationCapability =
+      !!params.capabilities?.workspace?.configuration;
     return {
       capabilities: {
         textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -65,7 +72,31 @@ export function startServer(): void {
     };
   });
 
-  const diagnostics = registerDiagnostics(state);
+  const diagnostics = registerDiagnostics(state, documents);
+
+  /**
+   * Fetch the latest `callchain.lint.rules` from the client, cache it on
+   * ServerState, and republish diagnostics for every open document.
+   * Called once at startup (after `initialized`) and again whenever the
+   * client notifies us of a settings change.
+   */
+  const refreshLintConfig = async (): Promise<void> => {
+    if (!hasConfigurationCapability) return;
+    try {
+      const result = await connection.workspace.getConfiguration({
+        section: "callchain.lint.rules"
+      });
+      const next: LintConfig = result && typeof result === "object" ? (result as LintConfig) : {};
+      state.lintConfig = next;
+      for (const doc of documents.all()) {
+        diagnostics.publishForFile(doc.uri);
+      }
+    } catch (err) {
+      connection.console.warn(
+        `[Lint] Failed to fetch callchain.lint.rules: ${(err as Error).message}`
+      );
+    }
+  };
 
   connection.onInitialized(async () => {
     if (!state.projectRoot) {
@@ -98,6 +129,17 @@ export function startServer(): void {
 
     try {
       await state.indexer.load();
+      // Pull the initial lint config and any future change. The
+      // didChangeConfiguration registration is best-effort — clients that
+      // don't advertise the capability simply never push updates and the
+      // server runs with the empty default config.
+      if (hasConfigurationCapability) {
+        await connection.client.register(
+          DidChangeConfigurationNotification.type,
+          { section: "callchain.lint.rules" }
+        );
+      }
+      await refreshLintConfig();
       // Publish diagnostics only for documents the user actually has open.
       // The blanket `publishForAllSymbols()` we used to call here was
       // O(URIs × symbols) on the graph and added seconds of latency on
@@ -116,6 +158,13 @@ export function startServer(): void {
     } catch (err) {
       connection.console.error(`[Server] Indexer failed: ${err}`);
     }
+  });
+
+  // Hot-reload lint config when the user edits `callchain.lint.rules`.
+  // Re-publishes diagnostics for every open document so newly-enabled
+  // rules fire and disabled rules clear without restarting.
+  connection.onDidChangeConfiguration(() => {
+    void refreshLintConfig();
   });
 
   connection.onDidChangeWatchedFiles(async (params) => {

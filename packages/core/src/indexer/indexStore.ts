@@ -128,6 +128,20 @@ export class Indexer {
     return this.graph;
   }
 
+  /**
+   * Look up the `ParsedFile` for an indexed file by absolute path. Returns
+   * undefined if the file wasn't scanned (non-`.4dm`, excluded) or if the
+   * indexer cold-loaded from cache without re-parsing (the warm `parsedByPath`
+   * map is empty until `populateWarmCaches()` runs at the tail of `rebuild()`,
+   * or until `patchFile()` re-parses it).
+   *
+   * Lint rules consume this to scan per-symbol localReads / localWrites /
+   * localDeclMode / bodySpan without re-invoking the parser.
+   */
+  getParsedFile(absolutePath: string): ParsedFile | undefined {
+    return this.parsedByPath?.get(absolutePath);
+  }
+
   async load(): Promise<CallGraph> {
     const cachePath = this.indexPath();
     if (fs.existsSync(cachePath)) {

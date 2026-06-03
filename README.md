@@ -31,3 +31,32 @@ npm run compile
 - `callchain.junitResultsPath` — relative path to JUnit XML output.
 - `callchain.maxGraphDepth` — default graph BFS depth.
 - `callchain.showCoverageHints` — gutter markers for uncovered functions.
+- `callchain.lint.rules` — per-rule severity + options for the built-in linter (eleven rules across `types/`, `decl/`, `unused/`, `style/` themes; all off by default). See [docs/lint-rules.md](docs/lint-rules.md).
+
+## Linting
+
+The extension ships eleven best-practices lint rules. Every rule is off
+by default — enable the ones you want by adding entries under
+`callchain.lint.rules`:
+
+```jsonc
+"callchain.lint.rules": {
+  "unused/parameter": "warning",
+  "decl/implicit-local": "warning",
+  "style/builtin-name-collision": "error",
+  "unused/method-no-callers": {
+    "severity": "warning",
+    "options": { "entrypointPattern": "^(On |RPC_)" }
+  }
+}
+```
+
+Inline suppression works with any 4D comment style:
+
+```4d
+// lint-disable-next-line unused/parameter
+Function process($unused : Text; $real : Text)
+```
+
+See [docs/lint-rules.md](docs/lint-rules.md) for the full rule reference,
+per-rule options, and suppression syntax.

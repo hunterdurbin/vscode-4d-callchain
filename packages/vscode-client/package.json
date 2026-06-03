@@ -458,6 +458,32 @@
           },
           "default": [],
           "description": "Optional absolute paths to a 4D 4D_ConstantsEN.xlf file. If empty, the extension auto-detects tool4d.app / 4D installations under /Applications."
+        },
+        "callchain.lint.rules": {
+          "type": "object",
+          "default": {},
+          "description": "Best-practices lint rules. Each entry maps a rule id to a severity ('off' | 'info' | 'warning' | 'error') OR an object { severity, options } for per-rule tuning. All rules ship off-by-default; opt in here. Known rule ids: 'style/trailing-whitespace', 'types/missing-param-type', 'types/missing-return-type', 'decl/implicit-local', 'unused/method-no-callers', 'unused/parameter', 'unused/local', 'style/class-pascal-case', 'style/method-camel-case', 'style/missing-docstring-on-public', 'style/builtin-name-collision'.",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": ["off", "info", "warning", "error"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "severity": {
+                    "type": "string",
+                    "enum": ["off", "info", "warning", "error"]
+                  },
+                  "options": {
+                    "type": "object"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
         }
       }
     }

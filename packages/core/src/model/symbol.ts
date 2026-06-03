@@ -91,6 +91,26 @@ export interface SymbolRecord {
    * file change/delete and removes the synth when the count reaches zero.
    */
   fileOrigins?: string[];
+  /**
+   * Source span of the symbol's body (declaration through closing keyword).
+   * Populated for ProjectMethod / FormMethod / ClassFunction /
+   * ClassConstructor / ClassGetter / ClassSetter — the kinds the linter
+   * scans for variable usage and leading docstrings. Both lines are
+   * zero-based and inclusive. Only set by the tree-sitter parser; the
+   * regex fallback leaves it undefined.
+   */
+  bodySpan?: { startLine: number; endLine: number };
+}
+
+/**
+ * One occurrence of a local variable inside a symbol's body — either a read
+ * or a write. Carries enough position info for the linter to emit precise
+ * diagnostic ranges. Tracked per `ParsedFile.localReads` / `localWrites`.
+ */
+export interface LocalUsageSite {
+  line: number;
+  column: number;
+  endColumn: number;
 }
 
 export interface SymbolParam {
@@ -209,9 +229,13 @@ export interface ChainStep {
 // Bumped to 34 when cleanLine + the tree-sitter grammar started treating
 // the backtick (`) as a single-line comment marker (4D v18+) — cached
 // edges previously emitted from inside backtick comments must be flushed.
+// Bumped to 35 when ParsedFile gained localReads / localWrites /
+// localDeclMode + SymbolRecord gained bodySpan to support the linter
+// (Phase A). Cached indexes still load fine without these (they're
+// optional), but a rebuild ensures the new fields populate.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 34;
+export const INDEX_VERSION = 35;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

@@ -9,7 +9,14 @@ import {
   splitBuiltin
 } from "./builtinTypeApi";
 
-const BUILTIN_SET = new Set<string>((builtinsData as any).commands);
+/**
+ * Read-only set of every command the indexer treats as "built into 4D":
+ * the bundled command catalog (~1300 entries from `model/builtins.json`)
+ * plus the legacy `C_*` / `ARRAY` declarations that pre-date the typed-
+ * `var` syntax. Exported via `@4d/core` so the lint package can detect
+ * user-defined symbols whose name collides with a built-in.
+ */
+export const BUILTIN_SET = new Set<string>((builtinsData as any).commands);
 const PLUGIN_PREFIXES: string[] = (builtinsData as any).pluginCommandPrefixes ?? [];
 
 // Legacy 4D type-declaration commands that pre-date the typed-`var` syntax.

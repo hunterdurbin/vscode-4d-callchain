@@ -26,7 +26,10 @@ describeWithFixture("indexer/mini-counts — deterministic kind tallies", (root)
     // mini-form.test.ts)
     // + 1 (Backtick_Comment_User — fixture for the backtick-comment
     // regression test in edges.test.ts).
-    expect(count).toBe(29);
+    // + 1 (Lint_UsageProbe — fixture for the Phase A linter visitor
+    // extensions: localReads, localWrites, localDeclMode, bodySpan.
+    // Locked at lint-usage.test.ts).
+    expect(count).toBe(30);
   });
 
   it("Plugin / PluginCommand count is exact (1 bundle, 2 commands from Plugins/PgSQL.bundle)", () => {

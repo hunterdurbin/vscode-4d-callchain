@@ -1,11 +1,16 @@
+import * as fs from "fs";
 import {
   Connection,
   Diagnostic,
   DiagnosticSeverity,
-  Range
+  Range,
+  TextDocuments
 } from "vscode-languageserver/node";
+import type { TextDocument } from "vscode-languageserver-textdocument";
+import { URI } from "vscode-uri";
 import { CallEdge, SymbolKind } from "@4d/core";
 import { ServerState } from "../state";
+import { runRules } from "../lint/runner";
 
 const SOURCE = "4d";
 const MAX_PER_FILE = 100;
@@ -22,12 +27,61 @@ const SLOW_PUBLISH_MS = 100;
  * call into a class/component the index doesn't see. Resolved edges include
  * built-in 4D commands and plugin commands.
  */
-export function registerDiagnostics(state: ServerState): {
+export function registerDiagnostics(
+  state: ServerState,
+  documents: TextDocuments<TextDocument>
+): {
   publishForFile: (uri: string) => void;
   publishForAllSymbols: () => void;
   clearForFile: (uri: string) => void;
 } {
   const connection: Connection = state.connection;
+
+  /**
+   * Fetch source text for a URI — live content from `documents` when the
+   * file is open in the editor, falling back to disk. Returns undefined
+   * only when neither path produces content (file deleted, unreadable).
+   */
+  const readSource = (uri: string): string | undefined => {
+    const doc = documents.get(uri);
+    if (doc) return doc.getText();
+    try {
+      return fs.readFileSync(URI.parse(uri).fsPath, "utf8");
+    } catch {
+      return undefined;
+    }
+  };
+
+  /**
+   * Run all enabled lint rules for `uri` and return the diagnostics.
+   * Skips when no rules are enabled (the common case until the user opts
+   * in) so we don't pay the source-read cost.
+   */
+  const lintDiagnostics = (uri: string): Diagnostic[] => {
+    const config = state.lintConfig;
+    // Quick exit when no rules are enabled — covers the default state.
+    let anyEnabled = false;
+    for (const v of Object.values(config)) {
+      if (v === "off" || v === undefined) continue;
+      if (typeof v === "string") { anyEnabled = true; break; }
+      if (typeof v === "object" && v !== null) {
+        const sev = (v as { severity?: string }).severity;
+        if (sev && sev !== "off") { anyEnabled = true; break; }
+      }
+    }
+    if (!anyEnabled) return [];
+    const source = readSource(uri);
+    if (source === undefined) return [];
+    const absolutePath = URI.parse(uri).fsPath;
+    const parsed = state.indexer?.getParsedFile(absolutePath);
+    return runRules({
+      uri,
+      source,
+      parsed,
+      callGraph: state.graph,
+      config
+    });
+  };
 
   // Internal: emit diagnostics for one URI given its already-filtered symbol
   // list. The bulk `publishForAllSymbols` pre-buckets symbols by URI in one
@@ -62,6 +116,10 @@ export function registerDiagnostics(state: ServerState): {
         });
       }
     }
+    // Append lint findings (source: "4d-lint") so both diagnostic kinds
+    // flow through the same publish path and the user only sees one
+    // Problems-panel update per file.
+    for (const d of lintDiagnostics(uri)) diags.push(d);
     connection.sendDiagnostics({ uri, diagnostics: diags });
     return diags.length;
   };

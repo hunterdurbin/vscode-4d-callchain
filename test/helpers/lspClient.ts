@@ -5,6 +5,11 @@ export type LspClient = {
   request: <T = any>(method: string, params?: any) => Promise<T>;
   notify: (method: string, params?: any) => void;
   subscribe: (method: string, fn: (params: any) => void) => void;
+  /** Register a handler for server-initiated requests. The handler's
+   *  return value (or resolved promise) is sent back as the response.
+   *  Required for `workspace/configuration` and `client/registerCapability`
+   *  flows. */
+  onRequest: (method: string, fn: (params: any) => any | Promise<any>) => void;
   kill: () => void;
   shutdown: () => Promise<void>;
 };
@@ -27,6 +32,7 @@ function makeServer(binPath: string): LspClient {
   let nextId = 1;
   const pending = new Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>();
   const subscriptions: { method: string; fn: (params: any) => void }[] = [];
+  const requestHandlers = new Map<string, (params: any) => any | Promise<any>>();
 
   function send(message: any): void {
     const body = JSON.stringify(message);
@@ -47,6 +53,10 @@ function makeServer(binPath: string): LspClient {
 
   function subscribe(method: string, fn: (params: any) => void): void {
     subscriptions.push({ method, fn });
+  }
+
+  function onRequest(method: string, fn: (params: any) => any | Promise<any>): void {
+    requestHandlers.set(method, fn);
   }
 
   proc.stdout!.on("data", (chunk: Buffer) => {
@@ -76,7 +86,39 @@ function makeServer(binPath: string): LspClient {
         pending.delete(msg.id);
         msg.error ? p.reject(msg.error) : p.resolve(msg.result);
       } else if (msg.method) {
+        // Server-initiated requests have BOTH method and id; notifications
+        // only have method. Dispatch to subscribers either way, then —
+        // when an id is present — also resolve via the request handler
+        // and send a response.
         for (const s of subscriptions) if (s.method === msg.method) s.fn(msg.params);
+        if (msg.id !== undefined) {
+          const handler = requestHandlers.get(msg.method);
+          const reply = (result: any) =>
+            send({ jsonrpc: "2.0", id: msg.id, result });
+          if (handler) {
+            try {
+              const out = handler(msg.params);
+              Promise.resolve(out).then(reply, (err) => {
+                send({
+                  jsonrpc: "2.0",
+                  id: msg.id,
+                  error: { code: -32603, message: String(err) }
+                });
+              });
+            } catch (err) {
+              send({
+                jsonrpc: "2.0",
+                id: msg.id,
+                error: { code: -32603, message: String(err) }
+              });
+            }
+          } else {
+            // No handler registered — respond with null so the server
+            // doesn't hang waiting (matches how a minimal client would
+            // behave for unsupported requests).
+            reply(null);
+          }
+        }
       }
     }
   });
@@ -112,6 +154,7 @@ function makeServer(binPath: string): LspClient {
     request,
     notify,
     subscribe,
+    onRequest,
     kill: () => proc.kill(),
     shutdown
   };
@@ -120,14 +163,15 @@ function makeServer(binPath: string): LspClient {
 export async function initialize(
   client: LspClient,
   projectRoot: string,
-  name = "fixture"
+  name = "fixture",
+  capabilities: any = {}
 ): Promise<void> {
   const rootUri = "file://" + projectRoot;
   await client.request("initialize", {
     processId: process.pid,
     rootUri,
     workspaceFolders: [{ uri: rootUri, name }],
-    capabilities: {}
+    capabilities
   });
   client.notify("initialized", {});
 }

@@ -14,6 +14,7 @@ export {
 } from "./model/symbol";
 export type {
   FileLocation,
+  LocalUsageSite,
   SymbolRecord,
   SymbolParam,
   RawCallSite,
@@ -22,6 +23,7 @@ export type {
   SymbolIndex,
   ChainStep
 } from "./model/symbol";
+export type { ParsedFile } from "./indexer/fileParser";
 
 export type { Logger } from "./util/logger";
 export { consoleLogger } from "./util/logger";
@@ -44,6 +46,7 @@ export {
 } from "./indexer/builtinTypeApi";
 export type { BuiltinReturn } from "./indexer/builtinTypeApi";
 export { inferLocals, normalizeLocalType, findEnclosingFunction } from "./indexer/localInference";
+export { BUILTIN_SET } from "./indexer/nameResolver";
 
 // Experimental tree-sitter parser (TODO #13, opt-in via FOURD_PARSER=treesitter).
 // `initTreeSitterParser()` must be awaited once before any parseFile() call
