@@ -24,6 +24,23 @@ npm run compile
 # Then press F5 in VS Code to launch the dev host
 ```
 
+## Syntax highlighting & building
+
+Syntax highlighting (the TextMate grammar, themes, and the `4d` language) is
+owned by [`4D.4d-analyzer`](https://marketplace.visualstudio.com/items?itemName=4D.4d-analyzer),
+which this extension declares as a hard dependency — installing the Call Chain
+extension pulls it in. We do **not** ship our own `4d` grammar in the default
+build, so the two extensions no longer fight over the `source.4dm` scope.
+
+Two `.vsix` variants:
+
+- `make vsix` — the default, lean Call-Chain-only build. Depends on
+  `4D.4d-analyzer` for all 4D language support.
+- `make vsix-full` → `vscode-4d-callchain-<version>-full.vsix` — a standalone
+  build that bundles its own 4D grammar/themes and drops the dependency, for
+  environments where `4D.4d-analyzer` can't be installed. (Build-time only;
+  VS Code can't toggle a contributed grammar at runtime.)
+
 ## Settings
 
 - `callchain.projectRoot` — path to 4D project root (the folder containing `Project/`). Defaults to first workspace folder.

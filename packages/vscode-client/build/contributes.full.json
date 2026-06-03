@@ -1,0 +1,83 @@
+{
+  "languages": [
+    {
+      "id": "4d",
+      "aliases": [
+        "4D",
+        "4d"
+      ],
+      "extensions": [
+        ".4dm"
+      ],
+      "configuration": "./language-configuration.json"
+    }
+  ],
+  "grammars": [
+    {
+      "language": "4d",
+      "scopeName": "source.4dm",
+      "path": "./syntaxes/4d.tmLanguage.json"
+    }
+  ],
+  "themes": [
+    {
+      "label": "4D Default Dark",
+      "uiTheme": "vs-dark",
+      "path": "./themes/4d-default-dark-color-theme.json"
+    },
+    {
+      "label": "4D Default Light",
+      "uiTheme": "vs",
+      "path": "./themes/4d-default-light-color-theme.json"
+    }
+  ],
+  "configurationDefaults": {
+    "editor.semanticTokenColorCustomizations": {
+      "enabled": true,
+      "rules": {
+        "keyword:4d":               { "foreground": "#C678DD" },
+        "string:4d":                { "foreground": "#98C379" },
+        "number:4d":                { "foreground": "#D19A66" },
+        "comment:4d":               { "foreground": "#5C6370", "fontStyle": "italic" },
+        "type:4d":                  { "foreground": "#E5C07B" },
+        "constant:4d":              { "fontStyle": "underline" },
+        "parameter:4d":             { "foreground": "#E06C75" },
+        "variable.local:4d":        { "foreground": "#E06C75" },
+        "variable.process:4d":      { "foreground": "#E06C75" },
+        "variable.interprocess:4d": { "foreground": "#E06C75" },
+        "method:4d":                { "foreground": "#61AFEF" },
+        "method.defaultLibrary:4d": { "foreground": "#C678DD" },
+        "method.plugin:4d":         { "foreground": "#BEBEBE", "fontStyle": "italic" },
+        "method.static:4d":         { "foreground": "#61AFEF" },
+        "function:4d":              { "foreground": "#61AFEF" },
+        "property:4d":              { "foreground": "#E06C75" }
+      }
+    }
+  },
+  "semanticTokenScopes": [
+    {
+      "language": "4d",
+      "scopes": {
+        "operator": ["keyword.operator.4d", "keyword.operator"],
+        "method": ["entity.name.function.4d", "entity.name.function"],
+        "method.defaultLibrary": ["entity.name.function.4d", "support.function"],
+        "method.plugin": ["entity.name.function.4d", "support.function"],
+        "method.static": ["entity.name.function.4d", "support.function"],
+        "function": ["entity.name.function.member.4d", "entity.name.function"],
+        "property": ["variable.other.member.4d", "variable.other.member"],
+        "parameter": ["variable.parameter.4d", "variable.parameter"],
+        "variable.local": ["variable.local.name.4d", "variable"],
+        "variable.process": ["variable.name.4d", "variable.other"],
+        "variable.interprocess": ["variable.interprocess.name.4d", "variable.other"],
+        "table": ["support.table.name.4d", "support.class", "entity.name.tag"],
+        "field": ["variable.other.member.4d", "variable.other.member"],
+        "type": ["storage.type.4d", "support.type"],
+        "constant": ["constant.language.4d", "constant.language"],
+        "keyword": ["keyword.control.4d", "keyword.control"],
+        "comment": ["comment.line.double-slash.4d", "comment"],
+        "string": ["string.quoted.double.4d", "string.quoted.double", "string"],
+        "number": ["constant.numeric.decimal.4d", "constant.numeric"]
+      }
+    }
+  ]
+}

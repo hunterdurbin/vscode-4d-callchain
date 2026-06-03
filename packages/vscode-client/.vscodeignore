@@ -8,3 +8,6 @@ esbuild.js
 **/*.map
 **/tsconfig.json
 .gitignore
+# Build-only: the full-build packaging script and the syntax-contributes fragment.
+scripts/**
+build/**

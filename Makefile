@@ -1,11 +1,12 @@
 # 4D Call Chain — common build tasks.
 # Run `make` (or `make help`) to list targets.
 
-VERSION := $(shell node -p "require('./packages/vscode-client/package.json').version")
+VERSION  := $(shell node -p "require('./packages/vscode-client/package.json').version")
 VSIX     := packages/vscode-client/vscode-4d-callchain-$(VERSION).vsix
+VSIX_FULL := packages/vscode-client/vscode-4d-callchain-$(VERSION)-full.vsix
 
 .DEFAULT_GOAL := help
-.PHONY: help install core bundle vsix package install-ext build watch test clean
+.PHONY: help install core bundle vsix vsix-full package install-ext build watch test clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -21,9 +22,13 @@ core: ## Build the deps the .vsix bundle needs (parser wasm + @4d/core)
 bundle: ## Bundle the extension only (esbuild) — dist/extension.js + wasm
 	npm run esbuild -w vscode-4d-callchain
 
-vsix: core ## Build the Call-Chain-only .vsix deliverable
+vsix: core ## Build the Call-Chain-only .vsix deliverable (cedes 4D syntax to 4D.4d-analyzer)
 	npm run package -w vscode-4d-callchain
 	@echo "→ $(VSIX)"
+
+vsix-full: core ## Build the standalone .vsix that bundles its own 4D grammar/themes (no analyzer dep)
+	npm run package:full -w vscode-4d-callchain
+	@echo "→ $(VSIX_FULL)"
 
 package: vsix ## Alias for `vsix`
 
