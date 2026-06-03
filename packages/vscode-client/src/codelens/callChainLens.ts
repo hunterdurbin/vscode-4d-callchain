@@ -11,11 +11,22 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
   constructor(
     private graphGetter: () => CallGraph | undefined,
     private testStatusGetter: () => TestStatusDecorator,
-    private coverageGetter: () => CoverageReport | undefined
+    private coverageGetter: () => CoverageReport | undefined,
+    private lineMap?: (uri: string, savedLine: number) => number
   ) {}
 
   refresh(): void {
     this.emitter.fire();
+  }
+
+  /**
+   * Map a symbol's saved (last-parsed) line to the line it should render on
+   * right now. While a document is dirty the dirty-line tracker shifts lenses
+   * by the net newlines added/removed above them; with no tracker this is the
+   * identity.
+   */
+  private mapLine(uri: string, savedLine: number): number {
+    return this.lineMap ? this.lineMap(uri, savedLine) : savedLine;
   }
 
   provideCodeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
@@ -33,12 +44,13 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     const out: vscode.CodeLens[] = [];
     for (const s of symbols) {
       if (s.kind === SymbolKind.Class) {
-        out.push(...this.lensesForClass(s));
+        out.push(...this.lensesForClass(s, docUri));
         continue;
       }
       const callerCount = graph.callers(s.id).length;
       const calleeCount = graph.callees(s.id).length;
-      const range = new vscode.Range(s.location.line, 0, s.location.line, 1);
+      const line = this.mapLine(docUri, s.location.line);
+      const range = new vscode.Range(line, 0, line, 1);
 
       out.push(new vscode.CodeLens(range, {
         title: `▲ ${callerCount} callers`,
@@ -89,8 +101,9 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     return out;
   }
 
-  private lensesForClass(s: SymbolRecord): vscode.CodeLens[] {
-    const range = new vscode.Range(s.location.line, 0, s.location.line, 1);
+  private lensesForClass(s: SymbolRecord, docUri: string): vscode.CodeLens[] {
+    const line = this.mapLine(docUri, s.location.line);
+    const range = new vscode.Range(line, 0, line, 1);
     const lenses: vscode.CodeLens[] = [];
     if (s.classFlavor === ClassFlavor.Test) {
       lenses.push(new vscode.CodeLens(range, {
@@ -108,7 +121,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
   }
 }
 
-function sameUri(a: string, b: string): boolean {
+export function sameUri(a: string, b: string): boolean {
   if (!a || !b) return false;
   try { return decodeURIComponent(a) === decodeURIComponent(b); }
   catch { return a === b; }

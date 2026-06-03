@@ -13,6 +13,8 @@ import { delegateToScottHarris, isScottHarrisInstalled, runTests } from "./testi
 import { TestResultsWatcher } from "./testing/resultsWatcher";
 import { CoverageReport, computeCoverage } from "./testing/coverage";
 import { CallChainLensProvider } from "./codelens/callChainLens";
+import { DirtyLineTracker } from "./codelens/dirtyLineTracker";
+import { debounce } from "./util/debounce";
 
 let ideClient: LanguageClient | undefined;
 let lspClient: LanguageClient | undefined;
@@ -145,10 +147,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  // Keep lenses glued to their functions while a file is dirty: the index only
+  // re-parses on save, so between edits and save we shift each lens by the net
+  // newlines added/removed above it. Coalesce the re-render across keystrokes.
+  const dirtyLines = new DirtyLineTracker(
+    () => indexer.getGraph(),
+    debounce(() => lensProvider.refresh(), 80)
+  );
+  context.subscriptions.push(dirtyLines);
+
   const lensProvider = new CallChainLensProvider(
     () => indexer.getGraph(),
     () => decorator,
-    () => coverage
+    () => coverage,
+    (uri, savedLine) => dirtyLines.displayLine(uri, savedLine)
   );
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider({ pattern: "**/*.{4dm,4DForm}" }, lensProvider)
