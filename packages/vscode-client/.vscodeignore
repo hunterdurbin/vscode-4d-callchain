@@ -1,0 +1,10 @@
+# Everything is bundled into dist/ by esbuild — ship only the bundle + assets.
+.vscode/**
+src/**
+node_modules/**
+tsconfig.json
+esbuild.js
+**/*.ts
+**/*.map
+**/tsconfig.json
+.gitignore

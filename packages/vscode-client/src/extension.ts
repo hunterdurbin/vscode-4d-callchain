@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import { Indexer, SymbolKind, initTreeSitterParser } from "@4d/core";
@@ -31,14 +32,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Bring up the tree-sitter parser before the indexer constructs so
   // parseFile() takes the new path from the first scan. Failures fall
   // back silently to the regex parser via fileParser's dispatch.
+  //
+  // In the packaged (esbuild-bundled) extension, the two wasm assets are
+  // copied next to dist/extension.js — point the loader at them explicitly,
+  // since the package-relative resolution of web-tree-sitter / @4d/parser-4d
+  // doesn't survive bundling. Running from source they're absent, so we fall
+  // through to the default resolution.
   try {
-    await initTreeSitterParser();
+    const runtimeWasm = path.join(__dirname, "tree-sitter.wasm");
+    const languageWasm = path.join(__dirname, "tree-sitter-fourd.wasm");
+    const initOpts: { runtimeWasmPath?: string; languageWasmPath?: string } = {};
+    if (fs.existsSync(runtimeWasm)) initOpts.runtimeWasmPath = runtimeWasm;
+    if (fs.existsSync(languageWasm)) initOpts.languageWasmPath = languageWasm;
+    await initTreeSitterParser(initOpts);
   } catch (e) {
     output.appendLine(`[Activate] Tree-sitter init failed; using regex parser: ${(e as Error).message}`);
   }
 
-  const exclusions = vscode.workspace.getConfiguration("callchain").get<string[]>("indexExclusions", []);
-  const builtinConstantsPaths = vscode.workspace.getConfiguration("callchain").get<string[]>("builtinConstantsPaths", []);
+  const cfg = vscode.workspace.getConfiguration("callchain");
+  const exclusions = cfg.get<string[]>("indexExclusions", []);
+  const builtinConstantsPaths = cfg.get<string[]>("builtinConstantsPaths", []);
+  // Feature gates for the lean Call-Chain-only build. The two LSP servers and
+  // the test-integration subsystem each cost a full project re-index (servers
+  // run in their own process and scan independently) and are not required by
+  // Call Chain — default off, flip the matching callchain.* setting to re-enable.
+  const testEnabled = cfg.get<boolean>("testIntegration.enabled", false);
   const indexer = new Indexer({
     projectRoot,
     exclusions,
@@ -142,7 +160,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     callees.setGraph(graph);
     search.setGraph(graph);
     tracker.setGraph(graph);
-    coverage = computeCoverage(graph);
+    // Coverage drives only the "N tests cover this" lens; skip the graph walk
+    // entirely when test integration is off. Leaving `coverage` undefined makes
+    // the lens fall back to just the caller/callee/graph annotations.
+    if (testEnabled) coverage = computeCoverage(graph);
     lensProvider.refresh();
   });
   tracker.onDidChange((s) => {
@@ -151,13 +172,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   // Test-results watcher: persistent JSON path + ScottHarris's transient files.
-  const resultsWatcher = new TestResultsWatcher(projectRoot, decorator, output);
-  resultsWatcher.start();
-  decorator.onDidChange(() => lensProvider.refresh());
-  context.subscriptions.push(resultsWatcher);
+  // Gated — when test integration is off, no watcher, no decorations, and the
+  // Run/coverage lenses never light up.
+  if (testEnabled) {
+    const resultsWatcher = new TestResultsWatcher(projectRoot, decorator, output);
+    resultsWatcher.start();
+    decorator.onDidChange(() => lensProvider.refresh());
+    context.subscriptions.push(resultsWatcher);
 
-  if (isScottHarrisInstalled()) {
-    output.appendLine("[Activate] ScottHarris.4d-testing-extension detected — ▶ Run will delegate to its Test Explorer.");
+    if (isScottHarrisInstalled()) {
+      output.appendLine("[Activate] ScottHarris.4d-testing-extension detected — ▶ Run will delegate to its Test Explorer.");
+    }
   }
 
   // File-system watchers — `.4dm` flows through the surgical patch path;
@@ -284,40 +309,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       GraphPanel.show(context, graph, rootId);
     }),
-    vscode.commands.registerCommand("callchain.runTestsForClass", async (className?: string, testFunctionName?: string) => {
-      const cls = className ?? (await vscode.window.showInputBox({ prompt: "Test class name (e.g. OrderHydrator_Test)" }));
-      if (!cls) return;
-      // 1. If ScottHarris is installed, delegate to its Test Explorer.
-      if (isScottHarrisInstalled()) {
-        const classFile = path.join(projectRoot, "Project", "Sources", "Classes", `${cls}.4dm`);
-        const ok = await delegateToScottHarris(classFile, testFunctionName, testOutput);
-        if (ok) return;
-      }
-      // 2. Fall back to our own runner.
-      const cfg = vscode.workspace.getConfiguration("callchain");
-      const template = cfg.get<string>("testCommand", "make test class={class} format=json outputPath={jsonOutputPath}");
-      const jsonRel = cfg.get<string>("jsonResultsPath", "Components/testing.4dbase/test-results/results.json");
-      const cmd = template.replace(/\{jsonOutputPath\}/g, jsonRel);
-      await runTests({ projectRoot, commandTemplate: cmd, className: cls, output: testOutput });
-      const jsonAbs = path.join(projectRoot, jsonRel);
-      decorator.loadFromJson(jsonAbs);
-    }),
-    vscode.commands.registerCommand("callchain.runAllTests", async () => {
-      if (isScottHarrisInstalled()) {
-        // Run all 4D tests in the global Test Explorer.
-        await vscode.commands.executeCommand("testing.runAll");
-        return;
-      }
-      const cfg = vscode.workspace.getConfiguration("callchain");
-      const template = cfg
-        .get<string>("testCommand", "make test class={class} format=json outputPath={jsonOutputPath}")
-        .replace(/\bclass=\{class\}\s*/g, "");
-      const jsonRel = cfg.get<string>("jsonResultsPath", "Components/testing.4dbase/test-results/results.json");
-      const cmd = template.replace(/\{jsonOutputPath\}/g, jsonRel);
-      await runTests({ projectRoot, commandTemplate: cmd, output: testOutput });
-      const jsonAbs = path.join(projectRoot, jsonRel);
-      decorator.loadFromJson(jsonAbs);
-    }),
     vscode.commands.registerCommand("callchain.contextShowCallers", (node: any) => {
       const sym = extractSymbol(node);
       if (!sym) return;
@@ -397,29 +388,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // simply has no descendants to suffix).
       callers.collapseSubtree(node);
       callees.collapseSubtree(node);
-    }),
-    vscode.commands.registerCommand("callchain.jumpToTests", async (symbolId: string) => {
-      if (!coverage) return;
-      const graph = indexer.getGraph();
-      if (!graph) return;
-      const tests = coverage.reachedByTests.get(symbolId);
-      if (!tests || tests.size === 0) {
-        vscode.window.showInformationMessage("No tests reach this symbol.");
-        return;
-      }
-      const items = Array.from(tests).map((id) => {
-        const s = graph.symbol(id);
-        return {
-          label: s?.name ?? id,
-          description: s?.ownerClass ?? "",
-          detail: s?.location.uri ?? "",
-          symbol: s
-        };
-      });
-      const picked = await vscode.window.showQuickPick(items, { placeHolder: `${tests.size} tests cover this symbol` });
-      if (picked?.symbol) await openSymbol(picked.symbol);
     })
   );
+
+  // Test-integration commands — registered only when the subsystem is enabled.
+  if (testEnabled) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand("callchain.runTestsForClass", async (className?: string, testFunctionName?: string) => {
+        const cls = className ?? (await vscode.window.showInputBox({ prompt: "Test class name (e.g. OrderHydrator_Test)" }));
+        if (!cls) return;
+        // 1. If ScottHarris is installed, delegate to its Test Explorer.
+        if (isScottHarrisInstalled()) {
+          const classFile = path.join(projectRoot, "Project", "Sources", "Classes", `${cls}.4dm`);
+          const ok = await delegateToScottHarris(classFile, testFunctionName, testOutput);
+          if (ok) return;
+        }
+        // 2. Fall back to our own runner.
+        const template = cfg.get<string>("testCommand", "make test class={class} format=json outputPath={jsonOutputPath}");
+        const jsonRel = cfg.get<string>("jsonResultsPath", "Components/testing.4dbase/test-results/results.json");
+        const cmd = template.replace(/\{jsonOutputPath\}/g, jsonRel);
+        await runTests({ projectRoot, commandTemplate: cmd, className: cls, output: testOutput });
+        const jsonAbs = path.join(projectRoot, jsonRel);
+        decorator.loadFromJson(jsonAbs);
+      }),
+      vscode.commands.registerCommand("callchain.runAllTests", async () => {
+        if (isScottHarrisInstalled()) {
+          // Run all 4D tests in the global Test Explorer.
+          await vscode.commands.executeCommand("testing.runAll");
+          return;
+        }
+        const template = cfg
+          .get<string>("testCommand", "make test class={class} format=json outputPath={jsonOutputPath}")
+          .replace(/\bclass=\{class\}\s*/g, "");
+        const jsonRel = cfg.get<string>("jsonResultsPath", "Components/testing.4dbase/test-results/results.json");
+        const cmd = template.replace(/\{jsonOutputPath\}/g, jsonRel);
+        await runTests({ projectRoot, commandTemplate: cmd, output: testOutput });
+        const jsonAbs = path.join(projectRoot, jsonRel);
+        decorator.loadFromJson(jsonAbs);
+      }),
+      vscode.commands.registerCommand("callchain.jumpToTests", async (symbolId: string) => {
+        if (!coverage) return;
+        const graph = indexer.getGraph();
+        if (!graph) return;
+        const tests = coverage.reachedByTests.get(symbolId);
+        if (!tests || tests.size === 0) {
+          vscode.window.showInformationMessage("No tests reach this symbol.");
+          return;
+        }
+        const items = Array.from(tests).map((id) => {
+          const s = graph.symbol(id);
+          return {
+            label: s?.name ?? id,
+            description: s?.ownerClass ?? "",
+            detail: s?.location.uri ?? "",
+            symbol: s
+          };
+        });
+        const picked = await vscode.window.showQuickPick(items, { placeHolder: `${tests.size} tests cover this symbol` });
+        if (picked?.symbol) await openSymbol(picked.symbol);
+      })
+    );
+  }
 
   if (vscode.workspace.getConfiguration("callchain").get<boolean>("autoIndexOnStartup", true)) {
     indexer.load().catch((err) => output.appendLine(`[Indexer] failed: ${err}`));
@@ -428,23 +457,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Spawn the call-chain LSP server. Provides go-to-def, find-references,
   // workspace symbol, document symbol, and call hierarchy via standard LSP
   // methods — VSCode's native UIs (F12, Shift+F12, Peek Call Hierarchy) will
-  // pick these up automatically once the document selector matches.
-  try {
-    lspClient = startLanguageServer(context, output, exclusions, builtinConstantsPaths);
-    context.subscriptions.push({ dispose: () => { void lspClient?.stop(); } });
-  } catch (err) {
-    output.appendLine(`[LSP] Failed to start language-server: ${err}`);
+  // pick these up automatically once the document selector matches. Gated:
+  // off by default, and a separate process that re-indexes independently.
+  if (cfg.get<boolean>("languageServer.enabled", false)) {
+    try {
+      lspClient = startLanguageServer(context, output, exclusions, builtinConstantsPaths);
+      context.subscriptions.push({ dispose: () => { void lspClient?.stop(); } });
+    } catch (err) {
+      output.appendLine(`[LSP] Failed to start language-server: ${err}`);
+    }
+  } else {
+    output.appendLine("[Activate] language-server disabled (callchain.languageServer.enabled = false).");
   }
 
   // Spawn the IDE-features LSP server (hover today; completion / diagnostics
   // / semanticTokens later). Runs in its own process and indexes the same
   // workspace independently, sharing the on-disk cache file written by the
-  // in-process call-chain indexer above.
-  try {
-    ideClient = startIdeServer(context, output, exclusions, builtinConstantsPaths);
-    context.subscriptions.push({ dispose: () => { void ideClient?.stop(); } });
-  } catch (err) {
-    output.appendLine(`[IDE] Failed to start ide-server: ${err}`);
+  // in-process call-chain indexer above. Gated: off by default.
+  if (cfg.get<boolean>("ideServer.enabled", false)) {
+    try {
+      ideClient = startIdeServer(context, output, exclusions, builtinConstantsPaths);
+      context.subscriptions.push({ dispose: () => { void ideClient?.stop(); } });
+    } catch (err) {
+      output.appendLine(`[IDE] Failed to start ide-server: ${err}`);
+    }
+  } else {
+    output.appendLine("[Activate] ide-server disabled (callchain.ideServer.enabled = false).");
   }
 }
 

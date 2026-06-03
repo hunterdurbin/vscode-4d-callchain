@@ -264,6 +264,24 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "callchain.runTestsForClass",
+          "when": "config.callchain.testIntegration.enabled"
+        },
+        {
+          "command": "callchain.runAllTests",
+          "when": "config.callchain.testIntegration.enabled"
+        },
+        {
+          "command": "callchain.jumpToTests",
+          "when": "false"
+        },
+        {
+          "command": "callchain.openSymbol",
+          "when": "false"
+        }
+      ],
       "editor/context": [
         {
           "command": "callchain.revealAtCursor",
@@ -399,6 +417,21 @@
     "configuration": {
       "title": "4D Call Chain",
       "properties": {
+        "callchain.languageServer.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the 4D language server (go-to-definition, find references, workspace symbols, document outline, native call hierarchy, semantic tokens, diagnostics/linter). Off by default in the lean Call-Chain-only build; it runs in a separate process that re-indexes the whole project. Note: the packaged .vsix does not bundle this server, so enabling it there has no effect — run the extension from source to use it."
+        },
+        "callchain.ideServer.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the 4D IDE server (hover, completion, signature help). Off by default in the lean Call-Chain-only build; it runs in a separate process that re-indexes the whole project. Note: the packaged .vsix does not bundle this server, so enabling it there has no effect — run the extension from source to use it."
+        },
+        "callchain.testIntegration.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable test integration: the test runner commands, ScottHarris.4d-testing-extension delegation, gutter pass/fail decorations, and the per-index coverage computation that powers the 'N tests cover this' code lens. Off by default; not part of the Call Chain core."
+        },
         "callchain.projectRoot": {
           "type": "string",
           "default": "",
@@ -488,14 +521,23 @@
       }
     }
   },
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.sweetwater.com/hunter_durbin/4d-callchain.git"
+  },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "node esbuild.js",
+    "esbuild": "node esbuild.js",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
     "typescript": "^5.4.0"
   },
   "dependencies": {

@@ -15,8 +15,6 @@
 
 import * as fs from "fs";
 import { Parser, Language, Tree } from "web-tree-sitter";
-// `@4d/parser-4d` doesn't ship .d.ts files; declare what we use from it.
-const parser4d: { wasmPath: string } = require("@4d/parser-4d");
 import type { DiscoveredFile } from "../indexer/projectScanner";
 import type { ParsedFile } from "../indexer/fileParser";
 import { CstVisitor } from "./cstVisitor";
@@ -67,11 +65,29 @@ function cacheSet(path: string, entry: CachedParse): void {
  * Initialize the tree-sitter runtime and load the 4D grammar. Must be
  * called once at process startup before `parseFileWithTreeSitter()`.
  * Returns immediately if already initialized.
+ *
+ * Both wasm assets can be located explicitly via `opts` — needed when the
+ * consumer is bundled (e.g. the packaged VSCode .vsix), where the default
+ * package-relative resolution of `web-tree-sitter`'s runtime wasm and
+ * `@4d/parser-4d`'s grammar wasm no longer holds. When omitted, they resolve
+ * the normal way: `web-tree-sitter` finds its own `tree-sitter.wasm`, and the
+ * grammar wasm comes from `@4d/parser-4d` (required lazily so a bundle that
+ * supplies `languageWasmPath` never needs that package present at runtime).
  */
-export async function initTreeSitterParser(): Promise<void> {
+export async function initTreeSitterParser(opts?: {
+  runtimeWasmPath?: string;
+  languageWasmPath?: string;
+}): Promise<void> {
   if (parser) return;
-  await Parser.init();
-  const wasmPath = parser4d.wasmPath;
+  await Parser.init(
+    opts?.runtimeWasmPath
+      ? ({ locateFile: () => opts.runtimeWasmPath! } as any)
+      : undefined,
+  );
+  // `@4d/parser-4d` doesn't ship .d.ts files; declare what we use from it.
+  const wasmPath =
+    opts?.languageWasmPath ??
+    (require("@4d/parser-4d") as { wasmPath: string }).wasmPath;
   language = await Language.load(wasmPath);
   parser = new Parser();
   parser.setLanguage(language);
