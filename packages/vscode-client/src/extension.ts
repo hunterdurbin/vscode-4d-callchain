@@ -215,36 +215,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // indexer's classifier. Separate watchers per category keep the LSP
   // synchronize handler symmetric and let each category be tuned later
   // (e.g. component archive debounce) without affecting the others.
+  //
+  // All four watchers feed one debounced batching queue. Git operations driven
+  // by other extensions (branch switch, fetch, stash, GitLens compare) touch or
+  // rewrite the mtimes of hundreds of files at once; firing a separate
+  // `patchFile` per event ran a re-parse + full view/coverage/lens refresh on
+  // the single-threaded extension host for each one, hanging the UI. Coalescing
+  // collapses a burst into one `patchFiles` call so the graph and views refresh
+  // once — and lets the indexer's >50-change bail-to-rebuild path engage.
+  const pending = new Map<string, "change" | "delete" | "create">();
+  const flushPending = debounce(() => {
+    if (pending.size === 0) return;
+    const batch = [...pending.entries()].map(([path, kind]) => ({ path, kind }));
+    pending.clear();
+    void indexer.patchFiles(batch);
+  }, 250); // matches the indexer's persistDebounceMs cadence
+  // Last write wins per path within a burst (a create+change collapses to the
+  // latest; a trailing delete supersedes earlier changes).
+  const enqueue = (uri: vscode.Uri, kind: "change" | "delete" | "create") => {
+    pending.set(uri.fsPath, kind);
+    flushPending();
+  };
+
   const codeWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(projectRoot, "Project/Sources/**/*.4dm")
   );
-  codeWatcher.onDidChange((uri) => indexer.patchFile(uri.fsPath));
-  codeWatcher.onDidCreate((uri) => indexer.patchFile(uri.fsPath));
-  codeWatcher.onDidDelete((uri) => indexer.patchFile(uri.fsPath));
+  codeWatcher.onDidChange((uri) => enqueue(uri, "change"));
+  codeWatcher.onDidCreate((uri) => enqueue(uri, "create"));
+  codeWatcher.onDidDelete((uri) => enqueue(uri, "delete"));
   context.subscriptions.push(codeWatcher);
 
   const catalogWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(projectRoot, "Project/Sources/catalog.4DCatalog")
   );
-  catalogWatcher.onDidChange((uri) => indexer.patchFile(uri.fsPath));
-  catalogWatcher.onDidCreate((uri) => indexer.patchFile(uri.fsPath));
-  catalogWatcher.onDidDelete((uri) => indexer.patchFile(uri.fsPath));
+  catalogWatcher.onDidChange((uri) => enqueue(uri, "change"));
+  catalogWatcher.onDidCreate((uri) => enqueue(uri, "create"));
+  catalogWatcher.onDidDelete((uri) => enqueue(uri, "delete"));
   context.subscriptions.push(catalogWatcher);
 
   const constantsWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(projectRoot, "Resources/Constants_*.xlf")
   );
-  constantsWatcher.onDidChange((uri) => indexer.patchFile(uri.fsPath));
-  constantsWatcher.onDidCreate((uri) => indexer.patchFile(uri.fsPath));
-  constantsWatcher.onDidDelete((uri) => indexer.patchFile(uri.fsPath));
+  constantsWatcher.onDidChange((uri) => enqueue(uri, "change"));
+  constantsWatcher.onDidCreate((uri) => enqueue(uri, "create"));
+  constantsWatcher.onDidDelete((uri) => enqueue(uri, "delete"));
   context.subscriptions.push(constantsWatcher);
 
   const componentsWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(projectRoot, "Components/**/*.{4DZ,4dz}")
   );
-  componentsWatcher.onDidChange((uri) => indexer.patchFile(uri.fsPath));
-  componentsWatcher.onDidCreate((uri) => indexer.patchFile(uri.fsPath));
-  componentsWatcher.onDidDelete((uri) => indexer.patchFile(uri.fsPath));
+  componentsWatcher.onDidChange((uri) => enqueue(uri, "change"));
+  componentsWatcher.onDidCreate((uri) => enqueue(uri, "create"));
+  componentsWatcher.onDidDelete((uri) => enqueue(uri, "delete"));
   context.subscriptions.push(componentsWatcher);
 
   // Commands
