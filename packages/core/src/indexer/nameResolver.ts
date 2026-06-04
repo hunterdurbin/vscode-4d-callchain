@@ -927,6 +927,31 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           pushEdge(findOrCreateUnresolved(fallbackLabel), CallKind.Dynamic, false);
           break;
         }
+        case "CsChainCall": {
+          // `cs.X.new().method()[.chain…]` — `.new()` constructs an instance
+          // of X, so walk any remaining steps from that instance type, then
+          // resolve the terminal method (same machinery as VarChainCall).
+          const fallbackLabel =
+            `cs.${hint.className}.new` +
+            (hint.path.length ? `.${pathLabel(hint.path)}` : "") +
+            `.${hint.method}`;
+          let currentType: string | undefined = hint.className;
+          for (const step of hint.path) {
+            if (!currentType) break;
+            currentType = step.isCall
+              ? stepMethodReturn(currentType, step.name)
+              : stepProperty(currentType, step.name);
+          }
+          if (currentType) {
+            const hit = resolveMethodOrBuiltin(currentType, hint.method);
+            if (hit) {
+              pushEdge(hit.id, CallKind.Static, true);
+              break;
+            }
+          }
+          pushEdge(findOrCreateUnresolved(fallbackLabel), CallKind.Dynamic, false);
+          break;
+        }
         case "CallWorker":
         case "NewProcess":
         case "ExecuteMethodLiteral": {

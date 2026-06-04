@@ -12,3 +12,9 @@ Function test_getNormalizedInvoiceFromDatastore()
   $hydrator:=cs.OrderHydrator.new()
   var $result : cs.NormalizedOrder
   $result:=$hydrator.getNormalizedInvoiceFromDatastore(42)
+
+Function test_chainedNew()
+  // Single-line `cs.X.new().method()` chain — the method invoked on the
+  // freshly-constructed instance must resolve (CsChainCall edge).
+  var $result : cs.NormalizedOrder
+  $result:=cs.OrderHydrator.new().getNormalizedInvoiceFromDatastore(42)

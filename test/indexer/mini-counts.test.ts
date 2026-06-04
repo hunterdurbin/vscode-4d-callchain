@@ -54,7 +54,7 @@ describeWithFixture("indexer/mini-counts — deterministic kind tallies", (root)
   it("ClassFunction count is exact", () => {
     if (!isMini) return;
     const count = idx.symbols.filter((s) => s.kind === ("ClassFunction" as any)).length;
-    expect(count).toBe(17);
+    expect(count).toBe(18);
   });
 
   it("ClassGetter count is exact", () => {

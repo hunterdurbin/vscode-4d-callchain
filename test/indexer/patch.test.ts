@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 35 after Phase A added ParsedFile localReads/localWrites/localDeclMode + SymbolRecord.bodySpan for the linter", () => {
-    expect(INDEX_VERSION).toBe(35);
+  it("INDEX_VERSION is 36 after cs.X.new().method() chains started emitting resolved CsChainCall edges", () => {
+    expect(INDEX_VERSION).toBe(36);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {

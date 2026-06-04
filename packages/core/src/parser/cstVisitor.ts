@@ -1037,10 +1037,12 @@ export class CstVisitor {
     }
     // Two-or-more-segment chain. Walk back to the head to classify.
     //
-    // Cs/Ds heads (`cs.X.method()`, `ds.T.query()`) require a PURE property
-    // chain — no intermediate calls — because the resolver can't know what
-    // the intermediate call returned. `cs.X.new().foo()` would fall back
-    // to no hint (and be skipped, like the regex parser does).
+    // Cs/Ds heads with a PURE property chain (`cs.X.method()`,
+    // `ds.T.query()`) classify directly below. The one intermediate-call
+    // shape we also handle is `cs.X.new().method()…`: `.new()` constructs a
+    // known instance of `X`, so the resolver can walk the rest of the chain
+    // from that type (CsChainCall). Other cs/ds chains with intermediate
+    // calls (e.g. namespaced component chains) still fall back to no hint.
     //
     // This/Var heads can have intermediate calls (the chain resolver in
     // nameResolver walks return-types via `isCall` flags on each step).
@@ -1076,6 +1078,24 @@ export class CstVisitor {
       if (head.type === "ds" && path.length === 1 && pureChain) {
         const className = path[0].name;
         return { kind: "DsCall", className, method: finalMethod };
+      }
+      // cs.Class.new().method()[.chain…] — instance chain off a constructor.
+      // path[0] is the class name (property); path[1] is `new` (a call). The
+      // resolver walks any remaining steps from the constructed instance type.
+      if (
+        head.type === "cs" &&
+        !pureChain &&
+        path.length >= 2 &&
+        !path[0].isCall &&
+        path[1].isCall &&
+        path[1].name === "new"
+      ) {
+        return {
+          kind: "CsChainCall",
+          className: path[0].name,
+          path: path.slice(2),
+          method: finalMethod,
+        };
       }
       if (head.type === "this") {
         return {

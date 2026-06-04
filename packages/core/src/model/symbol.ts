@@ -157,6 +157,7 @@ export type CallHint =
   | { kind: "VarCall"; variable: string; method: string }
   | { kind: "VarChainCall"; variable: string; path: ChainStep[]; method: string }
   | { kind: "ThisChainCall"; path: ChainStep[]; method: string }
+  | { kind: "CsChainCall"; className: string; path: ChainStep[]; method: string }
   | { kind: "ThisGet"; property: string }
   | { kind: "ThisSet"; property: string }
   | { kind: "VarGet"; variable: string; property: string }
@@ -233,9 +234,12 @@ export interface ChainStep {
 // localDeclMode + SymbolRecord gained bodySpan to support the linter
 // (Phase A). Cached indexes still load fine without these (they're
 // optional), but a rebuild ensures the new fields populate.
+// Bumped to 36 when `cs.X.new().method()` single-line chains started
+// emitting a resolved CsChainCall edge (previously the parser skipped the
+// trailing method on any cs chain containing an intermediate call).
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 35;
+export const INDEX_VERSION = 36;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

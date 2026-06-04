@@ -1103,6 +1103,8 @@ function nameKeysForHint(hint: NonNullable<RawCallSite["hint"]>): string[] {
     case "VarChainCall":
     case "ThisChainCall":
       return [lc(hint.method)];
+    case "CsChainCall":
+      return [lc(hint.className), lc(hint.method)];
     case "SuperCall":
       return hint.method ? [lc(hint.method)] : ["constructor"];
     case "ThisGet":
