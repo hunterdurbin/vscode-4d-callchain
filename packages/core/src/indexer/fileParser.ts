@@ -152,36 +152,44 @@ function isAssignmentChained(line: string, openParenIdx: number): boolean {
   return line[p] === ".";
 }
 
-export function parseFile(file: DiscoveredFile, projectRootUri: string, constantsSet?: Set<string>): ParsedFile {
+export function parseFile(file: DiscoveredFile, projectRootUri: string, constantsSet?: Set<string>, presetSource?: string): ParsedFile {
   // Tree-sitter is the default once `initTreeSitterParser()` has resolved
   // (the LSP servers and extension host await it at startup). The legacy
   // regex parser is the fallback when the WASM init hasn't completed
   // (e.g. during early startup, in tests, or on a failed init). Opt-out
   // via `FOURD_PARSER=regex` for emergencies.
+  //
+  // `presetSource` lets hot-path callers (rebuild / patch loops) read the
+  // file asynchronously and hand the contents in, keeping the disk wait off
+  // the extension-host thread. When omitted, the parser reads synchronously.
   if (process.env.FOURD_PARSER !== "regex") {
     try {
       const ts: typeof import("../parser/parseWithTreeSitter") = require("../parser/parseWithTreeSitter");
       if (ts.isTreeSitterReady()) {
-        return ts.parseFileWithTreeSitter(file, constantsSet);
+        return ts.parseFileWithTreeSitter(file, constantsSet, presetSource);
       }
     } catch {
       // Fall through to the regex parser silently.
     }
   }
   let source: string;
-  try {
-    source = fs.readFileSync(file.absolutePath, "utf8");
-  } catch {
-    return {
-      file,
-      symbols: [],
-      rawCalls: [],
-      localTypes: new Map(),
-      localStrings: new Map(),
-      localReads: new Map(),
-      localWrites: new Map(),
-      localDeclMode: new Map()
-    };
+  if (presetSource !== undefined) {
+    source = presetSource;
+  } else {
+    try {
+      source = fs.readFileSync(file.absolutePath, "utf8");
+    } catch {
+      return {
+        file,
+        symbols: [],
+        rawCalls: [],
+        localTypes: new Map(),
+        localStrings: new Map(),
+        localReads: new Map(),
+        localWrites: new Map(),
+        localDeclMode: new Map()
+      };
+    }
   }
   const cleaned = stripBlockComments(source);
   const lines = cleaned.split(/\r?\n/);

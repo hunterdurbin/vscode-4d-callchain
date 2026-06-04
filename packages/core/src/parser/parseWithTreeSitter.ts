@@ -102,13 +102,17 @@ export async function initTreeSitterParser(opts?: {
 export function parseFileWithTreeSitter(
   file: DiscoveredFile,
   constantsSet?: Set<string>,
+  presetSource?: string,
 ): ParsedFile {
   if (!parser) {
     throw new Error(
       "Tree-sitter parser not initialized; call initTreeSitterParser() first",
     );
   }
-  const source = fs.readFileSync(file.absolutePath, "utf8");
+  // Callers on the hot rebuild/patch path read the file asynchronously and
+  // pass the contents in, so the disk wait stays off the extension-host
+  // thread. When omitted (scanners, tests), fall back to a sync read.
+  const source = presetSource ?? fs.readFileSync(file.absolutePath, "utf8");
   const tree = parseIncremental(file.absolutePath, source);
   if (!tree) {
     throw new Error(`Failed to parse ${file.absolutePath}`);

@@ -232,18 +232,38 @@ export class Indexer {
     const SAMPLE_TARGET = 120; // a little slack above isFresh's 100 cap
     const mtimeStride = Math.max(1, Math.floor(files.length / SAMPLE_TARGET));
     const mtimes: Record<string, number> = {};
+    // A cold rebuild parses tens of thousands of files. Doing it as one
+    // synchronous burst pinned the extension-host thread for 20-30s — the UI
+    // and every other extension froze for the duration. Two changes keep the
+    // thread cooperative: read each file's source asynchronously (so the disk
+    // wait — which balloons when another extension is hammering the disk with
+    // git activity — doesn't block the thread), and yield to the event loop
+    // every YIELD_EVERY files so queued UI/RPC/watcher work can interleave.
+    // The tree-sitter parse itself is CPU-bound and stays synchronous, but no
+    // single uninterrupted span now exceeds one chunk's worth of parsing.
+    const YIELD_EVERY = 200;
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      const file = parseFile(f, this.opts.projectRoot, constantsSet);
+      let source: string | undefined;
+      try {
+        source = await fs.promises.readFile(f.absolutePath, "utf8");
+      } catch {
+        // Deleted mid-scan — parseFile(...,undefined) returns an empty ParsedFile.
+        source = undefined;
+      }
+      const file = parseFile(f, this.opts.projectRoot, constantsSet, source);
       augmentVariadicParams(file, compilerMethodTypes);
       parsed.push(file);
       if (i % mtimeStride === 0) {
         try {
-          mtimes[f.absolutePath] = fs.statSync(f.absolutePath).mtimeMs;
+          mtimes[f.absolutePath] = (await fs.promises.stat(f.absolutePath)).mtimeMs;
         } catch {/* skip */}
       }
       if (i % 500 === 0 && i > 0) {
         this.opts.logger.info(`[Indexer]   parsed ${i}/${files.length}`);
+      }
+      if (i % YIELD_EVERY === YIELD_EVERY - 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
       }
     }
     const parseMs = Date.now() - tParse;
@@ -495,6 +515,11 @@ export class Indexer {
     let tRemove = 0, tParse = 0, tAdd = 0;
     let nAffectedEdges = 0;
 
+    // Yield to the event loop every PATCH_YIELD_EVERY files so a near-limit
+    // batch (up to PATCH_BATCH_LIMIT) doesn't hold the thread for one long
+    // span; single-file saves (the common case) take exactly one iteration.
+    const PATCH_YIELD_EVERY = 25;
+    let processed = 0;
     for (const change of codeChanges) {
       const exists = fs.existsSync(change.path);
       const effective: "change" | "delete" = !exists ? "delete" : (change.kind === "delete" ? "delete" : "change");
@@ -519,7 +544,16 @@ export class Indexer {
       const discovered = classifyFile(change.path, this.opts.projectRoot);
       if (!discovered) continue;
       const t1 = Date.now();
-      const parsed = parseFile(discovered, this.opts.projectRoot, this.constantsSet);
+      // Read asynchronously so the disk wait stays off the thread (matters
+      // when git churn is saturating the disk); a missing file yields an
+      // empty parse via the undefined-source fallback.
+      let source: string | undefined;
+      try {
+        source = await fs.promises.readFile(change.path, "utf8");
+      } catch {
+        source = undefined;
+      }
+      const parsed = parseFile(discovered, this.opts.projectRoot, this.constantsSet, source);
       tParse += Date.now() - t1;
       // Re-apply variadic-param augmentation (Compiler_*.4dm types). The
       // map is per-project and cached on the indexer; a Compiler_* edit
@@ -534,6 +568,10 @@ export class Indexer {
       const newKeys = this.addFileContribution(parsed);
       tAdd += Date.now() - t2;
       for (const k of newKeys) affectedNameKeys.add(k);
+
+      if (++processed % PATCH_YIELD_EVERY === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
 
     const tFanoutStart = Date.now();
