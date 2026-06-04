@@ -564,12 +564,19 @@ export class CstVisitor {
   private visitExpression(node: Node | null | undefined): void {
     if (!node) return;
     switch (node.type) {
-      case "call_expression":
+      case "call_expression": {
         this.emitCall(node);
-        // Recurse into the function and arguments for nested calls.
-        this.visitExpression(node.childForFieldName("function"));
+        // Recurse for nested calls. A plain identifier / multi-word function
+        // name is already fully classified by emitCall — re-visiting it would
+        // only emit a redundant ProjectMethodBare for the callee's own name.
+        // Member-expression / keyword functions (chains) still need walking.
+        const fn = node.childForFieldName("function");
+        if (fn && fn.type !== "identifier" && fn.type !== "multi_word_identifier") {
+          this.visitExpression(fn);
+        }
         this.visitExpression(node.childForFieldName("arguments"));
         break;
+      }
       case "argument_list":
       case "parenthesized_expression":
       case "binary_expression":
@@ -608,9 +615,16 @@ export class CstVisitor {
         break;
       case "identifier":
         // A bare identifier in expression position (RHS of assignment,
-        // argument, comparison side). If it's a project constant, emit
-        // ConstantRef.
+        // argument, comparison side). It's one of: a project constant, a
+        // process/global variable, or 4D's parenthesis-less project-method
+        // call form (e.g. the argument in `Not(Invoices_CanBeProcessed)`).
+        // The grammar can't tell these apart — 4D is genuinely ambiguous
+        // here — so emit both candidate hints and let the resolver decide:
+        // ConstantRef resolves iff it's a known constant; ProjectMethodBare
+        // resolves iff a real project method exists, and drops silently
+        // otherwise (so variable reads never become Unresolved noise).
         this.maybeEmitConstantRef(node, node.text);
+        this.maybeEmitProjectMethodBare(node);
         break;
       case "multi_word_identifier":
         // A multi-word identifier in expression position (`On Load`,
@@ -635,6 +649,30 @@ export class CstVisitor {
       raw: this.lineText(node.startPosition.row),
       expression: name,
       hint: { kind: "ConstantRef", name },
+      column: node.startPosition.column,
+      endColumn: node.endPosition.column,
+    });
+  }
+
+  /**
+   * Emit a ProjectMethodBare for a bare identifier in expression position —
+   * 4D's parenthesis-less call form used as an argument / operand
+   * (`Not(Invoices_CanBeProcessed)`, `$ok:=Some_Check`, …). The resolver
+   * keeps the edge only if a real project/database method with that name
+   * exists, and drops it otherwise, so ordinary variable references never
+   * leak Unresolved edges. Known constants are skipped (handled by
+   * `maybeEmitConstantRef`).
+   */
+  private maybeEmitProjectMethodBare(node: Node): void {
+    if (!this.currentSymbolId) return;
+    const name = node.text;
+    if (this.constants.has(name.toLowerCase())) return;
+    this.rawCalls.push({
+      fromSymbolId: this.currentSymbolId,
+      line: node.startPosition.row,
+      raw: this.lineText(node.startPosition.row),
+      expression: name,
+      hint: { kind: "ProjectMethodBare", name },
       column: node.startPosition.column,
       endColumn: node.endPosition.column,
     });
