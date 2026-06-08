@@ -421,6 +421,11 @@
           "default": false,
           "description": "Show the '◎ Graph' code lens above functions/methods and the '◎ Graph class' lens on class declarations."
         },
+        "callchain.codeLens.showOverrides": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the '↧ N overrides' code lens above class functions that are overridden by subclasses (classes that extend this one)."
+        },
         "callchain.builtinConstantsPaths": {
           "type": "array",
           "items": {

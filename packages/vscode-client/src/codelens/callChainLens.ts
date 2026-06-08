@@ -3,6 +3,7 @@ import { CallGraph, ClassFlavor, SymbolKind } from "@4d/core";
 import type { SymbolRecord } from "@4d/core";
 import { TestStatusDecorator } from "../decorations/testStatusDecorator";
 import { CoverageReport } from "../testing/coverage";
+import { FUNCTION_KINDS, overridesForClass } from "./overrides";
 
 export class CallChainLensProvider implements vscode.CodeLensProvider {
   private readonly emitter = new vscode.EventEmitter<void>();
@@ -45,6 +46,15 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     const showCallers = cfg.get<boolean>("codeLens.showCallers", true);
     const showCallees = cfg.get<boolean>("codeLens.showCallees", false);
     const showGraph = cfg.get<boolean>("codeLens.showGraph", false);
+    const showOverrides = cfg.get<boolean>("codeLens.showOverrides", true);
+
+    // Overrides are keyed per declaring class. A 4D class file is one class, so
+    // we build the map at most once per document and reuse it across functions.
+    let overrideMap: Map<string, SymbolRecord[]> | undefined;
+    if (showOverrides) {
+      const classSym = symbols.find((s) => s.kind === SymbolKind.Class);
+      if (classSym) overrideMap = overridesForClass(graph, classSym.name);
+    }
 
     const out: vscode.CodeLens[] = [];
     for (const s of symbols) {
@@ -72,6 +82,20 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
         command: "callchain.showGraph",
         arguments: [s.id]
       }));
+
+      // Overrides: only on `Function` declarations (plain / get / set), and only
+      // when at least one descendant class redeclares this member.
+      if (overrideMap && FUNCTION_KINDS.has(s.kind)) {
+        const overrides = overrideMap.get(s.name.toLowerCase());
+        if (overrides && overrides.length > 0) {
+          const n = overrides.length;
+          out.push(new vscode.CodeLens(range, {
+            title: `↧ ${n} override${n === 1 ? "" : "s"}`,
+            command: "callchain.showOverrides",
+            arguments: [s.id]
+          }));
+        }
+      }
 
       // Tests covering this (only for non-test functions / methods)
       const isTest = s.classFlavor === ClassFlavor.Test || s.name.startsWith("test_");

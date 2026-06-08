@@ -13,6 +13,7 @@ import { delegateToScottHarris, isScottHarrisInstalled, runTests } from "./testi
 import { TestResultsWatcher } from "./testing/resultsWatcher";
 import { CoverageReport, computeCoverage } from "./testing/coverage";
 import { CallChainLensProvider } from "./codelens/callChainLens";
+import { findOverridesOfFunction } from "./codelens/overrides";
 import { DirtyLineTracker } from "./codelens/dirtyLineTracker";
 import { debounce } from "./util/debounce";
 
@@ -172,7 +173,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (
         e.affectsConfiguration("callchain.codeLens.showCallers") ||
         e.affectsConfiguration("callchain.codeLens.showCallees") ||
-        e.affectsConfiguration("callchain.codeLens.showGraph")
+        e.affectsConfiguration("callchain.codeLens.showGraph") ||
+        e.affectsConfiguration("callchain.codeLens.showOverrides")
       ) {
         lensProvider.refresh();
       }
@@ -344,6 +346,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const sym = graph.symbol(symbolId);
       if (!sym) return;
       await openSymbol(sym, lineOverride);
+    }),
+    vscode.commands.registerCommand("callchain.showOverrides", async (symbolId: string) => {
+      const graph = indexer.getGraph();
+      if (!graph) return;
+      const overrides = findOverridesOfFunction(graph, symbolId);
+      if (overrides.length === 0) {
+        vscode.window.showInformationMessage("No subclasses override this function.");
+        return;
+      }
+      if (overrides.length === 1) {
+        await openSymbol(overrides[0]);
+        return;
+      }
+      const items = overrides.map((s) => ({
+        label: s.name,
+        description: s.ownerClass ?? "",
+        detail: s.location.uri,
+        symbol: s
+      }));
+      const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: `${overrides.length} subclasses override this function`
+      });
+      if (picked?.symbol) await openSymbol(picked.symbol);
     }),
     vscode.commands.registerCommand("callchain.showGraph", async (symbolId?: string) => {
       const graph = indexer.getGraph();
