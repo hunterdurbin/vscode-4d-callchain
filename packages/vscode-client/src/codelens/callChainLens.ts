@@ -3,7 +3,7 @@ import { CallGraph, ClassFlavor, SymbolKind } from "@4d/core";
 import type { SymbolRecord } from "@4d/core";
 import { TestStatusDecorator } from "../decorations/testStatusDecorator";
 import { CoverageReport } from "../testing/coverage";
-import { FUNCTION_KINDS, descendantClassNames, directSubclasses, overridesForClass } from "./overrides";
+import { FUNCTION_KINDS, descendantClassNames, directSubclasses, inheritedFunctions, overridesForClass } from "./overrides";
 
 export class CallChainLensProvider implements vscode.CodeLensProvider {
   private readonly emitter = new vscode.EventEmitter<void>();
@@ -47,14 +47,23 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     const showCallees = cfg.get<boolean>("codeLens.showCallees", false);
     const showGraph = cfg.get<boolean>("codeLens.showGraph", false);
     const showOverrides = cfg.get<boolean>("codeLens.showOverrides", true);
+    const showOverriding = cfg.get<boolean>("codeLens.showOverriding", true);
     const showExtendedBy = cfg.get<boolean>("codeLens.showExtendedBy", true);
 
-    // Overrides are keyed per declaring class. A 4D class file is one class, so
-    // we build the map at most once per document and reuse it across functions.
+    // Override maps are keyed per declaring class. A 4D class file is one class,
+    // so we build each map at most once per document and reuse it across
+    // functions. overrideMap = members overridden BELOW (by subclasses);
+    // inheritedMap = members this class overrides ABOVE (from ancestors).
     let overrideMap: Map<string, SymbolRecord[]> | undefined;
-    if (showOverrides) {
+    let inheritedMap: Map<string, SymbolRecord> | undefined;
+    if (showOverrides || showOverriding) {
       const classSym = symbols.find((s) => s.kind === SymbolKind.Class);
-      if (classSym) overrideMap = overridesForClass(graph, classSym.name);
+      if (classSym) {
+        if (showOverrides) overrideMap = overridesForClass(graph, classSym.name);
+        if (showOverriding && classSym.extendsClass) {
+          inheritedMap = inheritedFunctions(graph, classSym.name);
+        }
+      }
     }
 
     const out: vscode.CodeLens[] = [];
@@ -84,17 +93,31 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
         arguments: [s.id]
       }));
 
-      // Overrides: only on `Function` declarations (plain / get / set), and only
-      // when at least one descendant class redeclares this member.
-      if (overrideMap && FUNCTION_KINDS.has(s.kind)) {
-        const overrides = overrideMap.get(s.name.toLowerCase());
-        if (overrides && overrides.length > 0) {
-          const n = overrides.length;
-          out.push(new vscode.CodeLens(range, {
-            title: `↧ ${n} override${n === 1 ? "" : "s"}`,
-            command: "callchain.showOverrides",
-            arguments: [s.id, line]
-          }));
+      // Overrides: only on `Function` declarations (plain / get / set). The two
+      // directions can both appear on a mid-chain function.
+      if (FUNCTION_KINDS.has(s.kind)) {
+        // ↥ this function overrides an ancestor's function
+        if (inheritedMap) {
+          const parent = inheritedMap.get(s.name.toLowerCase());
+          if (parent) {
+            out.push(new vscode.CodeLens(range, {
+              title: `↥ overrides ${parent.ownerClass}`,
+              command: "callchain.showOverridden",
+              arguments: [s.id, line]
+            }));
+          }
+        }
+        // ↧ this function is overridden by descendant classes
+        if (overrideMap) {
+          const overrides = overrideMap.get(s.name.toLowerCase());
+          if (overrides && overrides.length > 0) {
+            const n = overrides.length;
+            out.push(new vscode.CodeLens(range, {
+              title: `↧ ${n} override${n === 1 ? "" : "s"}`,
+              command: "callchain.showOverrides",
+              arguments: [s.id, line]
+            }));
+          }
         }
       }
 

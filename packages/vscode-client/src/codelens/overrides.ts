@@ -102,3 +102,43 @@ export function findOverridesOfFunction(graph: CallGraph, baseSymbolId: string):
   if (!base || !base.ownerClass || !FUNCTION_KINDS.has(base.kind)) return [];
   return overridesForClass(graph, base.ownerClass).get(base.name.toLowerCase()) ?? [];
 }
+
+/** The `extendsClass` of a class, looked up by class name. */
+function parentClassName(graph: CallGraph, className: string): string | undefined {
+  return graph.byName(className).find((s) => s.kind === SymbolKind.Class)?.extendsClass;
+}
+
+/**
+ * Function-kind members inherited from the strict ancestors of `className`,
+ * keyed by lowercased member name → the nearest ancestor's declaration. Walks
+ * up the `extendsClass` chain (cycle-guarded), keeping the first (nearest)
+ * declaration of each name. This is the upward mirror of `overridesForClass`:
+ * a member in `className` whose name is in this map overrides the mapped one.
+ */
+export function inheritedFunctions(graph: CallGraph, className: string): Map<string, SymbolRecord> {
+  const out = new Map<string, SymbolRecord>();
+  const visited = new Set<string>([className.toLowerCase()]);
+  let cur = parentClassName(graph, className);
+  while (cur && !visited.has(cur.toLowerCase())) {
+    visited.add(cur.toLowerCase());
+    const curLower = cur.toLowerCase();
+    for (const s of graph.allSymbols()) {
+      if (!FUNCTION_KINDS.has(s.kind)) continue;
+      if (s.ownerClass?.toLowerCase() !== curLower) continue;
+      const key = s.name.toLowerCase();
+      if (!out.has(key)) out.set(key, s); // nearest ancestor wins
+    }
+    cur = parentClassName(graph, cur);
+  }
+  return out;
+}
+
+/**
+ * The ancestor function that `baseSymbolId` overrides, if any. Convenience
+ * wrapper used by the `callchain.showOverridden` command.
+ */
+export function findOverriddenFunction(graph: CallGraph, baseSymbolId: string): SymbolRecord | undefined {
+  const base = graph.symbol(baseSymbolId);
+  if (!base || !base.ownerClass || !FUNCTION_KINDS.has(base.kind)) return undefined;
+  return inheritedFunctions(graph, base.ownerClass).get(base.name.toLowerCase());
+}

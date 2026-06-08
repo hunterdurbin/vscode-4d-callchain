@@ -13,7 +13,7 @@ import { delegateToScottHarris, isScottHarrisInstalled, runTests } from "./testi
 import { TestResultsWatcher } from "./testing/resultsWatcher";
 import { CoverageReport, computeCoverage } from "./testing/coverage";
 import { CallChainLensProvider } from "./codelens/callChainLens";
-import { descendantClasses, findOverridesOfFunction } from "./codelens/overrides";
+import { descendantClasses, findOverriddenFunction, findOverridesOfFunction } from "./codelens/overrides";
 import { DirtyLineTracker } from "./codelens/dirtyLineTracker";
 import { debounce } from "./util/debounce";
 
@@ -175,6 +175,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         e.affectsConfiguration("callchain.codeLens.showCallees") ||
         e.affectsConfiguration("callchain.codeLens.showGraph") ||
         e.affectsConfiguration("callchain.codeLens.showOverrides") ||
+        e.affectsConfiguration("callchain.codeLens.showOverriding") ||
         e.affectsConfiguration("callchain.codeLens.showExtendedBy")
       ) {
         lensProvider.refresh();
@@ -359,6 +360,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       await peekSymbols(base.location.uri, anchorLine ?? base.location.line ?? 0, overrides);
+    }),
+    vscode.commands.registerCommand("callchain.showOverridden", async (symbolId: string, anchorLine?: number) => {
+      const graph = indexer.getGraph();
+      if (!graph) return;
+      const base = graph.symbol(symbolId);
+      if (!base) return;
+      const overridden = findOverriddenFunction(graph, symbolId);
+      if (!overridden) {
+        vscode.window.showInformationMessage("This function does not override an inherited function.");
+        return;
+      }
+      await peekSymbols(base.location.uri, anchorLine ?? base.location.line ?? 0, [overridden]);
     }),
     vscode.commands.registerCommand("callchain.showSubclasses", async (symbolId: string, anchorLine?: number) => {
       const graph = indexer.getGraph();
