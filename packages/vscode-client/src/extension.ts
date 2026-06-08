@@ -13,7 +13,7 @@ import { delegateToScottHarris, isScottHarrisInstalled, runTests } from "./testi
 import { TestResultsWatcher } from "./testing/resultsWatcher";
 import { CoverageReport, computeCoverage } from "./testing/coverage";
 import { CallChainLensProvider } from "./codelens/callChainLens";
-import { findOverridesOfFunction } from "./codelens/overrides";
+import { descendantClasses, findOverridesOfFunction } from "./codelens/overrides";
 import { DirtyLineTracker } from "./codelens/dirtyLineTracker";
 import { debounce } from "./util/debounce";
 
@@ -174,7 +174,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         e.affectsConfiguration("callchain.codeLens.showCallers") ||
         e.affectsConfiguration("callchain.codeLens.showCallees") ||
         e.affectsConfiguration("callchain.codeLens.showGraph") ||
-        e.affectsConfiguration("callchain.codeLens.showOverrides")
+        e.affectsConfiguration("callchain.codeLens.showOverrides") ||
+        e.affectsConfiguration("callchain.codeLens.showExtendedBy")
       ) {
         lensProvider.refresh();
       }
@@ -347,28 +348,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!sym) return;
       await openSymbol(sym, lineOverride);
     }),
-    vscode.commands.registerCommand("callchain.showOverrides", async (symbolId: string) => {
+    vscode.commands.registerCommand("callchain.showOverrides", async (symbolId: string, anchorLine?: number) => {
       const graph = indexer.getGraph();
       if (!graph) return;
+      const base = graph.symbol(symbolId);
+      if (!base) return;
       const overrides = findOverridesOfFunction(graph, symbolId);
       if (overrides.length === 0) {
         vscode.window.showInformationMessage("No subclasses override this function.");
         return;
       }
-      if (overrides.length === 1) {
-        await openSymbol(overrides[0]);
+      await peekSymbols(base.location.uri, anchorLine ?? base.location.line ?? 0, overrides);
+    }),
+    vscode.commands.registerCommand("callchain.showSubclasses", async (symbolId: string, anchorLine?: number) => {
+      const graph = indexer.getGraph();
+      if (!graph) return;
+      const cls = graph.symbol(symbolId);
+      if (!cls) return;
+      const subs = descendantClasses(graph, cls.name);
+      if (subs.length === 0) {
+        vscode.window.showInformationMessage("No classes extend this class.");
         return;
       }
-      const items = overrides.map((s) => ({
-        label: s.name,
-        description: s.ownerClass ?? "",
-        detail: s.location.uri,
-        symbol: s
-      }));
-      const picked = await vscode.window.showQuickPick(items, {
-        placeHolder: `${overrides.length} subclasses override this function`
-      });
-      if (picked?.symbol) await openSymbol(picked.symbol);
+      await peekSymbols(cls.location.uri, anchorLine ?? cls.location.line ?? 0, subs);
     }),
     vscode.commands.registerCommand("callchain.showGraph", async (symbolId?: string) => {
       const graph = indexer.getGraph();
@@ -709,4 +711,27 @@ async function openSymbol(s: SymbolRecord, lineOverride?: number): Promise<void>
   const doc = await vscode.workspace.openTextDocument(uri);
   const line = lineOverride ?? s.location.line ?? 0;
   await vscode.window.showTextDocument(doc, { selection: new vscode.Range(line, 0, line, 0) });
+}
+
+/**
+ * Show `targets` in VS Code's native peek widget, anchored at (anchorUri,
+ * anchorLine) — the file/line of the clicked code lens. Used by the override /
+ * extended-by lenses so results preview inline instead of navigating away.
+ */
+async function peekSymbols(anchorUri: string, anchorLine: number, targets: SymbolRecord[]): Promise<void> {
+  if (!anchorUri || targets.length === 0) return;
+  const uri = vscode.Uri.parse(anchorUri);
+  // Ensure the anchor doc is the active editor so the peek opens in it.
+  await vscode.window.showTextDocument(uri, { preserveFocus: false });
+  const position = new vscode.Position(anchorLine, 0);
+  const locations = targets
+    .filter((t) => t.location.uri)
+    .map(
+      (t) =>
+        new vscode.Location(
+          vscode.Uri.parse(t.location.uri),
+          new vscode.Position(t.location.line ?? 0, t.location.column ?? 0)
+        )
+    );
+  await vscode.commands.executeCommand("editor.action.peekLocations", uri, position, locations, "peek");
 }

@@ -42,6 +42,32 @@ export function descendantClassNames(graph: CallGraph, className: string): Set<s
 }
 
 /**
+ * Classes that directly extend `className` (their `Class extends` names it).
+ */
+export function directSubclasses(graph: CallGraph, className: string): SymbolRecord[] {
+  const target = className.toLowerCase();
+  return graph
+    .allSymbols()
+    .filter((s) => s.kind === SymbolKind.Class && s.extendsClass?.toLowerCase() === target);
+}
+
+/**
+ * Every class (transitively) below `className`, as `Class` records sorted by
+ * name. Used by the "Extended by N" lens command so the user can jump to any
+ * descendant, not just direct children.
+ */
+export function descendantClasses(graph: CallGraph, className: string): SymbolRecord[] {
+  const names = descendantClassNames(graph, className);
+  if (names.size === 0) return [];
+  const out: SymbolRecord[] = [];
+  for (const s of graph.allSymbols()) {
+    if (s.kind === SymbolKind.Class && names.has(s.name.toLowerCase())) out.push(s);
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+/**
  * Maps each base-class function name (lowercased) to the function-kind members
  * in descendant classes that override it. One pass over the graph; the result
  * is keyed so the lens provider can do O(1) lookups per function in a document.

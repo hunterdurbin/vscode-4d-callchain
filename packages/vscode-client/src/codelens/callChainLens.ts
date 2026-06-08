@@ -3,7 +3,7 @@ import { CallGraph, ClassFlavor, SymbolKind } from "@4d/core";
 import type { SymbolRecord } from "@4d/core";
 import { TestStatusDecorator } from "../decorations/testStatusDecorator";
 import { CoverageReport } from "../testing/coverage";
-import { FUNCTION_KINDS, overridesForClass } from "./overrides";
+import { FUNCTION_KINDS, descendantClassNames, directSubclasses, overridesForClass } from "./overrides";
 
 export class CallChainLensProvider implements vscode.CodeLensProvider {
   private readonly emitter = new vscode.EventEmitter<void>();
@@ -47,6 +47,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     const showCallees = cfg.get<boolean>("codeLens.showCallees", false);
     const showGraph = cfg.get<boolean>("codeLens.showGraph", false);
     const showOverrides = cfg.get<boolean>("codeLens.showOverrides", true);
+    const showExtendedBy = cfg.get<boolean>("codeLens.showExtendedBy", true);
 
     // Overrides are keyed per declaring class. A 4D class file is one class, so
     // we build the map at most once per document and reuse it across functions.
@@ -59,7 +60,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     const out: vscode.CodeLens[] = [];
     for (const s of symbols) {
       if (s.kind === SymbolKind.Class) {
-        out.push(...this.lensesForClass(s, docUri, showGraph));
+        out.push(...this.lensesForClass(s, docUri, showGraph, showExtendedBy, graph));
         continue;
       }
       const callerCount = graph.callers(s.id).length;
@@ -92,7 +93,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
           out.push(new vscode.CodeLens(range, {
             title: `↧ ${n} override${n === 1 ? "" : "s"}`,
             command: "callchain.showOverrides",
-            arguments: [s.id]
+            arguments: [s.id, line]
           }));
         }
       }
@@ -130,10 +131,31 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     return out;
   }
 
-  private lensesForClass(s: SymbolRecord, docUri: string, showGraph: boolean): vscode.CodeLens[] {
+  private lensesForClass(
+    s: SymbolRecord,
+    docUri: string,
+    showGraph: boolean,
+    showExtendedBy: boolean,
+    graph: CallGraph
+  ): vscode.CodeLens[] {
     const line = this.mapLine(docUri, s.location.line);
     const range = new vscode.Range(line, 0, line, 1);
     const lenses: vscode.CodeLens[] = [];
+    if (showExtendedBy) {
+      const direct = directSubclasses(graph, s.name).length;
+      if (direct > 0) {
+        const total = descendantClassNames(graph, s.name).size;
+        const title =
+          total > direct
+            ? `↥ Extended by ${direct} (${total} total)`
+            : `↥ Extended by ${direct} other${direct === 1 ? "" : "s"}`;
+        lenses.push(new vscode.CodeLens(range, {
+          title,
+          command: "callchain.showSubclasses",
+          arguments: [s.id, line]
+        }));
+      }
+    }
     if (s.classFlavor === ClassFlavor.Test) {
       lenses.push(new vscode.CodeLens(range, {
         title: `▶ Run tests for ${s.name}`,

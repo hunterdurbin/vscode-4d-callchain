@@ -426,6 +426,11 @@
           "default": true,
           "description": "Show the '↧ N overrides' code lens above class functions that are overridden by subclasses (classes that extend this one)."
         },
+        "callchain.codeLens.showExtendedBy": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the '↥ Extended by N' code lens on a class declaration, counting subclasses (direct, plus total descendants when deeper)."
+        },
         "callchain.builtinConstantsPaths": {
           "type": "array",
           "items": {
