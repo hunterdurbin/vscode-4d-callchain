@@ -137,3 +137,50 @@ describe("CallGraph mutation API", () => {
     expect(g.callers("ProjectMethod:B")).toEqual([]);
   });
 });
+
+describe("CallGraph.shortestPath", () => {
+  // A -> B -> C -> D chain, plus a shortcut A -> D' is absent so the only
+  // path A..D is length 3.
+  function chainGraph(): CallGraph {
+    const idx = makeIndex();
+    const g = new CallGraph(idx);
+    for (const n of ["A", "B", "C", "D"]) g.addSymbol(sym(`ProjectMethod:${n}`, n));
+    g.addEdge(edge("ProjectMethod:A", "ProjectMethod:B"));
+    g.addEdge(edge("ProjectMethod:B", "ProjectMethod:C"));
+    g.addEdge(edge("ProjectMethod:C", "ProjectMethod:D"));
+    return g;
+  }
+
+  it("returns the ordered edge chain between two connected symbols", () => {
+    const g = chainGraph();
+    const path = g.shortestPath("ProjectMethod:A", "ProjectMethod:D", 10, "forward");
+    expect(path).not.toBeNull();
+    expect(path!.map((e) => `${e.fromId}->${e.toId}`)).toEqual([
+      "ProjectMethod:A->ProjectMethod:B",
+      "ProjectMethod:B->ProjectMethod:C",
+      "ProjectMethod:C->ProjectMethod:D"
+    ]);
+  });
+
+  it("returns an empty path when from === to", () => {
+    expect(chainGraph().shortestPath("ProjectMethod:A", "ProjectMethod:A", 5, "forward")).toEqual([]);
+  });
+
+  it("returns null when the target is beyond maxDepth", () => {
+    expect(chainGraph().shortestPath("ProjectMethod:A", "ProjectMethod:D", 2, "forward")).toBeNull();
+  });
+
+  it("forward direction does not find a target that is upstream", () => {
+    expect(chainGraph().shortestPath("ProjectMethod:D", "ProjectMethod:A", 10, "forward")).toBeNull();
+  });
+
+  it("reverse direction walks callers", () => {
+    const path = chainGraph().shortestPath("ProjectMethod:D", "ProjectMethod:A", 10, "reverse");
+    expect(path).not.toBeNull();
+    expect(path!).toHaveLength(3);
+  });
+
+  it("returns null for unknown ids", () => {
+    expect(chainGraph().shortestPath("ProjectMethod:A", "ProjectMethod:ZZZ", 10, "forward")).toBeNull();
+  });
+});

@@ -50,6 +50,55 @@ Two `.vsix` variants:
 - `callchain.showCoverageHints` — gutter markers for uncovered functions.
 - `callchain.lint.rules` — per-rule severity + options for the built-in linter (eleven rules across `types/`, `decl/`, `unused/`, `style/` themes; all off by default). See [docs/lint-rules.md](docs/lint-rules.md).
 
+## MCP server (for AI agents)
+
+The same call-graph engine is exposed to AI agents (Claude Code, Cursor, or any
+[MCP](https://modelcontextprotocol.io) client) through a standalone server in
+`packages/mcp-server`. It loads the shared index cache the extension already
+writes (`<projectRoot>/.vscode/callchain-index-*.msgpack`) — so startup is
+near-instant when the extension has indexed once — and watches that cache to
+stay in sync as you save.
+
+Build it with the rest of the monorepo (`npm run build`), then register it with
+your agent. For Claude Code, add to `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "4d-callchain": {
+      "command": "node",
+      "args": [
+        "/abs/path/to/vscode-4d-callchain/packages/mcp-server/dist/bin.js",
+        "--project-root",
+        "/abs/path/to/your/4d/project"
+      ]
+    }
+  }
+}
+```
+
+If the project has never been indexed, the server cold-builds the index itself
+(regex parser, no native tree-sitter binding required).
+
+Available tools:
+
+| Tool | What it answers |
+|------|-----------------|
+| `search_symbols` | Find methods/classes/functions/constants by name (exact → prefix → fuzzy). |
+| `get_symbol` | Signature, location, and caller/callee counts for one symbol. |
+| `find_callers` / `find_callees` | Incoming / outgoing call edges with call-site lines. |
+| `reachable` | Bounded BFS (depth + direction) from a symbol. |
+| `call_path` | Shortest call path between two symbols. |
+| `class_hierarchy` | Ancestors, direct subclasses, and all descendants of a class. |
+| `find_overrides` / `find_overridden` | Override relationships for class functions. |
+| `reindex` | Force a full rebuild (rarely needed). |
+
+Tools accept a stable `symbolId` (from a prior result) or a `name` with optional
+`kind` / `ownerClass` to disambiguate; an ambiguous name returns the candidate
+list. Run `node packages/mcp-server/dist/bin.js --project-root <path>` under
+[`@modelcontextprotocol/inspector`](https://github.com/modelcontextprotocol/inspector)
+to explore the tools interactively.
+
 ## Linting
 
 The extension ships eleven best-practices lint rules. Every rule is off
