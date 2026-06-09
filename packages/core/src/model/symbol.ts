@@ -269,9 +269,14 @@ export interface ChainStep {
 // dsTable:/entitySelectionOf: type shapes (from `ds.X.new()` / queries) to the
 // owning entity class via normalizeType — so alias/getter references through a
 // dataclass-typed local (e.g. `$e:=ds.Foo.new()` then `$e.<alias>`) resolve.
+// Bumped to 42 when `cs.X.new().method()` chains started also emitting the
+// base construction edge (`cs.X.new()` → X's constructor / Class symbol) in
+// addition to the terminal-method edge — previously the tree-sitter parser
+// swallowed the `.new()` of a chain, so chained instantiation sites were
+// invisible to find_instantiations (the regex parser already emitted it).
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 41;
+export const INDEX_VERSION = 42;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

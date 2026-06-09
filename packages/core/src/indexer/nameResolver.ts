@@ -955,6 +955,18 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           // `cs.X.new().method()[.chain…]` — `.new()` constructs an instance
           // of X, so walk any remaining steps from that instance type, then
           // resolve the terminal method (same machinery as VarChainCall).
+          //
+          // First record the construction itself: `cs.X.new()` edges into X's
+          // constructor (or the Class symbol when X declares none), mirroring
+          // the standalone `CsNew` case. Without this the base `.new()` of a
+          // chain is invisible to find_instantiations — and the regex parser
+          // already emits it via RE_CS_NEW, so this keeps the two parsers in
+          // parity.
+          const baseCls = classByName.get(hint.className.toLowerCase());
+          if (baseCls) {
+            const ctor = classFunctions.get(`${baseCls.name}.constructor`.toLowerCase());
+            pushEdge(ctor?.id ?? baseCls.id, CallKind.Static, true);
+          }
           const fallbackLabel =
             `cs.${hint.className}.new` +
             (hint.path.length ? `.${pathLabel(hint.path)}` : "") +

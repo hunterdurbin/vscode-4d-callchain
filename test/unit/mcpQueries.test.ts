@@ -58,7 +58,15 @@ function makeGraph(): CallGraph {
     { id: "Class:Foo", name: "Foo", kind: SymbolKind.Class, classFlavor: ClassFlavor.DataClass, location: { uri: `file://${ROOT}/Project/Sources/Classes/Foo.4dm`, line: 0 } },
     { id: "TableBuiltin:ds.Foo.new", name: "ds.Foo.new", kind: SymbolKind.TableBuiltin, ownerTable: "Foo", location: { uri: "", line: 0 } },
     { id: "TableBuiltin:ds.Foo.query", name: "ds.Foo.query", kind: SymbolKind.TableBuiltin, ownerTable: "Foo", location: { uri: "", line: 0 } },
-    method("ProjectMethod:UsesFoo", "UsesFoo")
+    method("ProjectMethod:UsesFoo", "UsesFoo"),
+    // A plain (non-ORDA) class with a constructor: `cs.Job.new()` edges land on
+    // the constructor symbol, so find_instantiations must harvest its callers.
+    classSym("Job"),
+    { id: "ClassConstructor:Job.constructor", name: "constructor", kind: SymbolKind.ClassConstructor, ownerClass: "Job", location: { uri: `file://${ROOT}/Project/Sources/Classes/Job.4dm`, line: 1 } },
+    method("ProjectMethod:BuildJob", "BuildJob"),
+    // A polymorphic dispatch site: Dispatcher calls Base.foo (typed to the
+    // base), which can dispatch to the Sub.foo override at runtime.
+    method("ProjectMethod:Dispatcher", "Dispatcher")
   ];
   const edges: CallEdge[] = [
     edge("ProjectMethod:M1", "ProjectMethod:M2", 5),
@@ -71,7 +79,11 @@ function makeGraph(): CallGraph {
     edge("ProjectMethod:M4", "ProjectMethod:M3", 10, 20),
     // UsesFoo creates and queries the dataclass.
     edge("ProjectMethod:UsesFoo", "TableBuiltin:ds.Foo.new", 3, 4),
-    edge("ProjectMethod:UsesFoo", "TableBuiltin:ds.Foo.query", 5, 4)
+    edge("ProjectMethod:UsesFoo", "TableBuiltin:ds.Foo.query", 5, 4),
+    // cs.Job.new() — edge targets the constructor, not the Class symbol.
+    edge("ProjectMethod:BuildJob", "ClassConstructor:Job.constructor", 12, 4),
+    // $base.foo() typed to Base — resolves to Base.foo, dispatches to Sub.foo.
+    edge("ProjectMethod:Dispatcher", "ClassFunction:Base.foo", 20, 4)
   ];
   const idx: SymbolIndex = { version: INDEX_VERSION, builtAt: 0, projectRoot: ROOT, symbols, edges, fileMtimes: {} };
   return new CallGraph(idx);
@@ -187,6 +199,35 @@ describe("mcp queries", () => {
     if (isQueryError(dc)) throw new Error("unexpected error");
     expect(dc.dataClass).toBe("Foo");
     expect(dc.count).toBe(2);
+  });
+
+  it("find_instantiations surfaces cs.<Class>.new() sites for a plain class via its constructor", () => {
+    const r = findInstantiations(g, ROOT, "Job");
+    if (isQueryError(r)) throw new Error("unexpected error");
+    expect(r.dataClass).toBeUndefined(); // not ORDA
+    expect(r.count).toBe(1);
+    expect(r.sites[0].symbol.name).toBe("BuildJob");
+    expect(r.sites[0].via).toBe("cs.Job.new");
+  });
+
+  it("find_callers surfaces polymorphic dispatch on an override under viaBase, count stays direct-only", () => {
+    const r = findCallers(g, ROOT, { symbolId: "ClassFunction:Sub.foo" });
+    if (isQueryError(r)) throw new Error("unexpected error");
+    // No direct callers point at the override itself.
+    expect(r.count).toBe(0);
+    expect(r.callers).toEqual([]);
+    // …but the base method's call site dispatches here.
+    expect(r.viaBase?.length).toBe(1);
+    expect(r.viaBase![0].base.id).toBe("ClassFunction:Base.foo");
+    expect(r.viaBase![0].sites.map((s) => s.symbol.name)).toEqual(["Dispatcher"]);
+    expect(r.viaBase![0].sites[0].via).toBe("dispatched via base cs.Base.foo");
+  });
+
+  it("find_callers omits viaBase for a base method (overrides nothing)", () => {
+    const r = findCallers(g, ROOT, { symbolId: "ClassFunction:Base.foo" });
+    if (isQueryError(r)) throw new Error("unexpected error");
+    expect(r.count).toBe(1); // the direct Dispatcher caller
+    expect(r.viaBase).toBeUndefined();
   });
 
   it("find_overrides / find_overridden resolve the Base.foo <-> Sub.foo pair", () => {

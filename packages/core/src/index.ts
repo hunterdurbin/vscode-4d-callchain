@@ -13,7 +13,8 @@ export {
   overridesForClass,
   findOverridesOfFunction,
   inheritedFunctions,
-  findOverriddenFunction
+  findOverriddenFunction,
+  overriddenFunctionChain
 } from "./model/overrides";
 export {
   SymbolKind,

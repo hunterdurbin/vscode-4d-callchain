@@ -143,3 +143,32 @@ export function findOverriddenFunction(graph: CallGraph, baseSymbolId: string): 
   if (!base || !base.ownerClass || !FUNCTION_KINDS.has(base.kind)) return undefined;
   return inheritedFunctions(graph, base.ownerClass).get(base.name.toLowerCase());
 }
+
+/**
+ * Every strict-ancestor declaration of the same-named function that
+ * `baseSymbolId` overrides, nearest-first. Unlike `findOverriddenFunction`
+ * (nearest only), this returns *all* ancestors that declare the member — a
+ * polymorphic call typed to any ancestor can dispatch to this override, so
+ * each ancestor's call sites are potential virtual callers. Walks the
+ * `extendsClass` chain, cycle-guarded; returns `[]` for non-function symbols
+ * or symbols that override nothing.
+ */
+export function overriddenFunctionChain(graph: CallGraph, baseSymbolId: string): SymbolRecord[] {
+  const base = graph.symbol(baseSymbolId);
+  if (!base || !base.ownerClass || !FUNCTION_KINDS.has(base.kind)) return [];
+  const name = base.name.toLowerCase();
+  const out: SymbolRecord[] = [];
+  const visited = new Set<string>([base.ownerClass.toLowerCase()]);
+  let cur = parentClassName(graph, base.ownerClass);
+  while (cur && !visited.has(cur.toLowerCase())) {
+    visited.add(cur.toLowerCase());
+    const curLower = cur.toLowerCase();
+    for (const s of graph.allSymbols()) {
+      if (!FUNCTION_KINDS.has(s.kind)) continue;
+      if (s.ownerClass?.toLowerCase() !== curLower) continue;
+      if (s.name.toLowerCase() === name) out.push(s);
+    }
+    cur = parentClassName(graph, cur);
+  }
+  return out;
+}

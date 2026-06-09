@@ -74,7 +74,11 @@ export function registerTools(server: McpServer, state: GraphState): void {
     "find_callers",
     {
       title: "Find callers",
-      description: "List the symbols that call the given symbol (incoming edges), with call-site lines.",
+      description:
+        "List the symbols that call the given symbol (incoming edges), with call-site lines. " +
+        "For an overriding class method, also returns `viaBase` — call sites that resolve to an " +
+        "ancestor's same-named method but can dispatch here polymorphically (so the override isn't " +
+        "mistaken for dead code). The direct `count` excludes these.",
       inputSchema: { ...selectorShape, limit: z.number().int().min(1).max(500).optional() }
     },
     async ({ limit, ...sel }) => result(findCallers(state.getGraph(), root(), sel, limit))
@@ -156,11 +160,13 @@ export function registerTools(server: McpServer, state: GraphState): void {
     {
       title: "Find instantiations / dataclass usage",
       description:
-        "For an ORDA class (Entity, EntitySelection, or DataClass), find where it is created or used — " +
-        "the ORDA answer to find_callers (which returns 0 because cs.<Entity> / ds.<DataClass> forms don't " +
-        "edge to the class). Returns direct cs.<Class>.new() callers plus every ds.<DataClass>.<method> " +
-        "CRUD site (new/query/get/all/…) that creates or returns entities, each tagged with the form used.",
-      inputSchema: { className: z.string().describe("The ORDA class name (entity, selection, or dataclass)."), limit: z.number().int().min(1).max(500).optional() }
+        "Find where a class is constructed or used — the answer find_callers can't give directly, because " +
+        "cs.<Class>.new() edges land on the constructor (not the Class) and ORDA cs.<Entity> / ds.<DataClass> " +
+        "forms don't edge to the class at all. For any user class, returns direct cs.<Class>.new() sites. " +
+        "For an ORDA class (Entity, EntitySelection, or DataClass) it additionally returns every " +
+        "ds.<DataClass>.<method> CRUD site (new/query/get/all/…) that creates or returns entities, each tagged " +
+        "with the form used.",
+      inputSchema: { className: z.string().describe("The class name (any user class; ORDA entity/selection/dataclass for CRUD-usage sites)."), limit: z.number().int().min(1).max(500).optional() }
     },
     async ({ className, limit }) => result(findInstantiations(state.getGraph(), root(), className, limit))
   );

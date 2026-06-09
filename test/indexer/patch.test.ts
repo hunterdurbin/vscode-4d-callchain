@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 41 after alias/getter resolution through dataclass-typed locals", () => {
-    expect(INDEX_VERSION).toBe(41);
+  it("INDEX_VERSION is 42 after cs.X.new().method() chains emit the base construction edge", () => {
+    expect(INDEX_VERSION).toBe(42);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {

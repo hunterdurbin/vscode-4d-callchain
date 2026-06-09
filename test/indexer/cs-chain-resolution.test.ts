@@ -62,4 +62,24 @@ describeWithFixture("indexer/cs-chain-resolution — cs.X.new().method() chains"
     expect(callee).toBeTruthy();
     expect(callee?.resolved).toBe(true);
   });
+
+  it("also records the base construction edge (cs.OrderHydrator.new()) of the chain", () => {
+    if (!isMini) return;
+    // The `.new()` of `cs.OrderHydrator.new().method()` must edge into the
+    // class (OrderHydrator declares no constructor → the Class symbol), in
+    // parity with the regex parser and so find_instantiations sees the site.
+    const from = idx.symbols.find(
+      (s: any) =>
+        s.kind === "ClassFunction" &&
+        s.name === "test_chainedNew" &&
+        s.ownerClass === "OrderHydrator_Test"
+    );
+    expect(from).toBeTruthy();
+    if (!from) return;
+    const ctorEdge = idx.edges
+      .filter((e) => e.fromId === from.id)
+      .find((e) => e.toId === "Class:OrderHydrator" || e.toId === "ClassConstructor:OrderHydrator.constructor");
+    expect(ctorEdge).toBeTruthy();
+    expect(ctorEdge?.resolved).toBe(true);
+  });
 });

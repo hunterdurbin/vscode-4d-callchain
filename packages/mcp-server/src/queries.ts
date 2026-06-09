@@ -9,7 +9,9 @@ import {
   findOverriddenFunction,
   findOverridesOfFunction,
   fuzzyMatch,
-  inheritedFunctions
+  inheritedFunctions,
+  overriddenFunctionChain,
+  symbolIdFor
 } from "@4d/core";
 import { SymbolSummary, summarize, summarizeEdge } from "./format.js";
 import { resolveSymbol, SymbolSelector } from "./resolve.js";
@@ -108,14 +110,37 @@ export function findCallers(
   projectRoot: string,
   sel: SymbolSelector,
   limit = 100
-): QueryError | { symbol: SymbolSummary; count: number; callers: ReturnType<typeof summarizeEdge>[] } {
+): QueryError | {
+  symbol: SymbolSummary;
+  count: number;
+  callers: ReturnType<typeof summarizeEdge>[];
+  viaBase?: { base: SymbolSummary; sites: (ReturnType<typeof summarizeEdge> & { via: string })[] }[];
+} {
   const sym = resolveOrError(graph, sel, projectRoot);
   if (isQueryError(sym)) return sym;
   const edges = dedupeEdges(graph.callers(sym.id), (e) => e.fromId);
+
+  // Polymorphic dispatch: a call typed to an ancestor class resolves to that
+  // ancestor's method, so an overriding method gets no *direct* caller edge.
+  // Surface those base call sites separately (the direct count stays exact) so
+  // overrides don't look like dead code. One group per ancestor declaration.
+  const edgeKey = (e: CallEdge) => `${e.fromId}|${e.line}|${e.column ?? ""}`;
+  const directKeys = new Set(edges.map(edgeKey));
+  const viaBase: { base: SymbolSummary; sites: (ReturnType<typeof summarizeEdge> & { via: string })[] }[] = [];
+  for (const base of overriddenFunctionChain(graph, sym.id)) {
+    const via = `dispatched via base cs.${base.ownerClass}.${base.name}`;
+    const sites = dedupeEdges(graph.callers(base.id), (e) => e.fromId)
+      .filter((e) => !directKeys.has(edgeKey(e)))
+      .slice(0, limit)
+      .map((e) => ({ ...summarizeEdge(e, e.fromId, graph, projectRoot), via }));
+    if (sites.length) viaBase.push({ base: summarize(base, projectRoot), sites });
+  }
+
   return {
     symbol: summarize(sym, projectRoot),
     count: edges.length,
-    callers: edges.slice(0, limit).map((e) => summarizeEdge(e, e.fromId, graph, projectRoot))
+    callers: edges.slice(0, limit).map((e) => summarizeEdge(e, e.fromId, graph, projectRoot)),
+    ...(viaBase.length ? { viaBase } : {})
   };
 }
 
@@ -280,17 +305,21 @@ export function classMembers(
 }
 
 /**
- * "Where is this entity/dataclass created or used?" — the ORDA counterpart to
- * find_callers, which reports 0 for ORDA classes because `ds.<DataClass>` and
- * `cs.<Entity>` reference forms don't edge directly to the `Class` symbol.
+ * "Where is this class created or used?" — the answer find_callers can't give
+ * directly, because `cs.<Class>.new()` edges land on the constructor symbol
+ * (not the `Class`), and ORDA `ds.<DataClass>` / `cs.<Entity>` forms don't
+ * edge to the `Class` at all.
  *
- * 4D's convention links a dataclass `Foo` to entity class `FooEntity` and
- * selection `FooSelection`. We derive the dataclass name from the target
- * class, then gather instantiation/usage sites from data already in the graph:
- *   - direct `cs.<Class>.new()` / constructor callers of the class itself, and
- *   - callers of the synthetic `ds.<DataClass>.<method>` TableBuiltins
- *     (new / query / get / all / …), which are exactly the dataclass CRUD
- *     sites that create or return entities and selections.
+ * For any user class we gather direct `cs.<Class>.new()` callers — harvested
+ * from both the `Class` symbol and its `ClassConstructor` symbol, since a
+ * `cs.X.new()` edge targets whichever exists.
+ *
+ * For ORDA classes we additionally link a dataclass `Foo` to entity class
+ * `FooEntity` / selection `FooSelection` (derived from the target class name),
+ * then add callers of the synthetic `ds.<DataClass>.<method>` TableBuiltins
+ * (new / query / get / all / …) — the dataclass CRUD sites that create or
+ * return entities and selections.
+ *
  * No graph mutation — this reads existing caller edges, so it needs no
  * INDEX_VERSION bump.
  */
@@ -327,8 +356,15 @@ export function findInstantiations(
     sites.push({ ...summarizeEdge(edge, edge.fromId, graph, projectRoot), via });
   };
 
-  // 1. Direct constructor / cs.<Class>.new() callers of the class itself.
+  // 1. Direct cs.<Class>.new() callers. A `cs.X.new()` edge lands on the
+  // ClassConstructor symbol when X declares one, and on the Class symbol
+  // otherwise — so harvest callers of both. This is what makes the tool work
+  // for any user class, not just ORDA ones.
   for (const e of graph.callers(cls.id)) add(e, `cs.${cls.name}.new`);
+  const ctor = graph.symbol(symbolIdFor(SymbolKind.ClassConstructor, "constructor", cls.name));
+  if (ctor) {
+    for (const e of graph.callers(ctor.id)) add(e, `cs.${cls.name}.new`);
+  }
 
   // 2. ds.<DataClass>.<method> usage — callers of the per-dataclass TableBuiltins.
   if (dataClass) {
