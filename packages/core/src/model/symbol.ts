@@ -237,9 +237,13 @@ export interface ChainStep {
 // Bumped to 36 when `cs.X.new().method()` single-line chains started
 // emitting a resolved CsChainCall edge (previously the parser skipped the
 // trailing method on any cs chain containing an intermediate call).
+// Bumped to 37 when the incremental patch path started deduping edges on
+// append (`appendEdgeDeduped`). Caches built by the old patch path could
+// contain doubled call edges (same from/to/line/callKind/column) when a
+// file's add ran without a preceding remove; the bump flushes those.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 36;
+export const INDEX_VERSION = 37;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

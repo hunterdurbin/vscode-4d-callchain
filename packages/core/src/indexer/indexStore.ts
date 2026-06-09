@@ -682,6 +682,38 @@ export class Indexer {
    * public-name keys (a superset of what the caller will diff against the
    * pre-removal set for cross-file invalidation).
    */
+  /**
+   * Append an edge to the live graph + `edgesByFromId`, skipping it if an
+   * identical edge (same target, line, callKind, column) is already present
+   * for this source symbol. Returns true if the edge was newly added.
+   *
+   * The cold-rebuild path dedups edges in `resolve()`, but the incremental
+   * patch path appended unconditionally — so if a file's `addFileContribution`
+   * ran without a preceding `removeFileContribution` purge (e.g. a create
+   * event, or an add replayed across patch batches) every call site's edge
+   * doubled in the persisted index. Deduping on append makes the patch path
+   * idempotent and keeps the in-memory graph consistent with a cold rebuild.
+   */
+  private appendEdgeDeduped(e: CallEdge): boolean {
+    if (!this.edgesByFromId || !this.graph) return false;
+    let list = this.edgesByFromId.get(e.fromId);
+    if (!list) { list = []; this.edgesByFromId.set(e.fromId, list); }
+    if (
+      list.some(
+        (x) =>
+          x.toId === e.toId &&
+          x.line === e.line &&
+          x.callKind === e.callKind &&
+          x.column === e.column
+      )
+    ) {
+      return false;
+    }
+    this.graph.addEdge(e);
+    list.push(e);
+    return true;
+  }
+
   private addFileContribution(parsed: ParsedFile): Set<string> {
     const added = new Set<string>();
     if (!this.parsedByPath || !this.symbolIdsByPath || !this.synthOwnersByPath
@@ -750,13 +782,13 @@ export class Indexer {
     }
 
     // Append edges to the live index + maintain edgesByFromId and edgesByNameKey.
+    // Dedup on append so a replayed add can't double a call site's edge.
+    const addedEdges = new Set<CallEdge>();
     for (const e of newEdges) {
-      this.graph.addEdge(e);
-      let list = this.edgesByFromId.get(e.fromId);
-      if (!list) { list = []; this.edgesByFromId.set(e.fromId, list); }
-      list.push(e);
+      if (this.appendEdgeDeduped(e)) addedEdges.add(e);
     }
-    // Reverse-name index for the new edges.
+    // Reverse-name index for the new edges (only those actually added — a
+    // skipped duplicate's name-key entry already exists from the first add).
     for (let i = 0; i < parsed.rawCalls.length; i++) {
       const call = parsed.rawCalls[i];
       if (!call.hint) continue;
@@ -765,7 +797,7 @@ export class Indexer {
       const edge = newEdges.find(
         (e) => e.fromId === call.fromSymbolId && e.line === call.line && e.raw === call.expression && e.column === call.column
       );
-      if (!edge) continue;
+      if (!edge || !addedEdges.has(edge)) continue;
       for (const k of keys) {
         let list = this.edgesByNameKey.get(k);
         if (!list) { list = []; this.edgesByNameKey.set(k, list); }
@@ -866,10 +898,7 @@ export class Indexer {
         const miniParsed = { ...parsed, rawCalls: [call] };
         const newEdges = resolveCallsForFile(miniParsed, scratch);
         for (const e of newEdges) {
-          this.graph.addEdge(e);
-          let list = this.edgesByFromId.get(e.fromId);
-          if (!list) { list = []; this.edgesByFromId.set(e.fromId, list); }
-          list.push(e);
+          if (!this.appendEdgeDeduped(e)) continue;
           for (const k of keys) {
             let bucket = this.edgesByNameKey.get(k);
             if (!bucket) { bucket = []; this.edgesByNameKey.set(k, bucket); }

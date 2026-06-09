@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 36 after cs.X.new().method() chains started emitting resolved CsChainCall edges", () => {
-    expect(INDEX_VERSION).toBe(36);
+  it("INDEX_VERSION is 37 after the incremental patch path started deduping edges on append", () => {
+    expect(INDEX_VERSION).toBe(37);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {
@@ -97,6 +97,31 @@ describe("incremental indexing (patchFile)", () => {
     const fresh = await freshIndex(root);
 
     expect(sortSymbols(patched)).toEqual(sortSymbols(fresh));
+    expect(sortEdges(patched)).toEqual(sortEdges(fresh));
+  });
+
+  it("patching the same file repeatedly does not accumulate duplicate edges", async () => {
+    const root = mkTmpFixture();
+    const target = path.join(root, "Project", "Sources", "Methods", "MyLength.4dm");
+    const original = fs.readFileSync(target, "utf8");
+
+    // Apply the same edit and re-patch the file several times. Each patch must
+    // remove-then-(deduped-)add, so the edge set never grows beyond a single
+    // rebuild's. Before edges were deduped on append, a replayed add doubled
+    // every call site (see INDEX_VERSION 37).
+    const patched = await buildPatched(
+      root,
+      () => fs.writeFileSync(target, original.replace("Length($s)+1", "Length($s)+2")),
+      [target, target, target]
+    );
+    const fresh = await freshIndex(root);
+
+    // No edge appears more than once for the patched file's symbols.
+    const key = (e: CallEdge) => `${e.fromId}|${e.toId}|${e.line}|${e.callKind}|${e.column}`;
+    const counts = new Map<string, number>();
+    for (const e of patched.edges) counts.set(key(e), (counts.get(key(e)) ?? 0) + 1);
+    const dups = [...counts.entries()].filter(([, n]) => n > 1);
+    expect(dups).toEqual([]);
     expect(sortEdges(patched)).toEqual(sortEdges(fresh));
   });
 

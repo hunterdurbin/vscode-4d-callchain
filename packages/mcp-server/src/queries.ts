@@ -1,4 +1,5 @@
 import {
+  CallEdge,
   CallGraph,
   SymbolKind,
   SymbolRecord,
@@ -20,6 +21,31 @@ export interface QueryError {
 
 export function isQueryError(v: unknown): v is QueryError {
   return typeof v === "object" && v !== null && "error" in v;
+}
+
+/**
+ * Collapse duplicate call edges that point at the same node from the same
+ * call site — keyed by `(otherId, line, column)`. A continued or re-resolved
+ * statement can, in some index states, emit the same logical edge more than
+ * once (identical target/line/column, differing only in callKind/resolved);
+ * those inflate counts and clutter output. Genuinely distinct calls to the
+ * same target on one line keep different columns, so they survive. When a
+ * collision happens we keep the `resolved` edge if either side is resolved.
+ */
+function dedupeEdges(edges: CallEdge[], otherEnd: (e: CallEdge) => string): CallEdge[] {
+  const byKey = new Map<string, CallEdge>();
+  const order: string[] = [];
+  for (const e of edges) {
+    const key = `${otherEnd(e)}|${e.line}|${e.column ?? ""}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, e);
+      order.push(key);
+    } else if (!prev.resolved && e.resolved) {
+      byKey.set(key, e); // prefer the resolved edge on a tie
+    }
+  }
+  return order.map((k) => byKey.get(k)!);
 }
 
 /** Resolve a selector to a single symbol, or a QueryError describing the miss. */
@@ -71,8 +97,8 @@ export function getSymbol(graph: CallGraph, projectRoot: string, sel: SymbolSele
   if (isQueryError(sym)) return sym;
   return {
     ...summarize(sym, projectRoot),
-    callerCount: graph.callers(sym.id).length,
-    calleeCount: graph.callees(sym.id).length
+    callerCount: dedupeEdges(graph.callers(sym.id), (e) => e.fromId).length,
+    calleeCount: dedupeEdges(graph.callees(sym.id), (e) => e.toId).length
   };
 }
 
@@ -84,7 +110,7 @@ export function findCallers(
 ): QueryError | { symbol: SymbolSummary; count: number; callers: ReturnType<typeof summarizeEdge>[] } {
   const sym = resolveOrError(graph, sel, projectRoot);
   if (isQueryError(sym)) return sym;
-  const edges = graph.callers(sym.id);
+  const edges = dedupeEdges(graph.callers(sym.id), (e) => e.fromId);
   return {
     symbol: summarize(sym, projectRoot),
     count: edges.length,
@@ -100,7 +126,7 @@ export function findCallees(
 ): QueryError | { symbol: SymbolSummary; count: number; callees: ReturnType<typeof summarizeEdge>[] } {
   const sym = resolveOrError(graph, sel, projectRoot);
   if (isQueryError(sym)) return sym;
-  const edges = graph.callees(sym.id);
+  const edges = dedupeEdges(graph.callees(sym.id), (e) => e.toId);
   return {
     symbol: summarize(sym, projectRoot),
     count: edges.length,

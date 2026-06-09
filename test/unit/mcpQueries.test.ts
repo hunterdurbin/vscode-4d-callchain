@@ -26,8 +26,8 @@ function classSym(name: string, extendsClass?: string): SymbolRecord {
 function classFn(owner: string, name: string): SymbolRecord {
   return { id: `ClassFunction:${owner}.${name}`, name, kind: SymbolKind.ClassFunction, ownerClass: owner, location: { uri: `file://${ROOT}/Project/Sources/Classes/${owner}.4dm`, line: 3 } };
 }
-function edge(fromId: string, toId: string, line = 1): CallEdge {
-  return { fromId, toId, callKind: CallKind.Static, line, raw: `${toId}()`, resolved: true };
+function edge(fromId: string, toId: string, line = 1, column?: number, callKind = CallKind.Static, resolved = true): CallEdge {
+  return { fromId, toId, callKind, line, raw: `${toId}()`, resolved, column };
 }
 
 /**
@@ -41,6 +41,7 @@ function makeGraph(): CallGraph {
     method("ProjectMethod:M1", "M1"),
     method("ProjectMethod:M2", "M2"),
     method("ProjectMethod:M3", "M3"),
+    method("ProjectMethod:M4", "M4"),
     classSym("Base"),
     classSym("Sub", "Base"),
     classFn("Base", "foo"),
@@ -52,7 +53,16 @@ function makeGraph(): CallGraph {
     { id: "ProjectMethod:Dup#a", name: "Dup", kind: SymbolKind.ProjectMethod, location: { uri: `file://${ROOT}/a.4dm`, line: 0 } },
     { id: "ProjectMethod:Dup#b", name: "Dup", kind: SymbolKind.ProjectMethod, location: { uri: `file://${ROOT}/b.4dm`, line: 0 } }
   ];
-  const edges: CallEdge[] = [edge("ProjectMethod:M1", "ProjectMethod:M2", 5), edge("ProjectMethod:M2", "ProjectMethod:M3", 7)];
+  const edges: CallEdge[] = [
+    edge("ProjectMethod:M1", "ProjectMethod:M2", 5),
+    edge("ProjectMethod:M2", "ProjectMethod:M3", 7),
+    // M4 -> M3 twice at the same call site (line 10, col 5), differing only in
+    // callKind/resolved (a duplicate-edge artifact), plus a genuinely distinct
+    // call to M3 on the same line at col 20.
+    edge("ProjectMethod:M4", "ProjectMethod:M3", 10, 5, CallKind.Dynamic, false),
+    edge("ProjectMethod:M4", "ProjectMethod:M3", 10, 5, CallKind.Static, true),
+    edge("ProjectMethod:M4", "ProjectMethod:M3", 10, 20)
+  ];
   const idx: SymbolIndex = { version: INDEX_VERSION, builtAt: 0, projectRoot: ROOT, symbols, edges, fileMtimes: {} };
   return new CallGraph(idx);
 }
@@ -62,7 +72,7 @@ describe("mcp queries", () => {
 
   it("search_symbols ranks and filters by kind", () => {
     const r = searchSymbols(g, ROOT, { query: "M", kind: "ProjectMethod", limit: 10 });
-    expect(r.results.map((s) => s.name)).toEqual(["M1", "M2", "M3"]);
+    expect(r.results.map((s) => s.name)).toEqual(["M1", "M2", "M3", "M4"]);
   });
 
   it("summaries use project-relative paths and 1-based lines", () => {
@@ -83,6 +93,21 @@ describe("mcp queries", () => {
     const callers = findCallers(g, ROOT, { symbolId: "ProjectMethod:M2" });
     if (isQueryError(callers)) throw new Error("unexpected error");
     expect(callers.callers[0].symbol.name).toBe("M1");
+  });
+
+  it("find_callees collapses duplicate edges at the same call site, keeping the resolved one", () => {
+    const r = findCallees(g, ROOT, { symbolId: "ProjectMethod:M4" });
+    if (isQueryError(r)) throw new Error("unexpected error");
+    // 3 raw edges -> 2 after dedup: the (line 10, col 5) pair collapses; (col 20) stays.
+    expect(r.count).toBe(2);
+    const atCol5 = r.callees.find((c) => c.callLine === 11); // line 10 -> 1-based 11
+    expect(atCol5?.resolved).toBe(true); // resolved edge wins the tie
+    expect(atCol5?.callKind).toBe("Static");
+
+    // getSymbol's calleeCount is deduped too.
+    const sym = getSymbol(g, ROOT, { symbolId: "ProjectMethod:M4" });
+    if (isQueryError(sym)) throw new Error("unexpected error");
+    expect(sym.calleeCount).toBe(2);
   });
 
   it("reachable returns the bounded forward set", () => {
