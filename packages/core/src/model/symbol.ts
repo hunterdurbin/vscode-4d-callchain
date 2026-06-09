@@ -265,9 +265,13 @@ export interface ChainStep {
 // Bumped to 40 when property get/set resolution started linking `Alias`
 // references (This.<alias> / $x.<alias> / cs.X.<alias>, read or write) to the
 // Alias symbol, so aliases get caller edges (were stuck at 0 callers).
+// Bumped to 41 when VarGet/VarSet alias+getter resolution started mapping the
+// dsTable:/entitySelectionOf: type shapes (from `ds.X.new()` / queries) to the
+// owning entity class via normalizeType — so alias/getter references through a
+// dataclass-typed local (e.g. `$e:=ds.Foo.new()` then `$e.<alias>`) resolve.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 40;
+export const INDEX_VERSION = 41;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

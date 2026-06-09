@@ -11,4 +11,8 @@ Function _createActiveRule()
   // Test-flavor class function — procedure-style, no return.
   var $eRule : cs.Rules
   $eRule:=ds[_Rules].new()
+  // Alias write through a dataclass-typed local ($eRule is dsTable:Rules,
+  // whose entity class RulesEntity owns the `ruleName` alias). Locks the
+  // VarSet→Alias resolution through the dsTable: type shape.
+  $eRule.ruleName:="active"
   $eRule.save()

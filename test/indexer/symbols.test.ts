@@ -64,8 +64,15 @@ describeWithFixture("indexer/symbols — classes, functions, getters/setters", (
     expect(alias).toBeTruthy();
     if (alias) {
       expect(alias.aliasTarget).toBe("rule.Name");
-      // `This.ruleName:=…` in load() resolves to the alias → ≥1 caller.
-      expect(callersOf(idx, alias).length).toBeGreaterThanOrEqual(1);
+      // Linked from two reference shapes:
+      //   * `This.ruleName:=…` in RulesEntity.load() (ThisSet)
+      //   * `$eRule.ruleName:=…` in Rules_Test._createActiveRule(), where
+      //     $eRule is a dsTable:Rules-typed local → entity class RulesEntity
+      //     (VarSet through the dataclass type shape).
+      const byId = new Map(idx.symbols.map((s) => [s.id, s.name]));
+      const callerNames = callersOf(idx, alias).map((e) => byId.get(e.fromId));
+      expect(callerNames).toContain("load");
+      expect(callerNames).toContain("_createActiveRule");
     }
   });
 });

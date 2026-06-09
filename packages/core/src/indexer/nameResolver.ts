@@ -1046,7 +1046,12 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
         case "VarGet": {
           const locals = localTypes.get(call.fromSymbolId);
           const rawType = locals?.get(hint.variable);
-          const target = classFromVarType(rawType);
+          // Resolve the variable's type to a class. `normalizeType` maps the
+          // dsTable:/entitySelectionOf: shapes (from `ds.X.new()` etc.) to the
+          // owning entity class — `classFromVarType` gates those behind the
+          // catalog, so a dataclass-typed local would otherwise miss its
+          // getters/aliases.
+          const target = classFromVarType(rawType) ?? normalizeType(rawType);
           if (target) {
             const g = resolveGetterOnChain(target, hint.property);
             if (g) {
@@ -1069,7 +1074,8 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
         }
         case "VarSet": {
           const locals = localTypes.get(call.fromSymbolId);
-          const target = classFromVarType(locals?.get(hint.variable));
+          const rawType = locals?.get(hint.variable);
+          const target = classFromVarType(rawType) ?? normalizeType(rawType);
           if (!target) break;
           const s = resolveSetterOnChain(target, hint.property);
           if (s) { pushEdge(s.id, CallKind.Static, true); break; }

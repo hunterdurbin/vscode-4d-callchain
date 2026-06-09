@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 40 after Alias references gained caller edges", () => {
-    expect(INDEX_VERSION).toBe(40);
+  it("INDEX_VERSION is 41 after alias/getter resolution through dataclass-typed locals", () => {
+    expect(INDEX_VERSION).toBe(41);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {
