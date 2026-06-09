@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { consoleLogger } from "@4d/core";
 import { GraphState } from "./graphState.js";
+import { registerTools } from "./tools.js";
 
 export interface ServerOptions {
   /** Absolute path to the 4D project root (the folder containing Project/). */
@@ -25,6 +26,7 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     name: "4d-callchain",
     version: "0.1.16"
   });
+  registerTools(server, state);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
