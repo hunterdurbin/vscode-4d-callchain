@@ -23,6 +23,8 @@ export enum SymbolKind {
   BuiltinConstant = "BuiltinConstant",
   ProcessVariable = "ProcessVariable",
   InterprocessVariable = "InterprocessVariable",
+  /** ORDA computed/alias attribute declared with `Alias <name> <targetPath>`. */
+  Alias = "Alias",
   Unresolved = "Unresolved"
 }
 
@@ -64,7 +66,19 @@ export interface SymbolRecord {
   ownerClass?: string;
   classFlavor?: ClassFlavor;
   extendsClass?: string;
-  accessor?: "get" | "set" | "function";
+  /**
+   * Role of a class member. `get`/`set` are computed-attribute accessors;
+   * `query`/`orderBy` are the optimized-query / sort backers for a computed
+   * attribute (declared `Function query <attr>` / `Function orderBy <attr>`);
+   * `function` is a plain method. For `query`/`orderBy`, `computedFor` names
+   * the attribute they back so get_symbol can disambiguate them from the
+   * same-named getter by role.
+   */
+  accessor?: "get" | "set" | "function" | "query" | "orderBy";
+  /** For `query`/`orderBy` backers: the computed attribute name they implement. */
+  computedFor?: string;
+  /** For Alias symbols: the target attribute path, e.g. `invoice.InvoiceID`. */
+  aliasTarget?: string;
   scope?: "local" | "shared" | "public";
   returnType?: string;
   /** For Constant symbols: the parsed value, e.g. "Rules" or "3". */
@@ -244,9 +258,13 @@ export interface ChainStep {
 // Bumped to 38 when user constants gained a real `<source>` line in their
 // XLF (was a stub line 0 → bogus :1). Unknown lines use a -1 sentinel that
 // summarize() omits.
+// Bumped to 39 when `Function query` / `Function orderBy` computed-attribute
+// backers became first-class symbols (previously unindexed — their bodies
+// bled into the preceding function), tagged with accessor + computedFor, and
+// `Alias <name> <target>` attributes gained their own SymbolKind.Alias symbol.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 38;
+export const INDEX_VERSION = 39;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

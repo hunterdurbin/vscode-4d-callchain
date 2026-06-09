@@ -1,5 +1,41 @@
 [
   {
+    "type": "alias_declaration",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "target": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_reference",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "keyword_alias",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "argument_list",
     "named": true,
     "fields": {},
@@ -2770,6 +2806,10 @@
         "required": false,
         "types": [
           {
+            "type": "identifier",
+            "named": true
+          },
+          {
             "type": "keyword_get",
             "named": true
           },
@@ -4148,6 +4188,10 @@
       "multiple": true,
       "required": false,
       "types": [
+        {
+          "type": "alias_declaration",
+          "named": true
+        },
         {
           "type": "assignment_statement",
           "named": true
@@ -5904,6 +5948,10 @@
   },
   {
     "type": "interprocess_var",
+    "named": true
+  },
+  {
+    "type": "keyword_alias",
     "named": true
   },
   {

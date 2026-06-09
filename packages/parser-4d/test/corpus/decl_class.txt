@@ -137,3 +137,17 @@ property cache : cs.Map
     name: (identifier)
     type: (return_type_annotation
       type: (type_reference (identifier) (identifier)))))
+
+==================
+class — Alias attribute
+==================
+
+Alias invoiceId invoice.InvoiceID
+
+---
+
+(source_file
+  (alias_declaration
+    (keyword_alias)
+    name: (identifier)
+    target: (type_reference (identifier) (identifier))))

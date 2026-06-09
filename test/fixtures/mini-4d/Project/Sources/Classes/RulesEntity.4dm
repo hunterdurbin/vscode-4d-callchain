@@ -7,9 +7,22 @@
 
 Class extends Entity
 
+// LOCKS: Alias attribute — indexed as SymbolKind.Alias with aliasTarget
+//        "rule.Name". Exercises the alias_declaration grammar rule.
+Alias ruleName rule.Name
+
 Function save()
   // No declared return type → side-effect only. Body intentionally empty.
   This.touched:=True
 
 Function load()
   This.touched:=False
+
+// LOCKS: computed-attribute getter + its query backer share the name
+//        `isActive`. They surface as distinct ClassGetter vs ClassFunction;
+//        the query backer carries accessor "query" + computedFor "isActive".
+Function get isActive() : Boolean
+  return This.touched
+
+Function query isActive($event : Object) : Object
+  return {query: "touched = :1"; parameters: [$event.value]}

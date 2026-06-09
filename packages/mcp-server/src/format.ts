@@ -16,8 +16,12 @@ export interface SymbolSummary {
   signature?: string;
   /** For class members: `local`/`shared`/`public` visibility, when known. */
   scope?: "local" | "shared" | "public";
-  /** For class members: `get`/`set`/`function` (and `query`/`orderBy` for ORDA), when known. */
-  accessor?: "get" | "set" | "function";
+  /** For class members: role — `get`/`set` accessors, `query`/`orderBy` computed-attribute backers, or plain `function`. */
+  accessor?: "get" | "set" | "function" | "query" | "orderBy";
+  /** For `query`/`orderBy` backers: the computed attribute they implement (distinguishes them from the same-named getter). */
+  computedFor?: string;
+  /** For Alias symbols: the target attribute path, e.g. `invoice.InvoiceID`. */
+  aliasTarget?: string;
   /** Path relative to the project root; omitted for synthetic symbols (builtins). */
   file?: string;
   /** 1-based line of the declaration; omitted for synthetic symbols. */
@@ -72,6 +76,8 @@ export function summarize(s: SymbolRecord, projectRoot: string): SymbolSummary {
     signature: signatureOf(s),
     scope: s.scope,
     accessor: s.accessor,
+    computedFor: s.computedFor,
+    aliasTarget: s.aliasTarget,
     file,
     // Stored lines are zero-based; expose 1-based. Synthetic symbols (uri "")
     // and symbols with an unknown line (sentinel <0, e.g. constants whose XLF

@@ -157,6 +157,7 @@ module.exports = grammar({
         $.constructor_declaration,
         $.function_declaration,
         $.property_declaration,
+        $.alias_declaration,
         $.var_declaration,
         $.legacy_var_declaration,
         $.legacy_array_declaration,
@@ -205,7 +206,12 @@ module.exports = grammar({
       seq(
         field("scope", optional(choice($.keyword_local, $.keyword_shared))),
         $.keyword_function,
-        field("accessor", optional(choice($.keyword_get, $.keyword_set))),
+        // get/set are keyword tokens; query/orderBy (the ORDA computed-attribute
+        // query/sort backers) aren't reserved words, so they arrive as plain
+        // identifiers — the visitor recognizes them by text. Using `identifier`
+        // here rather than new keyword tokens avoids changing how `query` lexes
+        // everywhere else (member access `.query`, object keys `{query: …}`).
+        field("accessor", optional(choice($.keyword_get, $.keyword_set, $.identifier))),
         field("name", $._function_name),
         field("parameters", optional($.parameter_list)),
         field("return_type", optional($.return_type_annotation)),
@@ -260,6 +266,17 @@ module.exports = grammar({
         $.keyword_property,
         field("name", $.identifier),
         field("type", optional($.return_type_annotation)),
+        $._newline,
+      ),
+
+    // ORDA computed/alias attribute: `Alias <name> <targetPath>`
+    // (e.g. `Alias invoiceId invoice.InvoiceID`). Class-body only; the
+    // visitor enforces context. `type_reference` is the dotted target path.
+    alias_declaration: ($) =>
+      seq(
+        $.keyword_alias,
+        field("name", $.identifier),
+        field("target", $.type_reference),
         $._newline,
       ),
 
@@ -1061,6 +1078,7 @@ module.exports = grammar({
     keyword_catch: ($) => token(prec(1, kw("catch"))),
     keyword_throw: ($) => token(prec(1, kw("throw"))),
     keyword_property: ($) => token(prec(1, kw("property"))),
+    keyword_alias: ($) => token(prec(1, kw("alias"))),
     keyword_formula: ($) => token(prec(1, kw("formula"))),
     keyword_true: ($) => token(prec(1, kw("true"))),
     keyword_false: ($) => token(prec(1, kw("false"))),

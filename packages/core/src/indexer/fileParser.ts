@@ -80,7 +80,10 @@ export interface ParsedFile {
 }
 
 const CLASS_HEADER = /^\s*Class\s+extends\s+([\w.]+)/i;
-const FUNCTION_DECL = /^\s*(local\s+|shared\s+)?Function(\s+(get|set))?\s+([\w_]+)\s*\(/i;
+const FUNCTION_DECL = /^\s*(local\s+|shared\s+)?Function(\s+(get|set|query|orderBy))?\s+([\w_]+)\s*\(/i;
+// ORDA computed/alias attribute: `Alias <name> <targetPath>` (e.g.
+// `Alias invoiceId invoice.InvoiceID`). Declared at class level.
+const ALIAS_DECL = /^\s*Alias\s+([\w_]+)\s+([\w_.[\]]+)/i;
 const CONSTRUCTOR_DECL = /^\s*Class\s+constructor\b/i;
 const PROPERTY_DECL = /^\s*property\s+([\w_]+)/i;
 const PROPERTY_DECL_TYPED = /^\s*property\s+([\w_]+)\s*:\s*([\w.]+)/i;
@@ -330,13 +333,19 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
         const className = classInfo!.name;
         const isCtor = ctor;
         const name = isCtor ? "constructor" : funcMatch![4];
-        const accessor = funcMatch?.[3] as "get" | "set" | undefined;
+        const accessor = funcMatch?.[3]?.toLowerCase() as "get" | "set" | "query" | "orderby" | undefined;
         const scope = funcMatch?.[1]?.trim() as "local" | "shared" | undefined;
+        // get/set are computed-attribute accessors; query/orderBy are the
+        // optimized-query and sort backers for a computed attribute (still
+        // ClassFunctions, but tagged via accessor + computedFor so they can be
+        // told apart from the same-named getter).
         const kind = isCtor
           ? SymbolKind.ClassConstructor
           : accessor === "get" ? SymbolKind.ClassGetter
           : accessor === "set" ? SymbolKind.ClassSetter
           : SymbolKind.ClassFunction;
+        const accessorTag: SymbolRecord["accessor"] =
+          accessor === "orderby" ? "orderBy" : (accessor ?? "function");
         // Find the identifier's column on the decl line so go-to-def lands at
         // the start of the name, and hover ranges highlight just the name.
         // `Class constructor` has no captured name — point at `constructor`.
@@ -347,12 +356,15 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
           name,
           kind,
           ownerClass: className,
-          accessor: accessor ?? "function",
+          accessor: accessorTag,
           scope: scope ?? "public",
           location: column >= 0
             ? { uri: fileUri, line: i, column, endColumn: column + identifierStr.length }
             : { uri: fileUri, line: i }
         };
+        // query/orderBy back the computed attribute of the same name — record
+        // the link so get_symbol can disambiguate by role.
+        if (accessorTag === "query" || accessorTag === "orderBy") sym.computedFor = name;
         // Capture the return type for chain resolution:
         // - Typed getters land in classPropertyTypes (property-like lookup)
         // - Plain functions land in classMethodReturnsByName (call-step lookup)
@@ -394,6 +406,27 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
         // `property foo : cs.Bar` -> {foo -> cs.Bar}.
         const typedMatch = rawLine.match(PROPERTY_DECL_TYPED);
         if (typedMatch) classPropertyTypes.set(typedMatch[1], typedMatch[2]);
+        continue;
+      }
+      const aliasMatch = rawLine.match(ALIAS_DECL);
+      if (aliasMatch) {
+        // `Alias <name> <targetPath>` — a queryable computed attribute. Index
+        // it as its own symbol carrying the target path so it's discoverable
+        // and its target relation is navigable. Doesn't open a body, so it
+        // leaves currentSymbolId untouched.
+        const aliasName = aliasMatch[1];
+        const target = aliasMatch[2];
+        const col = rawLine.indexOf(aliasName, rawLine.indexOf("Alias") + 5);
+        symbols.push({
+          id: symbolIdFor(SymbolKind.Alias, aliasName, classInfo!.name),
+          name: aliasName,
+          kind: SymbolKind.Alias,
+          ownerClass: classInfo!.name,
+          aliasTarget: target,
+          location: col >= 0
+            ? { uri: fileUri, line: i, column: col, endColumn: col + aliasName.length }
+            : { uri: fileUri, line: i }
+        });
         continue;
       }
     }

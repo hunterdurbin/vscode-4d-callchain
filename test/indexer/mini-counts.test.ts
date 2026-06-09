@@ -54,13 +54,24 @@ describeWithFixture("indexer/mini-counts — deterministic kind tallies", (root)
   it("ClassFunction count is exact", () => {
     if (!isMini) return;
     const count = idx.symbols.filter((s) => s.kind === ("ClassFunction" as any)).length;
-    expect(count).toBe(18);
+    // +1: RulesEntity.isActive — the `Function query isActive` computed-attribute
+    // backer (a ClassFunction tagged accessor "query" / computedFor "isActive").
+    expect(count).toBe(19);
   });
 
   it("ClassGetter count is exact", () => {
     if (!isMini) return;
     const count = idx.symbols.filter((s) => s.kind === ("ClassGetter" as any)).length;
-    expect(count).toBe(5);
+    // +1: RulesEntity.isActive — the `Function get isActive` computed-attribute getter.
+    expect(count).toBe(6);
+  });
+
+  it("Alias count is exact (1: RulesEntity.ruleName)", () => {
+    if (!isMini) return;
+    const aliases = idx.symbols.filter((s) => s.kind === ("Alias" as any));
+    expect(aliases.length).toBe(1);
+    expect(aliases[0].name).toBe("ruleName");
+    expect((aliases[0] as any).aliasTarget).toBe("rule.Name");
   });
 
   it("ClassSetter count is exact (1: NormalizedOrderItem.splitPercentage)", () => {

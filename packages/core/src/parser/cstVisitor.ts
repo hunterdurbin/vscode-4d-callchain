@@ -212,6 +212,9 @@ export class CstVisitor {
       case "property_declaration":
         this.visitPropertyDecl(node);
         break;
+      case "alias_declaration":
+        this.visitAliasDecl(node);
+        break;
       case "declare_directive":
         this.visitDeclare(node);
         break;
@@ -339,13 +342,27 @@ export class CstVisitor {
     let kind: SymbolKind = this.classInfo
       ? SymbolKind.ClassFunction
       : SymbolKind.ProjectMethod;
-    let accessorTag: "get" | "set" | "function" = "function";
+    let accessorTag: SymbolRecord["accessor"] = "function";
+    // query/orderBy (the ORDA computed-attribute query/sort backers) aren't
+    // reserved words, so the grammar surfaces them as an `identifier` accessor;
+    // recognize them by text. They stay ClassFunctions but are tagged so they
+    // can be told apart from the same-named getter.
+    let computedFor: string | undefined;
     if (accessor?.type === "keyword_get") {
       kind = SymbolKind.ClassGetter;
       accessorTag = "get";
     } else if (accessor?.type === "keyword_set") {
       kind = SymbolKind.ClassSetter;
       accessorTag = "set";
+    } else if (accessor && this.classInfo) {
+      const role = accessor.text.toLowerCase();
+      if (role === "query") {
+        accessorTag = "query";
+        computedFor = name;
+      } else if (role === "orderby") {
+        accessorTag = "orderBy";
+        computedFor = name;
+      }
     }
 
     let scopeTag: "local" | "shared" | "public" = "public";
@@ -367,6 +384,7 @@ export class CstVisitor {
         endLine: node.endPosition.row,
       },
     };
+    if (computedFor) sym.computedFor = computedFor;
 
     const params = this.collectParams(node.childForFieldName("parameters"));
     if (params.length) sym.params = params;
@@ -400,6 +418,26 @@ export class CstVisitor {
       const typeNode = typeAnn.childForFieldName("type");
       if (typeNode) this.classPropertyTypes.set(nameNode.text, typeNode.text);
     }
+  }
+
+  // `Alias <name> <targetPath>` — an ORDA computed/alias attribute. Index it
+  // as its own symbol carrying the target path so it's discoverable and its
+  // target relation is navigable. Doesn't open a body, so it leaves the
+  // current symbol context untouched.
+  private visitAliasDecl(node: Node): void {
+    if (!this.classInfo) return;
+    const nameNode = node.childForFieldName("name");
+    if (!nameNode) return;
+    const targetNode = node.childForFieldName("target");
+    const sym: SymbolRecord = {
+      id: symbolIdFor(SymbolKind.Alias, nameNode.text, this.classInfo.name),
+      name: nameNode.text,
+      kind: SymbolKind.Alias,
+      ownerClass: this.classInfo.name,
+      location: this.locationOf(nameNode, nameNode),
+    };
+    if (targetNode) sym.aliasTarget = targetNode.text;
+    this.symbols.push(sym);
   }
 
   private visitDeclare(node: Node): void {

@@ -46,4 +46,22 @@ describeWithFixture("indexer/symbols — classes, functions, getters/setters", (
     if (getter) expect(callersOf(idx, getter).length).toBeGreaterThanOrEqual(1);
     if (setter) expect(callersOf(idx, setter).length).toBeGreaterThanOrEqual(1);
   });
+
+  it("RulesEntity computed attribute: getter vs query backer are distinct, query tagged with computedFor", () => {
+    const getter = sym("ClassGetter", "isActive", "RulesEntity") as any;
+    const query = sym("ClassFunction", "isActive", "RulesEntity") as any;
+    expect(getter).toBeTruthy();
+    expect(query).toBeTruthy();
+    if (getter) expect(getter.accessor).toBe("get");
+    if (query) {
+      expect(query.accessor).toBe("query");
+      expect(query.computedFor).toBe("isActive");
+    }
+  });
+
+  it("RulesEntity.ruleName Alias is indexed with its target path", () => {
+    const alias = sym("Alias", "ruleName", "RulesEntity") as any;
+    expect(alias).toBeTruthy();
+    if (alias) expect(alias.aliasTarget).toBe("rule.Name");
+  });
 });

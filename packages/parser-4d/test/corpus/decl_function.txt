@@ -168,6 +168,60 @@ local Function helper($x : Text)
         type: (type_reference (identifier))))))
 
 ==================
+function — computed-attribute query backer
+==================
+
+Function query isActive($event : Object) : Object
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    accessor: (identifier)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))
+    return_type: (return_type_annotation
+      type: (type_reference (identifier)))))
+
+==================
+function — computed-attribute orderBy backer
+==================
+
+Function orderBy isActive($event : Object) : Object
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    accessor: (identifier)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter_decl
+        name: (local_var)
+        type: (type_reference (identifier))))
+    return_type: (return_type_annotation
+      type: (type_reference (identifier)))))
+
+==================
+function — named "query" (no accessor)
+==================
+
+Function query()
+
+---
+
+(source_file
+  (function_declaration
+    (keyword_function)
+    name: (identifier)
+    parameters: (parameter_list)))
+
+==================
 function — shared scope
 ==================
 

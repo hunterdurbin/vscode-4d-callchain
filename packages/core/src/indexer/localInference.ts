@@ -10,7 +10,7 @@ const ASSIGN_DS_QUERY = /\$([\w_]+)\s*:=\s*ds\.([\w_]+)\.(query|all|fromCollecti
 const ASSIGN_DS_BRACKET_NEW = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\s*(new|get|first|last)\s*\(/g;
 const ASSIGN_DS_BRACKET_QUERY = /\$([\w_]+)\s*:=\s*ds\s*\[\s*([\w_]+)\s*\]\s*\.\s*(query|all|fromCollection|orderBy)/g;
 const DECLARE_PARAMS = /#DECLARE\s*\(([^)]*)\)/;
-const FUNCTION_DECL = /^\s*(local\s+|shared\s+)?Function(\s+(get|set))?\s+[\w_]+\s*\(/i;
+const FUNCTION_DECL = /^\s*(local\s+|shared\s+)?Function(\s+(get|set|query|orderBy))?\s+[\w_]+\s*\(/i;
 const CONSTRUCTOR_DECL = /^\s*Class\s+constructor\b/i;
 // Legacy `C_TYPE(...)` declarations — see fileParser for the canonical
 // mapping. We accept the same multi-line continuation pattern.

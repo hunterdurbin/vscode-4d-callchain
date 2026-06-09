@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 38 after user constants gained a real XLF source line", () => {
-    expect(INDEX_VERSION).toBe(38);
+  it("INDEX_VERSION is 39 after Function query/orderBy + Alias became first-class symbols", () => {
+    expect(INDEX_VERSION).toBe(39);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {
