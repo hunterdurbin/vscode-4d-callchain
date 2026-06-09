@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CallGraph, SymbolKind, CallKind, INDEX_VERSION } from "../../packages/core/dist";
+import { CallGraph, SymbolKind, CallKind, ClassFlavor, INDEX_VERSION } from "../../packages/core/dist";
 import type { SymbolIndex, SymbolRecord, CallEdge } from "../../packages/core/dist";
 import {
   callPath,
@@ -7,6 +7,7 @@ import {
   classMembers,
   findCallees,
   findCallers,
+  findInstantiations,
   findOverriddenQuery,
   findOverridesQuery,
   getSymbol,
@@ -51,7 +52,13 @@ function makeGraph(): CallGraph {
     { id: "ClassGetter:Base.bar", name: "bar", kind: SymbolKind.ClassGetter, ownerClass: "Base", scope: "local", accessor: "get", location: { uri: `file://${ROOT}/Project/Sources/Classes/Base.4dm`, line: 8 } },
     method("ProjectMethod:bar", "bar"),
     { id: "ProjectMethod:Dup#a", name: "Dup", kind: SymbolKind.ProjectMethod, location: { uri: `file://${ROOT}/a.4dm`, line: 0 } },
-    { id: "ProjectMethod:Dup#b", name: "Dup", kind: SymbolKind.ProjectMethod, location: { uri: `file://${ROOT}/b.4dm`, line: 0 } }
+    { id: "ProjectMethod:Dup#b", name: "Dup", kind: SymbolKind.ProjectMethod, location: { uri: `file://${ROOT}/b.4dm`, line: 0 } },
+    // ORDA: entity FooEntity + dataclass Foo, with synthetic ds.Foo.* TableBuiltins.
+    { id: "Class:FooEntity", name: "FooEntity", kind: SymbolKind.Class, classFlavor: ClassFlavor.Entity, location: { uri: `file://${ROOT}/Project/Sources/Classes/FooEntity.4dm`, line: 0 } },
+    { id: "Class:Foo", name: "Foo", kind: SymbolKind.Class, classFlavor: ClassFlavor.DataClass, location: { uri: `file://${ROOT}/Project/Sources/Classes/Foo.4dm`, line: 0 } },
+    { id: "TableBuiltin:ds.Foo.new", name: "ds.Foo.new", kind: SymbolKind.TableBuiltin, ownerTable: "Foo", location: { uri: "", line: 0 } },
+    { id: "TableBuiltin:ds.Foo.query", name: "ds.Foo.query", kind: SymbolKind.TableBuiltin, ownerTable: "Foo", location: { uri: "", line: 0 } },
+    method("ProjectMethod:UsesFoo", "UsesFoo")
   ];
   const edges: CallEdge[] = [
     edge("ProjectMethod:M1", "ProjectMethod:M2", 5),
@@ -61,7 +68,10 @@ function makeGraph(): CallGraph {
     // call to M3 on the same line at col 20.
     edge("ProjectMethod:M4", "ProjectMethod:M3", 10, 5, CallKind.Dynamic, false),
     edge("ProjectMethod:M4", "ProjectMethod:M3", 10, 5, CallKind.Static, true),
-    edge("ProjectMethod:M4", "ProjectMethod:M3", 10, 20)
+    edge("ProjectMethod:M4", "ProjectMethod:M3", 10, 20),
+    // UsesFoo creates and queries the dataclass.
+    edge("ProjectMethod:UsesFoo", "TableBuiltin:ds.Foo.new", 3, 4),
+    edge("ProjectMethod:UsesFoo", "TableBuiltin:ds.Foo.query", 5, 4)
   ];
   const idx: SymbolIndex = { version: INDEX_VERSION, builtAt: 0, projectRoot: ROOT, symbols, edges, fileMtimes: {} };
   return new CallGraph(idx);
@@ -161,6 +171,22 @@ describe("mcp queries", () => {
     expect(r.inherited[0].ownerClass).toBe("Base");
     // bar is inherited, not shadowed, so it is NOT in own members.
     expect(r.members.map((m) => m.name)).not.toContain("bar");
+  });
+
+  it("find_instantiations links an entity to its dataclass CRUD sites", () => {
+    // Entity → derive dataclass "Foo" → callers of ds.Foo.* are the sites.
+    const r = findInstantiations(g, ROOT, "FooEntity");
+    if (isQueryError(r)) throw new Error("unexpected error");
+    expect(r.dataClass).toBe("Foo");
+    expect(r.count).toBe(2);
+    expect(r.sites.every((s) => s.symbol.name === "UsesFoo")).toBe(true);
+    expect(r.sites.map((s) => s.via).sort()).toEqual(["ds.Foo.new", "ds.Foo.query"]);
+
+    // Passing the dataclass itself resolves to the same usage sites.
+    const dc = findInstantiations(g, ROOT, "Foo");
+    if (isQueryError(dc)) throw new Error("unexpected error");
+    expect(dc.dataClass).toBe("Foo");
+    expect(dc.count).toBe(2);
   });
 
   it("find_overrides / find_overridden resolve the Base.foo <-> Sub.foo pair", () => {

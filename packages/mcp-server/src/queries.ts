@@ -1,6 +1,7 @@
 import {
   CallEdge,
   CallGraph,
+  ClassFlavor,
   SymbolKind,
   SymbolRecord,
   descendantClasses,
@@ -275,6 +276,75 @@ export function classMembers(
     members,
     inheritedCount: inheritedRows.length,
     inherited: inheritedRows
+  };
+}
+
+/**
+ * "Where is this entity/dataclass created or used?" — the ORDA counterpart to
+ * find_callers, which reports 0 for ORDA classes because `ds.<DataClass>` and
+ * `cs.<Entity>` reference forms don't edge directly to the `Class` symbol.
+ *
+ * 4D's convention links a dataclass `Foo` to entity class `FooEntity` and
+ * selection `FooSelection`. We derive the dataclass name from the target
+ * class, then gather instantiation/usage sites from data already in the graph:
+ *   - direct `cs.<Class>.new()` / constructor callers of the class itself, and
+ *   - callers of the synthetic `ds.<DataClass>.<method>` TableBuiltins
+ *     (new / query / get / all / …), which are exactly the dataclass CRUD
+ *     sites that create or return entities and selections.
+ * No graph mutation — this reads existing caller edges, so it needs no
+ * INDEX_VERSION bump.
+ */
+export function findInstantiations(
+  graph: CallGraph,
+  projectRoot: string,
+  className: string,
+  limit = 100
+): QueryError | {
+  class: SymbolSummary;
+  dataClass?: string;
+  count: number;
+  sites: (ReturnType<typeof summarizeEdge> & { via: string })[];
+} {
+  const cls = graph.byName(className).find((s) => s.kind === SymbolKind.Class);
+  if (!cls) return { error: `No class named "${className}" found.` };
+
+  // Derive the dataclass name this class belongs to.
+  let dataClass: string | undefined;
+  if (cls.classFlavor === ClassFlavor.DataClass || cls.classFlavor === ClassFlavor.DataStore) {
+    dataClass = cls.name;
+  } else if (/entity$/i.test(cls.name)) {
+    dataClass = cls.name.replace(/entity$/i, "");
+  } else if (/selection$/i.test(cls.name)) {
+    dataClass = cls.name.replace(/selection$/i, "");
+  }
+
+  const seen = new Set<string>();
+  const sites: (ReturnType<typeof summarizeEdge> & { via: string })[] = [];
+  const add = (edge: CallEdge, via: string) => {
+    const key = `${edge.fromId}|${edge.line}|${edge.column ?? ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    sites.push({ ...summarizeEdge(edge, edge.fromId, graph, projectRoot), via });
+  };
+
+  // 1. Direct constructor / cs.<Class>.new() callers of the class itself.
+  for (const e of graph.callers(cls.id)) add(e, `cs.${cls.name}.new`);
+
+  // 2. ds.<DataClass>.<method> usage — callers of the per-dataclass TableBuiltins.
+  if (dataClass) {
+    const dcLower = dataClass.toLowerCase();
+    for (const s of graph.allSymbols()) {
+      if (s.kind !== SymbolKind.TableBuiltin || s.ownerTable?.toLowerCase() !== dcLower) continue;
+      for (const e of graph.callers(s.id)) add(e, s.name);
+    }
+  }
+
+  sites.sort((a, b) => a.symbol.name.localeCompare(b.symbol.name) || a.callLine - b.callLine);
+  return {
+    class: summarize(cls, projectRoot),
+    dataClass,
+    count: sites.length,
+    sites: sites.slice(0, limit)
   };
 }
 

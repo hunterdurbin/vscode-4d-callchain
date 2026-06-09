@@ -7,6 +7,7 @@ import {
   classMembers,
   findCallees,
   findCallers,
+  findInstantiations,
   findOverriddenQuery,
   findOverridesQuery,
   getSymbol,
@@ -148,6 +149,20 @@ export function registerTools(server: McpServer, state: GraphState): void {
       inputSchema: { className: z.string().describe("The class name.") }
     },
     async ({ className }) => result(classMembers(state.getGraph(), root(), className))
+  );
+
+  server.registerTool(
+    "find_instantiations",
+    {
+      title: "Find instantiations / dataclass usage",
+      description:
+        "For an ORDA class (Entity, EntitySelection, or DataClass), find where it is created or used — " +
+        "the ORDA answer to find_callers (which returns 0 because cs.<Entity> / ds.<DataClass> forms don't " +
+        "edge to the class). Returns direct cs.<Class>.new() callers plus every ds.<DataClass>.<method> " +
+        "CRUD site (new/query/get/all/…) that creates or returns entities, each tagged with the form used.",
+      inputSchema: { className: z.string().describe("The ORDA class name (entity, selection, or dataclass)."), limit: z.number().int().min(1).max(500).optional() }
+    },
+    async ({ className, limit }) => result(findInstantiations(state.getGraph(), root(), className, limit))
   );
 
   server.registerTool(
