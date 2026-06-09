@@ -55,6 +55,20 @@ class ViaBaseGroup {
 
 type Node = SymbolGroup | CallSite | CalleeGroup | RootNode | ViaBaseGroup;
 
+export type AccessFilter = "all" | "read" | "write";
+
+/**
+ * Field-like members whose inbound edges carry a read/write `access` tag. The
+ * read/write access filter only applies (and is only offered) when the root is
+ * one of these.
+ */
+const FIELD_LIKE_KINDS = new Set<SymbolKind>([
+  SymbolKind.ClassProperty,
+  SymbolKind.ClassGetter,
+  SymbolKind.ClassSetter,
+  SymbolKind.Alias
+]);
+
 export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   private rootSymbolId: string | undefined;
   private graph: CallGraph | undefined;
@@ -76,6 +90,12 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
    */
   private filterVisible: Set<string> | undefined;
   private filterMatchCount = 0;
+  /**
+   * Read/write access filter for a field-like root. "all" shows every usage;
+   * "read"/"write" restrict the root's direct call sites to that access. Only
+   * applied when the root is a field-like member (see {@link rootIsFieldLike}).
+   */
+  private accessFilterValue: AccessFilter = "all";
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
   private readonly rootChangedEmitter = new vscode.EventEmitter<string | undefined>();
@@ -84,8 +104,38 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   private readonly filterChangedEmitter = new vscode.EventEmitter<string>();
   /** Fires whenever the active filter changes (string is empty when cleared). */
   readonly onDidChangeFilter = this.filterChangedEmitter.event;
+  private readonly accessFilterChangedEmitter = new vscode.EventEmitter<AccessFilter>();
+  /** Fires whenever the read/write access filter changes. */
+  readonly onDidChangeAccessFilter = this.accessFilterChangedEmitter.event;
 
   constructor(private readonly direction: Direction) {}
+
+  get accessFilter(): AccessFilter {
+    return this.accessFilterValue;
+  }
+
+  /** True when the current root is a field-like member (property/getter/setter/alias). */
+  get rootIsFieldLike(): boolean {
+    if (!this.graph || !this.rootSymbolId) return false;
+    const s = this.graph.symbol(this.rootSymbolId);
+    return !!s && FIELD_LIKE_KINDS.has(s.kind);
+  }
+
+  /** Read/write usage counts for the current field-like root (0/0 otherwise). */
+  accessCounts(): { reads: number; writes: number } {
+    if (!this.graph || !this.rootSymbolId || !this.rootIsFieldLike) return { reads: 0, writes: 0 };
+    return {
+      reads: this.graph.reads(this.rootSymbolId).length,
+      writes: this.graph.writes(this.rootSymbolId).length
+    };
+  }
+
+  setAccessFilter(value: AccessFilter): void {
+    if (this.accessFilterValue === value) return;
+    this.accessFilterValue = value;
+    this.emitter.fire(undefined);
+    this.accessFilterChangedEmitter.fire(value);
+  }
 
   get filter(): string {
     return this.filterQuery;
@@ -162,6 +212,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
     if (this.locked) return;
     if (this.rootSymbolId === symbolId) return;
     this.rootSymbolId = symbolId;
+    this.resetAccessFilterOnRootChange();
     this.emitter.fire(undefined);
     this.rootChangedEmitter.fire(symbolId);
   }
@@ -170,8 +221,16 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   pinRoot(symbolId: string | undefined): void {
     if (this.rootSymbolId === symbolId) return;
     this.rootSymbolId = symbolId;
+    this.resetAccessFilterOnRootChange();
     this.emitter.fire(undefined);
     this.rootChangedEmitter.fire(symbolId);
+  }
+
+  /** The read/write filter is per-symbol — clear it whenever the root changes. */
+  private resetAccessFilterOnRootChange(): void {
+    if (this.accessFilterValue === "all") return;
+    this.accessFilterValue = "all";
+    this.accessFilterChangedEmitter.fire("all");
   }
 
   /** Re-emit current tree without changing root — used by config changes. */
@@ -222,13 +281,21 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
     if (!this.graph) return [];
     const root = this.graph.symbol(rootId);
     const memberIds = root ? this.bundleMemberIds(root) : undefined;
+    let out: CallEdge[];
     if (!memberIds) {
-      return this.direction === "callers" ? this.graph.callers(rootId) : this.graph.callees(rootId);
+      out = this.direction === "callers" ? this.graph.callers(rootId) : this.graph.callees(rootId);
+    } else {
+      out = [];
+      for (const id of memberIds) {
+        const edges = this.direction === "callers" ? this.graph.callers(id) : this.graph.callees(id);
+        for (const e of edges) out.push(e);
+      }
     }
-    const out: CallEdge[] = [];
-    for (const id of memberIds) {
-      const edges = this.direction === "callers" ? this.graph.callers(id) : this.graph.callees(id);
-      for (const e of edges) out.push(e);
+    // Read/write filter — only meaningful for field-like roots, whose direct
+    // edges carry an `access` tag. Gated on kind so a stale filter can never
+    // hide a plain function's callers.
+    if (this.accessFilterValue !== "all" && root && FIELD_LIKE_KINDS.has(root.kind)) {
+      out = out.filter((e) => e.access === this.accessFilterValue);
     }
     return out;
   }
@@ -464,7 +531,13 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
     if (this.isDirectChildOfBundleRoot(node) && this.shouldSubgroupByCallee(node)) {
       return this.subgroupByCallee(node);
     }
-    if (node.edges.length >= 2) {
+    // While a read/write filter is active, a direct caller of the field-like
+    // root should show its matching site leaf even when it's the only one —
+    // the user is inspecting those exact sites, not drilling past them.
+    const isDirectChildOfRoot =
+      this.rootSymbolId !== undefined && node.parentChain.size === 1 && node.parentChain.has(this.rootSymbolId);
+    const pinSites = this.accessFilterValue !== "all" && this.rootIsFieldLike && isDirectChildOfRoot;
+    if (node.edges.length >= 2 || pinSites) {
       // Children are call-site leaves (one per edge), ordered by line.
       const sites = [...node.edges]
         .sort((a, b) => a.line - b.line)

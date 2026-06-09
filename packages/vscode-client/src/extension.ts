@@ -97,7 +97,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return parts.length > 0 ? parts.join(" ") : undefined;
   };
   const refreshCallersBadge = () => {
-    callersView.description = buildBadge(callers.directCount(), callers.isLocked, callers.filter, callers.filterMatches);
+    let desc = buildBadge(callers.directCount(), callers.isLocked, callers.filter, callers.filterMatches);
+    if (callers.rootIsFieldLike && callers.accessFilter !== "all") {
+      const tag = `↔${callers.accessFilter}`;
+      desc = desc ? `${desc} ${tag}` : tag;
+    }
+    callersView.description = desc;
+    // Drives visibility of the read/write filter button in the view title.
+    vscode.commands.executeCommand("setContext", "callchain.callersFieldLike", callers.rootIsFieldLike);
   };
   const refreshCalleesBadge = () => {
     calleesView.description = buildBadge(callees.directCount(), callees.isLocked, callees.filter, callees.filterMatches);
@@ -119,6 +126,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.commands.executeCommand("setContext", "callchain.callersFiltered", q.length > 0);
       refreshCallersBadge();
     }),
+    callers.onDidChangeAccessFilter((a) => {
+      vscode.commands.executeCommand("setContext", "callchain.callersAccessFiltered", a !== "all");
+      refreshCallersBadge();
+    }),
     callees.onDidChangeFilter((q) => {
       vscode.commands.executeCommand("setContext", "callchain.calleesFiltered", q.length > 0);
       refreshCalleesBadge();
@@ -138,6 +149,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   vscode.commands.executeCommand("setContext", "callchain.callersFiltered", false);
   vscode.commands.executeCommand("setContext", "callchain.calleesFiltered", false);
   vscode.commands.executeCommand("setContext", "callchain.symbolsFiltered", false);
+  vscode.commands.executeCommand("setContext", "callchain.callersFieldLike", false);
+  vscode.commands.executeCommand("setContext", "callchain.callersAccessFiltered", false);
 
   // React to config changes that affect tree rendering.
   context.subscriptions.push(
@@ -447,6 +460,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.env.clipboard.writeText(`${fsPath}:${line}`);
     }),
     vscode.commands.registerCommand("callchain.filterCallers", () => openFilterInput("Filter Callers", callers)),
+    vscode.commands.registerCommand("callchain.filterCallersAccess", async () => {
+      const { reads, writes } = callers.accessCounts();
+      const cur = callers.accessFilter;
+      const mark = (v: "all" | "read" | "write") => (cur === v ? "$(check) " : "$(blank) ");
+      type Item = vscode.QuickPickItem & { value: "all" | "read" | "write" };
+      const items: Item[] = [
+        { label: `${mark("all")}All usages`, value: "all", description: `${reads + writes} site${reads + writes === 1 ? "" : "s"}` },
+        { label: `${mark("read")}Reads only`, value: "read", description: `${reads} read${reads === 1 ? "" : "s"}` },
+        { label: `${mark("write")}Writes only`, value: "write", description: `${writes} write${writes === 1 ? "" : "s"}` }
+      ];
+      const pick = await vscode.window.showQuickPick(items, {
+        title: "Filter callers by read / write",
+        placeHolder: "Show only read or only write usages of this member"
+      });
+      if (pick) callers.setAccessFilter(pick.value);
+    }),
     vscode.commands.registerCommand("callchain.filterCallees", () => openFilterInput("Filter Callees", callees)),
     vscode.commands.registerCommand("callchain.filterSymbols", () => openFilterInput("Filter Symbols", search)),
     vscode.commands.registerCommand("callchain.clearFilterCallers", () => callers.setFilter("")),

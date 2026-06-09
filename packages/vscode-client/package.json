@@ -149,6 +149,11 @@
         "icon": "$(filter)"
       },
       {
+        "command": "callchain.filterCallersAccess",
+        "title": "Filter Callers by Read/Write…",
+        "icon": "$(arrow-both)"
+      },
+      {
         "command": "callchain.filterCallees",
         "title": "Filter Callees…",
         "icon": "$(filter)"
@@ -250,6 +255,11 @@
           "command": "callchain.clearFilterCallers",
           "when": "view == callchain.callers && callchain.callersFiltered",
           "group": "navigation@1"
+        },
+        {
+          "command": "callchain.filterCallersAccess",
+          "when": "view == callchain.callers && callchain.callersFieldLike",
+          "group": "navigation@2"
         },
         {
           "command": "callchain.filterCallees",
