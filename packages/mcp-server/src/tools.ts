@@ -4,6 +4,7 @@ import { GraphState } from "./graphState.js";
 import {
   callPath,
   classHierarchy,
+  classMembers,
   findCallees,
   findCallers,
   findOverriddenQuery,
@@ -132,6 +133,21 @@ export function registerTools(server: McpServer, state: GraphState): void {
       inputSchema: { className: z.string().describe("The class name.") }
     },
     async ({ className }) => result(classHierarchy(state.getGraph(), root(), className))
+  );
+
+  server.registerTool(
+    "class_members",
+    {
+      title: "Class members",
+      description:
+        "List a 4D class's API without reading the .4dm file. Returns the class's own members " +
+        "(constructor, functions, getters/setters, aliases) with kind, scope (local/shared/public), " +
+        "accessor role, line numbers, and caller/callee counts; own members that override an ancestor " +
+        "carry an `overrides` link. Also returns `inherited` — function members visible from ancestor " +
+        "classes that aren't shadowed locally.",
+      inputSchema: { className: z.string().describe("The class name.") }
+    },
+    async ({ className }) => result(classMembers(state.getGraph(), root(), className))
   );
 
   server.registerTool(

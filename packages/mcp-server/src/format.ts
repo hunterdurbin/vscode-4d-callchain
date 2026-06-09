@@ -14,6 +14,10 @@ export interface SymbolSummary {
   ownerClass?: string;
   extendsClass?: string;
   signature?: string;
+  /** For class members: `local`/`shared`/`public` visibility, when known. */
+  scope?: "local" | "shared" | "public";
+  /** For class members: `get`/`set`/`function` (and `query`/`orderBy` for ORDA), when known. */
+  accessor?: "get" | "set" | "function";
   /** Path relative to the project root; omitted for synthetic symbols (builtins). */
   file?: string;
   /** 1-based line of the declaration; omitted for synthetic symbols. */
@@ -66,6 +70,8 @@ export function summarize(s: SymbolRecord, projectRoot: string): SymbolSummary {
     ownerClass: s.ownerClass,
     extendsClass: s.extendsClass,
     signature: signatureOf(s),
+    scope: s.scope,
+    accessor: s.accessor,
     file,
     // Stored lines are zero-based; expose 1-based. Synthetic symbols (uri "")
     // get no line so agents don't chase a bogus location:1.

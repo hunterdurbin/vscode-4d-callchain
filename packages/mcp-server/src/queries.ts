@@ -6,7 +6,8 @@ import {
   directSubclasses,
   findOverriddenFunction,
   findOverridesOfFunction,
-  fuzzyMatch
+  fuzzyMatch,
+  inheritedFunctions
 } from "@4d/core";
 import { SymbolSummary, summarize, summarizeEdge } from "./format.js";
 import { resolveSymbol, SymbolSelector } from "./resolve.js";
@@ -186,6 +187,68 @@ export function classHierarchy(
     ancestors,
     directSubclasses: directSubclasses(graph, className).map((s) => summarize(s, projectRoot)),
     descendants: descendantClasses(graph, className).map((s) => summarize(s, projectRoot))
+  };
+}
+
+/** A member row: a symbol summary plus call counts and (for own members that
+ * shadow an ancestor function) the ancestor declaration it overrides. */
+type MemberRow = SymbolSummary & {
+  callerCount: number;
+  calleeCount: number;
+  overrides?: { id: string; ownerClass?: string };
+};
+
+export function classMembers(
+  graph: CallGraph,
+  projectRoot: string,
+  className: string
+): QueryError | {
+  class: SymbolSummary;
+  count: number;
+  members: MemberRow[];
+  inheritedCount: number;
+  inherited: MemberRow[];
+} {
+  const cls = graph.byName(className).find((s) => s.kind === SymbolKind.Class);
+  if (!cls) return { error: `No class named "${className}" found.` };
+
+  const row = (s: SymbolRecord): MemberRow => ({
+    ...summarize(s, projectRoot),
+    callerCount: graph.callers(s.id).length,
+    calleeCount: graph.callees(s.id).length
+  });
+
+  // Function-kind members inherited from ancestors (nearest declaration per
+  // name). An own member whose name appears here overrides the mapped ancestor.
+  const inherited = inheritedFunctions(graph, cls.name);
+
+  const lower = className.toLowerCase();
+  const ownNames = new Set<string>();
+  const members: MemberRow[] = graph
+    .allSymbols()
+    .filter((s) => s.ownerClass?.toLowerCase() === lower)
+    .sort((a, b) => a.location.line - b.location.line)
+    .map((s) => {
+      ownNames.add(s.name.toLowerCase());
+      const base = inherited.get(s.name.toLowerCase());
+      const r = row(s);
+      if (base) r.overrides = { id: base.id, ownerClass: base.ownerClass };
+      return r;
+    });
+
+  // Members visible on the class but declared in an ancestor and not shadowed
+  // by an own member. Sorted by owning class then name for stable output.
+  const inheritedRows: MemberRow[] = [...inherited.values()]
+    .filter((s) => !ownNames.has(s.name.toLowerCase()))
+    .sort((a, b) => (a.ownerClass ?? "").localeCompare(b.ownerClass ?? "") || a.name.localeCompare(b.name))
+    .map(row);
+
+  return {
+    class: summarize(cls, projectRoot),
+    count: members.length,
+    members,
+    inheritedCount: inheritedRows.length,
+    inherited: inheritedRows
   };
 }
 

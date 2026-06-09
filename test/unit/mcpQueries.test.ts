@@ -4,6 +4,7 @@ import type { SymbolIndex, SymbolRecord, CallEdge } from "../../packages/core/di
 import {
   callPath,
   classHierarchy,
+  classMembers,
   findCallees,
   findCallers,
   findOverriddenQuery,
@@ -44,6 +45,10 @@ function makeGraph(): CallGraph {
     classSym("Sub", "Base"),
     classFn("Base", "foo"),
     classFn("Sub", "foo"),
+    // A getter on Base with a non-default scope/accessor, plus a same-named
+    // ProjectMethod that must NOT show up as a member of Base.
+    { id: "ClassGetter:Base.bar", name: "bar", kind: SymbolKind.ClassGetter, ownerClass: "Base", scope: "local", accessor: "get", location: { uri: `file://${ROOT}/Project/Sources/Classes/Base.4dm`, line: 8 } },
+    method("ProjectMethod:bar", "bar"),
     { id: "ProjectMethod:Dup#a", name: "Dup", kind: SymbolKind.ProjectMethod, location: { uri: `file://${ROOT}/a.4dm`, line: 0 } },
     { id: "ProjectMethod:Dup#b", name: "Dup", kind: SymbolKind.ProjectMethod, location: { uri: `file://${ROOT}/b.4dm`, line: 0 } }
   ];
@@ -102,6 +107,35 @@ describe("mcp queries", () => {
     if (isQueryError(base)) throw new Error("unexpected error");
     expect(base.directSubclasses.map((s) => s.name)).toEqual(["Sub"]);
     expect(base.descendants.map((s) => s.name)).toEqual(["Sub"]);
+  });
+
+  it("class_members lists a class's own members with scope/accessor, excluding same-named non-members", () => {
+    const r = classMembers(g, ROOT, "Base");
+    if (isQueryError(r)) throw new Error("unexpected error");
+    // foo (line 3) then bar (line 8), sorted by line; the ProjectMethod "bar" is excluded.
+    expect(r.count).toBe(2);
+    expect(r.members.map((m) => m.name)).toEqual(["foo", "bar"]);
+    const bar = r.members.find((m) => m.name === "bar")!;
+    expect(bar.kind).toBe("ClassGetter");
+    expect(bar.scope).toBe("local");
+    expect(bar.accessor).toBe("get");
+    expect(bar.line).toBe(9); // stored line 8 -> 1-based 9
+    expect(typeof bar.callerCount).toBe("number");
+
+    const missing = classMembers(g, ROOT, "Nope");
+    expect(isQueryError(missing)).toBe(true);
+  });
+
+  it("class_members labels overrides and surfaces inherited members", () => {
+    const r = classMembers(g, ROOT, "Sub");
+    if (isQueryError(r)) throw new Error("unexpected error");
+    // Sub declares foo (overrides Base.foo); Sub inherits bar (getter) from Base.
+    const foo = r.members.find((m) => m.name === "foo")!;
+    expect(foo.overrides).toEqual({ id: "ClassFunction:Base.foo", ownerClass: "Base" });
+    expect(r.inherited.map((m) => m.name)).toEqual(["bar"]);
+    expect(r.inherited[0].ownerClass).toBe("Base");
+    // bar is inherited, not shadowed, so it is NOT in own members.
+    expect(r.members.map((m) => m.name)).not.toContain("bar");
   });
 
   it("find_overrides / find_overridden resolve the Base.foo <-> Sub.foo pair", () => {
