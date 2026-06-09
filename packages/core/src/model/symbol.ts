@@ -25,6 +25,8 @@ export enum SymbolKind {
   InterprocessVariable = "InterprocessVariable",
   /** ORDA computed/alias attribute declared with `Alias <name> <targetPath>`. */
   Alias = "Alias",
+  /** Plain class field declared with `property <name> [: <Type>]`. */
+  ClassProperty = "ClassProperty",
   Unresolved = "Unresolved"
 }
 
@@ -203,6 +205,15 @@ export interface CallEdge {
   column?: number;
   /** Zero-based exclusive end column of the callee identifier. */
   endColumn?: number;
+  /**
+   * For edges into a field-like member (ClassProperty / ClassGetter /
+   * ClassSetter / Alias): whether the reference reads or writes the member.
+   * A getter reference is always `"read"`, a setter `"write"`; properties and
+   * aliases can be either. Absent on call / instantiation edges. Folded into
+   * the edge-dedup key so a read and a write to the same member on the same
+   * line/column don't collapse into one edge.
+   */
+  access?: "read" | "write";
 }
 
 export interface SymbolIndex {
@@ -274,9 +285,16 @@ export interface ChainStep {
 // addition to the terminal-method edge — previously the tree-sitter parser
 // swallowed the `.new()` of a chain, so chained instantiation sites were
 // invisible to find_instantiations (the regex parser already emitted it).
+// Bumped to 43 when plain `property` declarations became first-class
+// ClassProperty symbols (previously unindexed — only their declared type was
+// captured for chain resolution), so they accrue read/write usage edges; and
+// `CallEdge` gained an optional `access` tag (read/write) on field-like-member
+// edges, now folded into the edge-dedup keys (resolve / resolveCallsForFile /
+// appendEdgeDeduped) so a same-line read+write pair survives in both the cold
+// and incremental paths.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 42;
+export const INDEX_VERSION = 43;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

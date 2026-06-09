@@ -151,3 +151,34 @@ Alias invoiceId invoice.InvoiceID
     (keyword_alias)
     name: (identifier)
     target: (type_reference (identifier) (identifier))))
+
+==================
+property — multiple names sharing a type
+==================
+
+property text1; text2 : Text
+
+---
+
+(source_file
+  (property_declaration
+    (keyword_property)
+    name: (identifier)
+    name: (identifier)
+    type: (return_type_annotation
+      type: (type_reference (identifier)))))
+
+==================
+property — multiple names, no type
+==================
+
+property a; b; c
+
+---
+
+(source_file
+  (property_declaration
+    (keyword_property)
+    name: (identifier)
+    name: (identifier)
+    name: (identifier)))

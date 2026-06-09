@@ -38,6 +38,11 @@ export interface EdgeSummary {
   raw?: string;
   /** False when the target couldn't be resolved to a real declaration. */
   resolved: boolean;
+  /**
+   * For edges into a field-like member (property / getter / setter / alias):
+   * whether this site reads or writes the member. Absent on call edges.
+   */
+  access?: "read" | "write";
 }
 
 /** Render a 4D-ish signature like `(name : Text; count : Integer) -> Object`. */
@@ -105,6 +110,7 @@ export function summarizeEdge(
     callLine: edge.line + 1,
     callKind: edge.callKind,
     raw: edge.raw || undefined,
-    resolved: edge.resolved
+    resolved: edge.resolved,
+    ...(edge.access ? { access: edge.access } : {})
   };
 }

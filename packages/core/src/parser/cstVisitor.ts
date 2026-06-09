@@ -411,11 +411,24 @@ export class CstVisitor {
 
   private visitPropertyDecl(node: Node): void {
     if (!this.classInfo) return;
-    const nameNode = node.childForFieldName("name");
+    // A declaration may list several `;`-separated names sharing one trailing
+    // type: `property text1; text2 : Text`. Each is its own `name` field.
+    const nameNodes = node.childrenForFieldName("name").filter((n): n is Node => n != null);
+    if (nameNodes.length === 0) return;
     const typeAnn = node.childForFieldName("type");
-    if (!nameNode) return;
-    if (typeAnn) {
-      const typeNode = typeAnn.childForFieldName("type");
+    const typeNode = typeAnn?.childForFieldName("type");
+    for (const nameNode of nameNodes) {
+      // Index each name as a first-class ClassProperty symbol so it accrues
+      // read/write usage edges (mirrors visitAliasDecl).
+      this.symbols.push({
+        id: symbolIdFor(SymbolKind.ClassProperty, nameNode.text, this.classInfo.name),
+        name: nameNode.text,
+        kind: SymbolKind.ClassProperty,
+        ownerClass: this.classInfo.name,
+        location: this.locationOf(nameNode, nameNode),
+      });
+      // Keep the declared type for chain resolution; the shared type applies
+      // to every name on the line.
       if (typeNode) this.classPropertyTypes.set(nameNode.text, typeNode.text);
     }
   }

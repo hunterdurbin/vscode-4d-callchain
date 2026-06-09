@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 42 after cs.X.new().method() chains emit the base construction edge", () => {
-    expect(INDEX_VERSION).toBe(42);
+  it("INDEX_VERSION is 43 after property declarations became ClassProperty symbols with read/write edges", () => {
+    expect(INDEX_VERSION).toBe(43);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {
@@ -117,7 +117,9 @@ describe("incremental indexing (patchFile)", () => {
     const fresh = await freshIndex(root);
 
     // No edge appears more than once for the patched file's symbols.
-    const key = (e: CallEdge) => `${e.fromId}|${e.toId}|${e.line}|${e.callKind}|${e.column}`;
+    // `access` is part of the dedup key: a same-line property read+write
+    // (`This.counter:=This.counter+1`) is two distinct edges, not a duplicate.
+    const key = (e: CallEdge) => `${e.fromId}|${e.toId}|${e.line}|${e.callKind}|${e.column}|${e.access ?? ""}`;
     const counts = new Map<string, number>();
     for (const e of patched.edges) counts.set(key(e), (counts.get(key(e)) ?? 0) + 1);
     const dups = [...counts.entries()].filter(([, n]) => n > 1);

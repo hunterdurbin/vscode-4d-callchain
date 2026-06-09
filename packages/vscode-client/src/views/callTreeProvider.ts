@@ -326,8 +326,11 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
       const showSnippet = vscode.workspace
         .getConfiguration("callchain")
         .get<boolean>("showCallSiteSnippets", true);
+      // Field-like-member edges carry a read/write access tag — surface it on
+      // the call-site label (e.g. "line 160 · write").
+      const accessTag = node.edge.access ? ` · ${node.edge.access}` : "";
       const item = new vscode.TreeItem(
-        `line ${node.edge.line + 1}`,
+        `line ${node.edge.line + 1}${accessTag}`,
         vscode.TreeItemCollapsibleState.None
       );
       item.id = `${this.direction}:site:${node.edge.fromId}>${node.edge.toId}@${node.edge.line}`;
@@ -593,7 +596,8 @@ function buildGroupTooltip(node: SymbolGroup): vscode.MarkdownString {
 
 function buildSiteTooltip(node: CallSite): vscode.MarkdownString {
   const md = new vscode.MarkdownString(undefined, true);
-  md.appendMarkdown(`**Line ${node.edge.line + 1}** — \`${node.edge.callKind}\`  \n`);
+  const access = node.edge.access ? ` · ${node.edge.access}` : "";
+  md.appendMarkdown(`**Line ${node.edge.line + 1}** — \`${node.edge.callKind}\`${access}  \n`);
   md.appendCodeblock(node.edge.raw, "4d");
   return md;
 }

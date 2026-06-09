@@ -115,10 +115,16 @@ export function findCallers(
   count: number;
   callers: ReturnType<typeof summarizeEdge>[];
   viaBase?: { base: SymbolSummary; sites: (ReturnType<typeof summarizeEdge> & { via: string })[] }[];
+  /** Read/write breakdown for field-like members (property / getter / setter / alias). */
+  usage?: { reads: number; writes: number };
 } {
   const sym = resolveOrError(graph, sel, projectRoot);
   if (isQueryError(sym)) return sym;
   const edges = dedupeEdges(graph.callers(sym.id), (e) => e.fromId);
+  // Read/write breakdown for field-like members (computed from the raw,
+  // access-tagged caller edges — not the fromId-deduped `edges`).
+  const reads = graph.reads(sym.id).length;
+  const writes = graph.writes(sym.id).length;
 
   // Polymorphic dispatch: a call typed to an ancestor class resolves to that
   // ancestor's method, so an overriding method gets no *direct* caller edge.
@@ -138,7 +144,8 @@ export function findCallers(
     symbol: summarize(sym, projectRoot),
     count: edges.length,
     callers: edges.slice(0, limit).map((e) => summarizeEdge(e, e.fromId, graph, projectRoot)),
-    ...(viaBase.length ? { viaBase } : {})
+    ...(viaBase.length ? { viaBase } : {}),
+    ...(reads || writes ? { usage: { reads, writes } } : {})
   };
 }
 

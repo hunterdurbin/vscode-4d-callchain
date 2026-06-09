@@ -450,6 +450,11 @@
           "default": true,
           "description": "Show the '↥ Extended by N' code lens on a class declaration, counting subclasses (direct, plus total descendants when deeper)."
         },
+        "callchain.codeLens.showPropertyUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the '↔ N reads · M writes' usage code lens above class properties, computed-attribute getters/setters, and ORDA aliases (replaces the '▲ N callers' lens for these field-like members). When multiple share one line, each lens is prefixed with the member name."
+        },
         "callchain.builtinConstantsPaths": {
           "type": "array",
           "items": {

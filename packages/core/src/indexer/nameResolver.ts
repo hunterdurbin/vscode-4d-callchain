@@ -87,6 +87,7 @@ export interface ResolverScratch {
   classGetters: Map<string, SymbolRecord>;
   classSetters: Map<string, SymbolRecord>;
   classAliases: Map<string, SymbolRecord>;
+  classProperties: Map<string, SymbolRecord>;
   pluginByName: Map<string, string>;
   commandToPlugin: Map<string, string>;
   constantsByName: Map<string, string>;
@@ -111,6 +112,7 @@ export interface ResolverScratch {
   resolveGetterOnChain: (className: string, prop: string) => SymbolRecord | undefined;
   resolveSetterOnChain: (className: string, prop: string) => SymbolRecord | undefined;
   resolveAliasOnChain: (className: string, prop: string) => SymbolRecord | undefined;
+  resolvePropertyOnChain: (className: string, prop: string) => SymbolRecord | undefined;
   classForTable: (tableName: string) => string | undefined;
   normalizeType: (type: string | undefined) => string | undefined;
   stepProperty: (type: string, prop: string) => string | undefined;
@@ -135,7 +137,7 @@ export function resolve(input: ResolverInput, projectSymbols: SymbolRecord[]): R
   const seen = new Set<string>();
   const uniq: CallEdge[] = [];
   for (const e of allEdges) {
-    const key = `${e.fromId}|${e.toId}|${e.line}|${e.callKind}`;
+    const key = `${e.fromId}|${e.toId}|${e.line}|${e.callKind}|${e.access ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
     uniq.push(e);
@@ -183,6 +185,7 @@ export function buildResolverScratch(input: ResolverInput, projectSymbols: Symbo
   const classGetters   = new Map<string, SymbolRecord>(); // key: className.propName (lowercase)
   const classSetters   = new Map<string, SymbolRecord>(); // key: className.propName (lowercase)
   const classAliases   = new Map<string, SymbolRecord>(); // key: className.aliasName (lowercase)
+  const classProperties = new Map<string, SymbolRecord>(); // key: className.propName (lowercase)
   for (const s of projectSymbols) {
     if (!s.ownerClass) continue;
     const key = `${s.ownerClass}.${s.name}`.toLowerCase();
@@ -199,6 +202,9 @@ export function buildResolverScratch(input: ResolverInput, projectSymbols: Symbo
         break;
       case SymbolKind.Alias:
         classAliases.set(key, s);
+        break;
+      case SymbolKind.ClassProperty:
+        classProperties.set(key, s);
         break;
     }
   }
@@ -394,6 +400,23 @@ export function buildResolverScratch(input: ResolverInput, projectSymbols: Symbo
       visited.add(cur.toLowerCase());
       const a = classAliases.get(`${cur}.${prop}`.toLowerCase());
       if (a) return a;
+      const cls = classByName.get(cur.toLowerCase());
+      cur = cls?.extendsClass;
+    }
+    return undefined;
+  };
+
+  // Same, but for a plain `property name [: Type]` field. A property is
+  // read/written like a field, so both reads and writes of a property name
+  // resolve here — but only AFTER getter/setter/alias resolution misses, so a
+  // computed accessor of the same name always wins.
+  const resolvePropertyOnChain = (className: string, prop: string): SymbolRecord | undefined => {
+    let cur: string | undefined = className;
+    const visited = new Set<string>();
+    while (cur && !visited.has(cur.toLowerCase())) {
+      visited.add(cur.toLowerCase());
+      const p = classProperties.get(`${cur}.${prop}`.toLowerCase());
+      if (p) return p;
       const cls = classByName.get(cur.toLowerCase());
       cur = cls?.extendsClass;
     }
@@ -651,6 +674,7 @@ export function buildResolverScratch(input: ResolverInput, projectSymbols: Symbo
     classGetters,
     classSetters,
     classAliases,
+    classProperties,
     pluginByName,
     commandToPlugin,
     constantsByName,
@@ -667,6 +691,7 @@ export function buildResolverScratch(input: ResolverInput, projectSymbols: Symbo
     resolveGetterOnChain,
     resolveSetterOnChain,
     resolveAliasOnChain,
+    resolvePropertyOnChain,
     classForTable,
     normalizeType,
     stepProperty,
@@ -706,6 +731,7 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
     resolveGetterOnChain,
     resolveSetterOnChain,
     resolveAliasOnChain,
+    resolvePropertyOnChain,
     classForTable,
     normalizeType,
     stepProperty,
@@ -725,7 +751,7 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
     for (const call of parsed.rawCalls) {
       const hint = call.hint;
       if (!hint) continue;
-      const pushEdge = (toId: string, kind: CallKind, resolved: boolean) => {
+      const pushEdge = (toId: string, kind: CallKind, resolved: boolean, access?: "read" | "write") => {
         edges.push({
           fromId: call.fromSymbolId,
           toId,
@@ -734,7 +760,8 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           raw: call.expression,
           resolved,
           column: call.column,
-          endColumn: call.endColumn
+          endColumn: call.endColumn,
+          ...(access ? { access } : {})
         });
       };
 
@@ -820,13 +847,16 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           break;
         }
         case "CsGetNs": {
+          // Namespaced component-class access. Component classes' getters come
+          // from JSON metadata, not our parser, so plain `property` fields on
+          // component classes aren't indexed — no property fallback here.
           const g = classGetters.get(`cs.${hint.namespace}.${hint.className}.${hint.property}`.toLowerCase());
-          if (g) pushEdge(g.id, CallKind.Static, true);
+          if (g) pushEdge(g.id, CallKind.Static, true, "read");
           break;
         }
         case "CsSetNs": {
           const s = classSetters.get(`cs.${hint.namespace}.${hint.className}.${hint.property}`.toLowerCase());
-          if (s) pushEdge(s.id, CallKind.Static, true);
+          if (s) pushEdge(s.id, CallKind.Static, true, "write");
           break;
         }
         case "DsCall": {
@@ -1030,28 +1060,39 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           if (!className) break;
           const g = resolveGetterOnChain(className, hint.property);
           if (g) {
-            pushEdge(g.id, g.ownerClass === className ? CallKind.Static : CallKind.Inherited, true);
+            pushEdge(g.id, g.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "read");
             break;
           }
           // An Alias attribute is read like a field — link the reference to it.
           const a = resolveAliasOnChain(className, hint.property);
           if (a) {
-            pushEdge(a.id, a.ownerClass === className ? CallKind.Static : CallKind.Inherited, true);
+            pushEdge(a.id, a.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "read");
+            break;
           }
-          // Otherwise drop silently: likely a plain `property`, not a computed accessor/alias.
+          // Plain `property` field read.
+          const p = resolvePropertyOnChain(className, hint.property);
+          if (p) {
+            pushEdge(p.id, p.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "read");
+          }
           break;
         }
         case "ThisSet": {
           if (!className) break;
           const s = resolveSetterOnChain(className, hint.property);
           if (s) {
-            pushEdge(s.id, s.ownerClass === className ? CallKind.Static : CallKind.Inherited, true);
+            pushEdge(s.id, s.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "write");
             break;
           }
           // Aliases are writable too — `This.<alias>:=…` links to the Alias symbol.
           const a = resolveAliasOnChain(className, hint.property);
           if (a) {
-            pushEdge(a.id, a.ownerClass === className ? CallKind.Static : CallKind.Inherited, true);
+            pushEdge(a.id, a.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "write");
+            break;
+          }
+          // Plain `property` field write.
+          const p = resolvePropertyOnChain(className, hint.property);
+          if (p) {
+            pushEdge(p.id, p.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "write");
           }
           break;
         }
@@ -1067,12 +1108,17 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           if (target) {
             const g = resolveGetterOnChain(target, hint.property);
             if (g) {
-              pushEdge(g.id, CallKind.Static, true);
+              pushEdge(g.id, CallKind.Static, true, "read");
               break;
             }
             const a = resolveAliasOnChain(target, hint.property);
             if (a) {
-              pushEdge(a.id, CallKind.Static, true);
+              pushEdge(a.id, CallKind.Static, true, "read");
+              break;
+            }
+            const p = resolvePropertyOnChain(target, hint.property);
+            if (p) {
+              pushEdge(p.id, CallKind.Static, true, "read");
               break;
             }
           }
@@ -1090,23 +1136,29 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           const target = classFromVarType(rawType) ?? normalizeType(rawType);
           if (!target) break;
           const s = resolveSetterOnChain(target, hint.property);
-          if (s) { pushEdge(s.id, CallKind.Static, true); break; }
+          if (s) { pushEdge(s.id, CallKind.Static, true, "write"); break; }
           const a = resolveAliasOnChain(target, hint.property);
-          if (a) pushEdge(a.id, CallKind.Static, true);
+          if (a) { pushEdge(a.id, CallKind.Static, true, "write"); break; }
+          const p = resolvePropertyOnChain(target, hint.property);
+          if (p) pushEdge(p.id, CallKind.Static, true, "write");
           break;
         }
         case "CsGet": {
           const g = resolveGetterOnChain(hint.className, hint.property);
-          if (g) { pushEdge(g.id, CallKind.Static, true); break; }
+          if (g) { pushEdge(g.id, CallKind.Static, true, "read"); break; }
           const a = resolveAliasOnChain(hint.className, hint.property);
-          if (a) pushEdge(a.id, CallKind.Static, true);
+          if (a) { pushEdge(a.id, CallKind.Static, true, "read"); break; }
+          const p = resolvePropertyOnChain(hint.className, hint.property);
+          if (p) pushEdge(p.id, CallKind.Static, true, "read");
           break;
         }
         case "CsSet": {
           const s = resolveSetterOnChain(hint.className, hint.property);
-          if (s) { pushEdge(s.id, CallKind.Static, true); break; }
+          if (s) { pushEdge(s.id, CallKind.Static, true, "write"); break; }
           const a = resolveAliasOnChain(hint.className, hint.property);
-          if (a) pushEdge(a.id, CallKind.Static, true);
+          if (a) { pushEdge(a.id, CallKind.Static, true, "write"); break; }
+          const p = resolvePropertyOnChain(hint.className, hint.property);
+          if (p) pushEdge(p.id, CallKind.Static, true, "write");
           break;
         }
         case "DsBracketNew": {
@@ -1187,12 +1239,14 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
     }
   }
 
-  // Per-file dedup: identical edges (same from/to/line/callKind) within a
-  // single file collapse to one. Project-wide dedup is handled by `resolve`.
+  // Per-file dedup: identical edges (same from/to/line/callKind/access) within
+  // a single file collapse to one. `access` keeps a same-line read+write pair
+  // (e.g. `This.x:=This.x+1`) from collapsing. Project-wide dedup is handled by
+  // `resolve`.
   const seen = new Set<string>();
   const uniq: CallEdge[] = [];
   for (const e of edges) {
-    const key = `${e.fromId}|${e.toId}|${e.line}|${e.callKind}`;
+    const key = `${e.fromId}|${e.toId}|${e.line}|${e.callKind}|${e.access ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
     uniq.push(e);

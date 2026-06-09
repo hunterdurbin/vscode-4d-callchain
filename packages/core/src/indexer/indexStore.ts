@@ -704,7 +704,8 @@ export class Indexer {
           x.toId === e.toId &&
           x.line === e.line &&
           x.callKind === e.callKind &&
-          x.column === e.column
+          x.column === e.column &&
+          x.access === e.access
       )
     ) {
       return false;

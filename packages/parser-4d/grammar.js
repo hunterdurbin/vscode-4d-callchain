@@ -259,12 +259,16 @@ module.exports = grammar({
     type_reference: ($) =>
       seq($.identifier, repeat(seq(".", $.identifier))),
 
-    // `property name` or `property name : Type`. Class-body only — at the
-    // grammar level we accept anywhere; the visitor enforces context.
+    // `property name` or `property name : Type`. Multiple `;`-separated names
+    // can share one trailing type: `property text1; text2 : Text`. Class-body
+    // only — at the grammar level we accept anywhere; the visitor enforces
+    // context. Each name is its own `name` field; read them all via
+    // childrenForFieldName("name").
     property_declaration: ($) =>
       seq(
         $.keyword_property,
         field("name", $.identifier),
+        repeat(seq(";", field("name", $.identifier))),
         field("type", optional($.return_type_annotation)),
         $._newline,
       ),

@@ -85,8 +85,10 @@ const FUNCTION_DECL = /^\s*(local\s+|shared\s+)?Function(\s+(get|set|query|order
 // `Alias invoiceId invoice.InvoiceID`). Declared at class level.
 const ALIAS_DECL = /^\s*Alias\s+([\w_]+)\s+([\w_.[\]]+)/i;
 const CONSTRUCTOR_DECL = /^\s*Class\s+constructor\b/i;
-const PROPERTY_DECL = /^\s*property\s+([\w_]+)/i;
-const PROPERTY_DECL_TYPED = /^\s*property\s+([\w_]+)\s*:\s*([\w.]+)/i;
+// `property name`, `property name : Type`, or multiple `;`-separated names
+// sharing a trailing type: `property text1; text2 : Text`. Group 1 is the
+// `;`-separated name list, group 2 the optional shared type.
+const PROPERTY_DECL = /^\s*property\s+([\w_]+(?:\s*;\s*[\w_]+)*)\s*(?::\s*([\w.]+))?/i;
 // Function decl with a return-type annotation: `Function foo(...) : Type`.
 // Captures the closing `)` + `:` so we can pull the type. Tolerates multi-line
 // signatures by extracting from the same physical line (multi-line decls are
@@ -401,11 +403,29 @@ export function parseFile(file: DiscoveredFile, projectRootUri: string, constant
         continue;
       }
       const propMatch = rawLine.match(PROPERTY_DECL);
-      if (propMatch) {
-        // Record the property's declared type for chain resolution.
-        // `property foo : cs.Bar` -> {foo -> cs.Bar}.
-        const typedMatch = rawLine.match(PROPERTY_DECL_TYPED);
-        if (typedMatch) classPropertyTypes.set(typedMatch[1], typedMatch[2]);
+      if (propMatch && classInfo) {
+        // Each name becomes a first-class ClassProperty symbol (so it accrues
+        // read/write usage edges) and records its declared type for chain
+        // resolution. The shared type applies to every name on the line:
+        // `property a; b : cs.Bar` -> {a -> cs.Bar, b -> cs.Bar}.
+        const type = propMatch[2];
+        let searchFrom = rawLine.toLowerCase().indexOf("property") + "property".length;
+        for (const rawName of propMatch[1].split(";")) {
+          const name = rawName.trim();
+          if (!name) continue;
+          const col = rawLine.indexOf(name, searchFrom);
+          if (col >= 0) searchFrom = col + name.length;
+          symbols.push({
+            id: symbolIdFor(SymbolKind.ClassProperty, name, classInfo.name),
+            name,
+            kind: SymbolKind.ClassProperty,
+            ownerClass: classInfo.name,
+            location: col >= 0
+              ? { uri: fileUri, line: i, column: col, endColumn: col + name.length }
+              : { uri: fileUri, line: i }
+          });
+          if (type) classPropertyTypes.set(name, type);
+        }
         continue;
       }
       const aliasMatch = rawLine.match(ALIAS_DECL);

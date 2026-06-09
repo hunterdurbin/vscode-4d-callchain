@@ -5,6 +5,34 @@ import { TestStatusDecorator } from "../decorations/testStatusDecorator";
 import { CoverageReport } from "../testing/coverage";
 import { FUNCTION_KINDS, descendantClassNames, directSubclasses, dispatchCallers, inheritedFunctions, overridesForClass } from "./overrides";
 
+/**
+ * Field-like members that carry read/write usage edges (vs. plain call edges):
+ * plain `property` fields, computed-attribute getters/setters, and ORDA aliases.
+ * These render a `↔ N reads · M writes` usage lens instead of `▲ N callers`.
+ */
+const FIELD_LIKE_KINDS = new Set<SymbolKind>([
+  SymbolKind.ClassProperty,
+  SymbolKind.ClassGetter,
+  SymbolKind.ClassSetter,
+  SymbolKind.Alias
+]);
+
+/**
+ * Build the usage-lens title. `compact` (used when multiple field-like members
+ * share one line) shortens "reads/writes" to "r/w" and prefixes the member name
+ * so each stacked lens stays identifiable.
+ */
+function usageLensTitle(reads: number, writes: number, compact: boolean, name?: string): string {
+  const r = compact ? `${reads}r` : `${reads} read${reads === 1 ? "" : "s"}`;
+  const w = compact ? `${writes}w` : `${writes} write${writes === 1 ? "" : "s"}`;
+  let body: string;
+  if (reads > 0 && writes > 0) body = `${r} · ${w}`;
+  else if (writes > 0) body = w;
+  else if (reads > 0) body = r;
+  else body = "no usages";
+  return `${name ? `${name}: ` : ""}↔ ${body}`;
+}
+
 export class CallChainLensProvider implements vscode.CodeLensProvider {
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this.emitter.event;
@@ -50,6 +78,18 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     const showOverrides = cfg.get<boolean>("codeLens.showOverrides", true);
     const showOverriding = cfg.get<boolean>("codeLens.showOverriding", true);
     const showExtendedBy = cfg.get<boolean>("codeLens.showExtendedBy", true);
+    const showPropertyUsage = cfg.get<boolean>("codeLens.showPropertyUsage", true);
+
+    // Count field-like members per (mapped) line so we can disambiguate stacked
+    // lenses when several share a line (`property text1; text2 : Text`).
+    const fieldLikePerLine = new Map<number, number>();
+    if (showPropertyUsage) {
+      for (const s of symbols) {
+        if (!FIELD_LIKE_KINDS.has(s.kind)) continue;
+        const ln = this.mapLine(docUri, s.location.line);
+        fieldLikePerLine.set(ln, (fieldLikePerLine.get(ln) ?? 0) + 1);
+      }
+    }
 
     // Override maps are keyed per declaring class. A 4D class file is one class,
     // so we build each map at most once per document and reuse it across
@@ -80,7 +120,19 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
       const line = this.mapLine(docUri, s.location.line);
       const range = new vscode.Range(line, 0, line, 1);
 
-      if (showCallers) out.push(new vscode.CodeLens(range, {
+      // Field-like members (property / getter / setter / alias) show their
+      // read/write usage split instead of a plain caller count. Clicking still
+      // pins + reveals the caller tree (reads and writes both appear there).
+      if (showPropertyUsage && FIELD_LIKE_KINDS.has(s.kind)) {
+        const reads = graph.reads(s.id).length;
+        const writes = graph.writes(s.id).length;
+        const shared = (fieldLikePerLine.get(line) ?? 0) > 1;
+        out.push(new vscode.CodeLens(range, {
+          title: usageLensTitle(reads, writes, shared, shared ? s.name : undefined),
+          command: "callchain.pinAndReveal",
+          arguments: [s.id, "callers"]
+        }));
+      } else if (showCallers) out.push(new vscode.CodeLens(range, {
         title: `▲ ${callerCount} callers`,
         command: "callchain.pinAndReveal",
         arguments: [s.id, "callers"]

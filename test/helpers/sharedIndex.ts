@@ -77,3 +77,13 @@ export function calleesOf(idx: SymbolIndex, sym: { id: string } | undefined) {
   if (!sym) return [];
   return idx.edges.filter((e) => e.fromId === sym.id);
 }
+
+export function readsOf(idx: SymbolIndex, sym: { id: string } | undefined) {
+  if (!sym) return [];
+  return idx.edges.filter((e) => e.toId === sym.id && (e as any).access === "read");
+}
+
+export function writesOf(idx: SymbolIndex, sym: { id: string } | undefined) {
+  if (!sym) return [];
+  return idx.edges.filter((e) => e.toId === sym.id && (e as any).access === "write");
+}

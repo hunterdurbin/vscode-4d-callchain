@@ -48,6 +48,16 @@ export class CallGraph {
     return this.reverse.get(id) ?? [];
   }
 
+  /** Caller edges that read the symbol (field-like members only). */
+  reads(id: string): CallEdge[] {
+    return this.callers(id).filter((e) => e.access === "read");
+  }
+
+  /** Caller edges that write the symbol (field-like members only). */
+  writes(id: string): CallEdge[] {
+    return this.callers(id).filter((e) => e.access === "write");
+  }
+
   /** BFS reachable set bounded by depth. */
   reachable(id: string, depth: number, direction: "forward" | "reverse" | "both"): { nodes: Set<string>; edges: CallEdge[] } {
     const nodes = new Set<string>([id]);

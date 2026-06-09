@@ -1,6 +1,6 @@
 import { beforeAll, expect, it } from "vitest";
 import { describeWithFixture } from "../helpers/fixture";
-import { calleesOf, callersOf, getSharedIndex, symFinder } from "../helpers/sharedIndex";
+import { calleesOf, callersOf, getSharedIndex, readsOf, symFinder, writesOf } from "../helpers/sharedIndex";
 import type { SymbolIndex } from "../../packages/core/dist";
 
 describeWithFixture("indexer/symbols — classes, functions, getters/setters", (root) => {
@@ -73,6 +73,21 @@ describeWithFixture("indexer/symbols — classes, functions, getters/setters", (
       const callerNames = callersOf(idx, alias).map((e) => byId.get(e.fromId));
       expect(callerNames).toContain("load");
       expect(callerNames).toContain("_createActiveRule");
+    }
+  });
+
+  it("RulesEntity._counter property is indexed and accrues read/write usage edges", () => {
+    const prop = sym("ClassProperty", "_counter", "RulesEntity");
+    expect(prop).toBeTruthy();
+    if (!prop) return;
+    // save(): `This._counter:=This._counter+1` → 1 write + 1 read (same line —
+    // both survive only because `access` is part of the edge-dedup key).
+    // load(): `(This._counter>0)` → 1 read. Total: 2 reads, 1 write.
+    expect(readsOf(idx, prop).length).toBe(2);
+    expect(writesOf(idx, prop).length).toBe(1);
+    // Every usage edge into a field-like member carries an access tag.
+    for (const e of callersOf(idx, prop)) {
+      expect((e as any).access === "read" || (e as any).access === "write").toBe(true);
     }
   });
 });
