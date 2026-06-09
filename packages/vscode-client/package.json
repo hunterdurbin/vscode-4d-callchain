@@ -51,6 +51,10 @@
         "title": "4D Call Chain: Reindex Project"
       },
       {
+        "command": "callchain.setupMcp",
+        "title": "4D Call Chain: Set up MCP server for AI agents"
+      },
+      {
         "command": "callchain.showGraph",
         "title": "4D Call Chain: Show Graph"
       },
@@ -359,6 +363,11 @@
           "default": "",
           "description": "Absolute path to 4D project root (folder containing 'Project/'). Defaults to first workspace folder."
         },
+        "callchain.mcpServer.binPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the 4D Call Chain MCP server bin.js, used by the 'Set up MCP server for AI agents' command. Leave empty to auto-resolve. Set this when running from a packaged .vsix, where the server isn't bundled."
+        },
         "callchain.testCommand": {
           "type": "string",
           "default": "make test class={class} format=json outputPath={jsonOutputPath}",
@@ -497,6 +506,7 @@
     "@4d/core": "*",
     "@4d/ide-server": "*",
     "@4d/language-server": "*",
+    "@4d/mcp-server": "*",
     "cytoscape": "^3.33.3",
     "cytoscape-dagre": "^2.5.0",
     "dagre": "^0.8.5",

@@ -14,6 +14,7 @@ import { TestResultsWatcher } from "./testing/resultsWatcher";
 import { CoverageReport, computeCoverage } from "./testing/coverage";
 import { CallChainLensProvider } from "./codelens/callChainLens";
 import { descendantClasses, findOverriddenFunction, findOverridesOfFunction } from "./codelens/overrides";
+import { registerMcpSetup } from "./mcp/setupMcp";
 import { DirtyLineTracker } from "./codelens/dirtyLineTracker";
 import { debounce } from "./util/debounce";
 
@@ -275,6 +276,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Commands
   context.subscriptions.push(
+    registerMcpSetup(context, output, resolveProjectRoot),
     vscode.commands.registerCommand("callchain.reindex", async () => {
       output.show(true);
       await indexer.rebuild();

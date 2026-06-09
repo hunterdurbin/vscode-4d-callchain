@@ -62,6 +62,7 @@ async function main() {
       "@4d/parser-4d",
       "@4d/ide-server",
       "@4d/language-server",
+      "@4d/mcp-server",
     ],
     logLevel: "info",
   });

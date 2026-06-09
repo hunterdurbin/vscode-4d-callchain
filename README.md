@@ -59,8 +59,17 @@ writes (`<projectRoot>/.vscode/callchain-index-*.msgpack`) — so startup is
 near-instant when the extension has indexed once — and watches that cache to
 stay in sync as you save.
 
-Build it with the rest of the monorepo (`npm run build`), then register it with
-your agent. For Claude Code, add to `.mcp.json`:
+**Quick setup:** run the **4D Call Chain: Set up MCP server for AI agents**
+command from the Command Palette. It resolves the server path and the current
+project root, then lets you pick target(s) — Claude Code (project `.mcp.json` or
+global `~/.claude.json`), Cursor (`.cursor/mcp.json`), VS Code/Copilot
+(`.vscode/mcp.json`) — and either writes/merges the config (existing servers are
+preserved; a `.bak` is saved first) or copies the JSON to your clipboard. When
+running from a packaged `.vsix` (where the server isn't bundled), point
+`callchain.mcpServer.binPath` at the server's `dist/bin.js`.
+
+To wire it up by hand instead, build the monorepo (`npm run build`) and register
+the server with your agent. For Claude Code, add to `.mcp.json`:
 
 ```json
 {
