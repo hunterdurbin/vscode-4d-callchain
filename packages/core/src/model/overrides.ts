@@ -1,6 +1,6 @@
 import { CallGraph } from "./callGraph";
 import { SymbolKind } from "./symbol";
-import type { SymbolRecord } from "./symbol";
+import type { CallEdge, SymbolRecord } from "./symbol";
 
 /**
  * Class-member kinds declared with the `Function` keyword in 4D source —
@@ -169,6 +169,63 @@ export function overriddenFunctionChain(graph: CallGraph, baseSymbolId: string):
       if (s.name.toLowerCase() === name) out.push(s);
     }
     cur = parentClassName(graph, cur);
+  }
+  return out;
+}
+
+/** A base method whose call sites can dispatch (polymorphically) to an override. */
+export interface DispatchCallerGroup {
+  base: SymbolRecord;
+  sites: CallEdge[];
+}
+
+/** Stable per-call-site key (caller + line + column). */
+function callSiteKey(e: CallEdge): string {
+  return `${e.fromId}|${e.line}|${e.column ?? ""}`;
+}
+
+/**
+ * Collapse duplicate edges that share a call site (same caller/line/column),
+ * preferring the resolved one — mirrors the MCP query layer's dedupe so counts
+ * match across UI and tools.
+ */
+function dedupeBySite(edges: CallEdge[]): CallEdge[] {
+  const byKey = new Map<string, CallEdge>();
+  const order: string[] = [];
+  for (const e of edges) {
+    const key = callSiteKey(e);
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, e);
+      order.push(key);
+    } else if (!prev.resolved && e.resolved) {
+      byKey.set(key, e);
+    }
+  }
+  return order.map((k) => byKey.get(k)!);
+}
+
+/**
+ * Polymorphic-dispatch callers of an overriding function: call sites that
+ * resolve to an ancestor's same-named method (the call is typed to the base)
+ * but can dispatch to `symbolId` at runtime. Because no edge points at the
+ * override itself, these are invisible to a plain `graph.callers()` — so an
+ * override looks like dead code without them.
+ *
+ * Walks every ancestor declaration (`overriddenFunctionChain`), gathers that
+ * ancestor's caller edges (deduped per call site), and excludes any that are
+ * already a *direct* caller of `symbolId`. Returns one group per ancestor that
+ * has surviving sites; `[]` when the symbol overrides nothing or no base has
+ * callers. Read-only — no graph mutation, no INDEX_VERSION impact.
+ */
+export function dispatchCallers(graph: CallGraph, symbolId: string): DispatchCallerGroup[] {
+  const chain = overriddenFunctionChain(graph, symbolId);
+  if (chain.length === 0) return [];
+  const directKeys = new Set(graph.callers(symbolId).map(callSiteKey));
+  const out: DispatchCallerGroup[] = [];
+  for (const base of chain) {
+    const sites = dedupeBySite(graph.callers(base.id)).filter((e) => !directKeys.has(callSiteKey(e)));
+    if (sites.length) out.push({ base, sites });
   }
   return out;
 }

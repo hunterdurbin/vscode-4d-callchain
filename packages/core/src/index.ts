@@ -14,8 +14,10 @@ export {
   findOverridesOfFunction,
   inheritedFunctions,
   findOverriddenFunction,
-  overriddenFunctionChain
+  overriddenFunctionChain,
+  dispatchCallers
 } from "./model/overrides";
+export type { DispatchCallerGroup } from "./model/overrides";
 export {
   SymbolKind,
   ClassFlavor,

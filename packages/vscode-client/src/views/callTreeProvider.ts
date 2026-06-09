@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CallGraph, SymbolKind, fuzzyMatch, parseFilterQuery } from "@4d/core";
+import { CallGraph, SymbolKind, dispatchCallers, fuzzyMatch, parseFilterQuery } from "@4d/core";
 import type { CallEdge, SymbolRecord } from "@4d/core";
 import { descriptionFor, iconFor } from "./treeIcons";
 
@@ -42,7 +42,18 @@ class RootNode {
   constructor(public symbol: SymbolRecord) {}
 }
 
-type Node = SymbolGroup | CallSite | CalleeGroup | RootNode;
+/**
+ * A polymorphic-dispatch group under a callers root: an ancestor `base` method
+ * whose call sites (typed to the base) can dispatch to the overriding root at
+ * runtime. Children are the dispatching callers — the same SymbolGroup layer
+ * the direct callers use. Callers direction only.
+ */
+class ViaBaseGroup {
+  readonly kind = "viabase" as const;
+  constructor(public base: SymbolRecord, public sites: CallEdge[]) {}
+}
+
+type Node = SymbolGroup | CallSite | CalleeGroup | RootNode | ViaBaseGroup;
 
 export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   private rootSymbolId: string | undefined;
@@ -175,7 +186,12 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
    */
   collapseSubtree(target: Node): void {
     if (target.kind === "site") return;
-    const ancestorId = target.kind === "callee-group" ? target.callee.id : target.symbol.id;
+    const ancestorId =
+      target.kind === "callee-group"
+        ? target.callee.id
+        : target.kind === "viabase"
+          ? `viabase:${target.base.id}`
+          : target.symbol.id;
     const prev = this.collapseBumps.get(ancestorId) ?? 0;
     this.collapseBumps.set(ancestorId, prev + 1);
     this.emitter.fire(undefined);
@@ -287,6 +303,25 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
       item.contextValue = "callchain.calleegroup";
       return item;
     }
+    if (node.kind === "viabase") {
+      const label = node.base.ownerClass ? `${node.base.ownerClass}.${node.base.name}` : node.base.name;
+      const item = new vscode.TreeItem(`via base ${label}`, vscode.TreeItemCollapsibleState.Expanded);
+      item.id = `${this.direction}:viabase:${this.rootSymbolId ?? ""}>${node.base.id}`;
+      item.description = `· ×${node.sites.length}`;
+      item.iconPath = new vscode.ThemeIcon("type-hierarchy-sub");
+      item.tooltip = new vscode.MarkdownString(
+        `Polymorphic dispatch — these call \`${label}\` (typed to the base) and can ` +
+          `dispatch to this override at runtime. They are not direct callers.`
+      );
+      // Open the base method declaration.
+      item.command = {
+        command: "callchain.openSymbol",
+        title: "Open",
+        arguments: [node.base.id]
+      };
+      item.contextValue = "callchain.viabase";
+      return item;
+    }
     if (node.kind === "site") {
       const showSnippet = vscode.workspace
         .getConfiguration("callchain")
@@ -367,6 +402,9 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   /** True if expanding `symbolId` (with `parentChain` blocking cycles) would yield ≥1 group. */
   private hasNextLevel(symbolId: string, parentChain: Set<string>): boolean {
     if (!this.graph) return false;
+    // A callers root that is an override may have only via-base (dispatch)
+    // children and zero direct callers — still expandable.
+    if (symbolId === this.rootSymbolId && this.viaBaseGroups(symbolId).length > 0) return true;
     const edges = symbolId === this.rootSymbolId
       ? this.rootEdges(symbolId)
       : (this.direction === "callers" ? this.graph.callers(symbolId) : this.graph.callees(symbolId));
@@ -400,8 +438,20 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
         .map((e) => new CallSite(node.caller, e));
       return sites;
     }
+    if (node.kind === "viabase") {
+      // Children are the dispatching callers, grouped like direct callers. The
+      // synthetic `viabase:<base>` token in the chain keeps their TreeItem ids
+      // distinct from any direct group for the same caller, and blocks cycles.
+      const parentChain = new Set<string>([node.base.id, `viabase:${node.base.id}`]);
+      if (this.rootSymbolId) parentChain.add(this.rootSymbolId);
+      return this.groupEdgesIntoSymbols(node.sites, parentChain);
+    }
     if (node.kind === "root") {
-      return this.expandChildren(node.symbol.id, new Set([node.symbol.id]));
+      // Via-base (polymorphic dispatch) groups lead, then the direct callers.
+      return [
+        ...this.viaBaseGroups(node.symbol.id),
+        ...this.expandChildren(node.symbol.id, new Set([node.symbol.id]))
+      ];
     }
     // SymbolGroup
     // When this group is a *direct* child of a bundle root (Component or a
@@ -472,7 +522,17 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
     const edges = symbolId === this.rootSymbolId
       ? this.rootEdges(symbolId)
       : (this.direction === "callers" ? this.graph.callers(symbolId) : this.graph.callees(symbolId));
+    return this.groupEdgesIntoSymbols(edges, parentChain);
+  }
 
+  /**
+   * Bucket a flat edge list into one `SymbolGroup` per other-end symbol (caller
+   * for the callers tree, callee for the callees tree), applying the same
+   * constant-skip, cycle-block, and active-filter rules everywhere. Shared by
+   * the direct expansion and the via-base group expansion.
+   */
+  private groupEdgesIntoSymbols(edges: CallEdge[], parentChain: Set<string>): SymbolGroup[] {
+    if (!this.graph) return [];
     // Constants are noise inside method call chains. Hide them everywhere
     // except when the tree itself is rooted on a Constant (the user explicitly
     // wants to see who references it).
@@ -509,6 +569,16 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
       return a.symbol.name.localeCompare(b.symbol.name);
     });
     return out;
+  }
+
+  /**
+   * Polymorphic-dispatch groups for the callers root: ancestor methods whose
+   * call sites can dispatch to the overriding root. Empty unless this is a
+   * callers tree rooted on an override with such sites.
+   */
+  private viaBaseGroups(rootId: string): ViaBaseGroup[] {
+    if (!this.graph || this.direction !== "callers") return [];
+    return dispatchCallers(this.graph, rootId).map((g) => new ViaBaseGroup(g.base, g.sites));
   }
 }
 

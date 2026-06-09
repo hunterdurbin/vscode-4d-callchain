@@ -10,7 +10,7 @@ import {
   findOverridesOfFunction,
   fuzzyMatch,
   inheritedFunctions,
-  overriddenFunctionChain,
+  dispatchCallers,
   symbolIdFor
 } from "@4d/core";
 import { SymbolSummary, summarize, summarizeEdge } from "./format.js";
@@ -122,18 +122,16 @@ export function findCallers(
 
   // Polymorphic dispatch: a call typed to an ancestor class resolves to that
   // ancestor's method, so an overriding method gets no *direct* caller edge.
-  // Surface those base call sites separately (the direct count stays exact) so
-  // overrides don't look like dead code. One group per ancestor declaration.
-  const edgeKey = (e: CallEdge) => `${e.fromId}|${e.line}|${e.column ?? ""}`;
-  const directKeys = new Set(edges.map(edgeKey));
+  // `dispatchCallers` (in @4d/core, shared with the editor UI) returns those
+  // base call sites, already deduped and with direct callers excluded; we tag
+  // and format them here. The direct `count` stays exact.
   const viaBase: { base: SymbolSummary; sites: (ReturnType<typeof summarizeEdge> & { via: string })[] }[] = [];
-  for (const base of overriddenFunctionChain(graph, sym.id)) {
+  for (const { base, sites } of dispatchCallers(graph, sym.id)) {
     const via = `dispatched via base cs.${base.ownerClass}.${base.name}`;
-    const sites = dedupeEdges(graph.callers(base.id), (e) => e.fromId)
-      .filter((e) => !directKeys.has(edgeKey(e)))
-      .slice(0, limit)
-      .map((e) => ({ ...summarizeEdge(e, e.fromId, graph, projectRoot), via }));
-    if (sites.length) viaBase.push({ base: summarize(base, projectRoot), sites });
+    viaBase.push({
+      base: summarize(base, projectRoot),
+      sites: sites.slice(0, limit).map((e) => ({ ...summarizeEdge(e, e.fromId, graph, projectRoot), via }))
+    });
   }
 
   return {

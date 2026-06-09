@@ -3,7 +3,7 @@ import { CallGraph, ClassFlavor, SymbolKind } from "@4d/core";
 import type { SymbolRecord } from "@4d/core";
 import { TestStatusDecorator } from "../decorations/testStatusDecorator";
 import { CoverageReport } from "../testing/coverage";
-import { FUNCTION_KINDS, descendantClassNames, directSubclasses, inheritedFunctions, overridesForClass } from "./overrides";
+import { FUNCTION_KINDS, descendantClassNames, directSubclasses, dispatchCallers, inheritedFunctions, overridesForClass } from "./overrides";
 
 export class CallChainLensProvider implements vscode.CodeLensProvider {
   private readonly emitter = new vscode.EventEmitter<void>();
@@ -45,6 +45,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     const cfg = vscode.workspace.getConfiguration("callchain");
     const showCallers = cfg.get<boolean>("codeLens.showCallers", true);
     const showCallees = cfg.get<boolean>("codeLens.showCallees", false);
+    const showViaBase = cfg.get<boolean>("codeLens.showViaBase", true);
     const showGraph = cfg.get<boolean>("codeLens.showGraph", false);
     const showOverrides = cfg.get<boolean>("codeLens.showOverrides", true);
     const showOverriding = cfg.get<boolean>("codeLens.showOverriding", true);
@@ -56,11 +57,13 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     // inheritedMap = members this class overrides ABOVE (from ancestors).
     let overrideMap: Map<string, SymbolRecord[]> | undefined;
     let inheritedMap: Map<string, SymbolRecord> | undefined;
-    if (showOverrides || showOverriding) {
+    if (showOverrides || showOverriding || showViaBase) {
       const classSym = symbols.find((s) => s.kind === SymbolKind.Class);
       if (classSym) {
         if (showOverrides) overrideMap = overridesForClass(graph, classSym.name);
-        if (showOverriding && classSym.extendsClass) {
+        // inheritedMap (functions this class overrides above) is also the cheap
+        // gate for the via-base lens — only an override can have dispatch callers.
+        if ((showOverriding || showViaBase) && classSym.extendsClass) {
           inheritedMap = inheritedFunctions(graph, classSym.name);
         }
       }
@@ -96,16 +99,26 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
       // Overrides: only on `Function` declarations (plain / get / set). The two
       // directions can both appear on a mid-chain function.
       if (FUNCTION_KINDS.has(s.kind)) {
-        // ↥ this function overrides an ancestor's function
-        if (inheritedMap) {
-          const parent = inheritedMap.get(s.name.toLowerCase());
-          if (parent) {
+        const overridesParent = inheritedMap?.get(s.name.toLowerCase());
+        // ⊕ polymorphic-dispatch callers: this override is reached through a
+        // base-typed call that `▲ N callers` (direct edges only) can't see.
+        if (showViaBase && overridesParent) {
+          const viaCount = dispatchCallers(graph, s.id).reduce((n, g) => n + g.sites.length, 0);
+          if (viaCount > 0) {
             out.push(new vscode.CodeLens(range, {
-              title: `↥ overrides ${parent.ownerClass}`,
-              command: "callchain.showOverridden",
-              arguments: [s.id, line]
+              title: `⊕ ${viaCount} via base`,
+              command: "callchain.pinAndReveal",
+              arguments: [s.id, "callers"]
             }));
           }
+        }
+        // ↥ this function overrides an ancestor's function
+        if (showOverriding && overridesParent) {
+          out.push(new vscode.CodeLens(range, {
+            title: `↥ overrides ${overridesParent.ownerClass}`,
+            command: "callchain.showOverridden",
+            arguments: [s.id, line]
+          }));
         }
         // ↧ this function is overridden by descendant classes
         if (overrideMap) {

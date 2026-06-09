@@ -425,6 +425,11 @@
           "default": false,
           "description": "Show the '▼ N callees' code lens above functions and methods."
         },
+        "callchain.codeLens.showViaBase": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the '⊕ N via base' code lens above an overriding class function — the call sites that resolve to an ancestor's method but can dispatch to this override at runtime. Surfaces polymorphic-dispatch callers that '▲ N callers' (direct edges only) misses, so overrides aren't mistaken for dead code."
+        },
         "callchain.codeLens.showGraph": {
           "type": "boolean",
           "default": false,

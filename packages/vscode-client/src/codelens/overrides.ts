@@ -10,5 +10,7 @@ export {
   overridesForClass,
   findOverridesOfFunction,
   inheritedFunctions,
-  findOverriddenFunction
+  findOverriddenFunction,
+  dispatchCallers
 } from "@4d/core";
+export type { DispatchCallerGroup } from "@4d/core";
