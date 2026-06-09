@@ -6,6 +6,16 @@ export type { IndexerOptions, ChangeCategory } from "./indexer/indexStore";
 
 export { CallGraph } from "./model/callGraph";
 export {
+  FUNCTION_KINDS,
+  descendantClassNames,
+  directSubclasses,
+  descendantClasses,
+  overridesForClass,
+  findOverridesOfFunction,
+  inheritedFunctions,
+  findOverriddenFunction
+} from "./model/overrides";
+export {
   SymbolKind,
   ClassFlavor,
   CallKind,

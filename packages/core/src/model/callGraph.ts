@@ -81,6 +81,72 @@ export class CallGraph {
     return { nodes, edges };
   }
 
+  /**
+   * Shortest call path between two symbols as the ordered list of edges that
+   * connect `fromId` to `toId`, or `null` if none exists within `maxDepth`
+   * hops. A BFS with a parent map (mirrors `reachable`'s traversal); the first
+   * time `toId` is dequeued the path is minimal in hop count.
+   *
+   * `direction` controls which edges are followed:
+   *   - "forward": follow callees (does `from` reach `to` by calling?)
+   *   - "reverse": follow callers (does `to` reach `from` by calling?)
+   *   - "both": treat the graph as undirected.
+   */
+  shortestPath(
+    fromId: string,
+    toId: string,
+    maxDepth: number,
+    direction: "forward" | "reverse" | "both" = "forward"
+  ): CallEdge[] | null {
+    if (fromId === toId) return [];
+    if (!this.symbolsById.has(fromId) || !this.symbolsById.has(toId)) return null;
+
+    // For each visited node, the edge we arrived by (to reconstruct the path).
+    const cameBy = new Map<string, CallEdge>();
+    const visited = new Set<string>([fromId]);
+    let frontier: string[] = [fromId];
+
+    for (let d = 0; d < maxDepth && frontier.length; d++) {
+      const next: string[] = [];
+      for (const cur of frontier) {
+        const step = (neighborId: string, edge: CallEdge): boolean => {
+          if (visited.has(neighborId)) return false;
+          visited.add(neighborId);
+          cameBy.set(neighborId, edge);
+          if (neighborId === toId) return true;
+          next.push(neighborId);
+          return false;
+        };
+        if (direction === "forward" || direction === "both") {
+          for (const e of this.callees(cur)) {
+            if (step(e.toId, e)) return this.reconstructPath(cameBy, toId);
+          }
+        }
+        if (direction === "reverse" || direction === "both") {
+          for (const e of this.callers(cur)) {
+            if (step(e.fromId, e)) return this.reconstructPath(cameBy, toId);
+          }
+        }
+      }
+      frontier = next;
+    }
+    return null;
+  }
+
+  /** Walk the `cameBy` parent map back from `toId` to produce edges in order. */
+  private reconstructPath(cameBy: Map<string, CallEdge>, toId: string): CallEdge[] {
+    const path: CallEdge[] = [];
+    let cur = toId;
+    let edge = cameBy.get(cur);
+    while (edge) {
+      path.push(edge);
+      // The other endpoint of this edge relative to `cur` is its predecessor.
+      cur = edge.toId === cur ? edge.fromId : edge.toId;
+      edge = cameBy.get(cur);
+    }
+    return path.reverse();
+  }
+
   /** All forward-reachable symbol ids starting from any of seeds. */
   forwardClosure(seeds: Iterable<string>): Set<string> {
     const visited = new Set<string>();
