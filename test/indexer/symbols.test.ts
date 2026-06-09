@@ -59,9 +59,13 @@ describeWithFixture("indexer/symbols — classes, functions, getters/setters", (
     }
   });
 
-  it("RulesEntity.ruleName Alias is indexed with its target path", () => {
+  it("RulesEntity.ruleName Alias is indexed with its target path and linked from references", () => {
     const alias = sym("Alias", "ruleName", "RulesEntity") as any;
     expect(alias).toBeTruthy();
-    if (alias) expect(alias.aliasTarget).toBe("rule.Name");
+    if (alias) {
+      expect(alias.aliasTarget).toBe("rule.Name");
+      // `This.ruleName:=…` in load() resolves to the alias → ≥1 caller.
+      expect(callersOf(idx, alias).length).toBeGreaterThanOrEqual(1);
+    }
   });
 });

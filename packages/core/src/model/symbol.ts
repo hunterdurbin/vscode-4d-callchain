@@ -262,9 +262,12 @@ export interface ChainStep {
 // backers became first-class symbols (previously unindexed — their bodies
 // bled into the preceding function), tagged with accessor + computedFor, and
 // `Alias <name> <target>` attributes gained their own SymbolKind.Alias symbol.
+// Bumped to 40 when property get/set resolution started linking `Alias`
+// references (This.<alias> / $x.<alias> / cs.X.<alias>, read or write) to the
+// Alias symbol, so aliases get caller edges (were stuck at 0 callers).
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 39;
+export const INDEX_VERSION = 40;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

@@ -17,6 +17,8 @@ Function save()
 
 Function load()
   This.touched:=False
+  // Reference the alias attribute so it gets a caller edge (ThisSet → Alias).
+  This.ruleName:="default"
 
 // LOCKS: computed-attribute getter + its query backer share the name
 //        `isActive`. They surface as distinct ClassGetter vs ClassFunction;
