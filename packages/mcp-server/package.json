@@ -1,0 +1,22 @@
+{
+  "name": "@4d/mcp-server",
+  "version": "0.1.16",
+  "description": "Model Context Protocol server exposing the 4D call graph (callers, callees, reachability, overrides, symbol search) to AI agents.",
+  "main": "./dist/server.js",
+  "bin": {
+    "4d-callchain-mcp": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "@4d/core": "*",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

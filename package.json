@@ -7,10 +7,11 @@
     "packages/core",
     "packages/server",
     "packages/ide-server",
+    "packages/mcp-server",
     "packages/vscode-client"
   ],
   "scripts": {
-    "build": "npm run build -w @4d/parser-4d && npm run build -w @4d/core && npm run build -w @4d/language-server && npm run build -w @4d/ide-server && npm run compile -w vscode-4d-callchain",
+    "build": "npm run build -w @4d/parser-4d && npm run build -w @4d/core && npm run build -w @4d/language-server && npm run build -w @4d/ide-server && npm run build -w @4d/mcp-server && npm run compile -w vscode-4d-callchain",
     "build:parser": "npm run build -w @4d/parser-4d",
     "watch": "npm run watch -w vscode-4d-callchain",
     "build-builtins": "node ./scripts/build-builtins.js",
