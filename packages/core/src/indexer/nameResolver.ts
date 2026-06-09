@@ -1141,7 +1141,7 @@ export function buildSymbolIndex(
   parsedFiles: ParsedFile[],
   plugins: { name: string; absolutePath: string; commands?: string[] }[],
   catalogTables: Set<string> = new Set(),
-  constants: { name: string; value?: string; type?: string; theme?: string; sourceFile: string }[] = [],
+  constants: { name: string; value?: string; type?: string; theme?: string; sourceFile: string; line?: number }[] = [],
   builtinConstants: { name: string; value?: string; theme?: string; sourceFile: string }[] = [],
   variables: { name: string; scope: "process" | "interprocess"; type?: string; sourceFile: string; line: number; column?: number }[] = [],
   components: {
@@ -1277,7 +1277,9 @@ export function buildSymbolIndex(
       id,
       name: c.name,
       kind: SymbolKind.Constant,
-      location: { uri: "file://" + c.sourceFile, line: 0 },
+      // Real line of the constant's <source> in the XLF when we could locate
+      // it; -1 marks "unknown" so summarize() omits a misleading :1.
+      location: { uri: "file://" + c.sourceFile, line: c.line ?? -1 },
       constantValue: c.value,
       constantType: c.type,
       constantTheme: c.theme

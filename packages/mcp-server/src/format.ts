@@ -74,8 +74,9 @@ export function summarize(s: SymbolRecord, projectRoot: string): SymbolSummary {
     accessor: s.accessor,
     file,
     // Stored lines are zero-based; expose 1-based. Synthetic symbols (uri "")
-    // get no line so agents don't chase a bogus location:1.
-    line: file ? s.location.line + 1 : undefined
+    // and symbols with an unknown line (sentinel <0, e.g. constants whose XLF
+    // line couldn't be located) get no line so agents don't chase a bogus :1.
+    line: file && s.location.line >= 0 ? s.location.line + 1 : undefined
   };
 }
 

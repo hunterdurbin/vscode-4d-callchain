@@ -20,6 +20,12 @@ export interface DiscoveredConstant {
   rawValue?: string;
   theme?: string;
   sourceFile: string;
+  /**
+   * Zero-based line of the constant's `<source>` tag within `sourceFile`, or
+   * undefined when it couldn't be located. fast-xml-parser discards positions,
+   * so we recover the line with a text scan of the raw XLF.
+   */
+  line?: number;
 }
 
 /**
@@ -66,6 +72,11 @@ export function discoverConstants(projectRoot: string): DiscoveredConstant[] {
     let doc: any;
     try { doc = parser.parse(xml); } catch { continue; }
 
+    // fast-xml-parser drops source positions, so recover each constant's line
+    // by scanning the raw XLF for its `<source>NAME</source>` tag. Constant
+    // names are unique within a file; first occurrence wins.
+    const lineBySource = buildSourceLineMap(xml);
+
     // Pass 1: build UUID → theme-name map from the themes group.
     //   <group resname="themes">
     //     <trans-unit id="thm_N" resname="UUID"><source>Theme Name</source></trans-unit>
@@ -95,9 +106,29 @@ export function discoverConstants(projectRoot: string): DiscoveredConstant[] {
         type: parsed.type ? (TYPE_LETTER_NAMES[parsed.type] ?? parsed.type) : undefined,
         rawValue,
         theme: groupUuid ? themeByUuid.get(groupUuid) : undefined,
-        sourceFile: file
+        sourceFile: file,
+        line: lineBySource.get(name)
       });
     });
+  }
+  return out;
+}
+
+/**
+ * Map each `<source>NAME</source>` content (trimmed) to the zero-based line it
+ * appears on in the raw XLF. Used to give user constants a real definition
+ * line instead of a stub. First occurrence wins; a `<source>` spanning lines
+ * (rare in 4D's generated XLF) is skipped.
+ */
+function buildSourceLineMap(xml: string): Map<string, number> {
+  const out = new Map<string, number>();
+  const lines = xml.split(/\r?\n/);
+  const re = /<source[^>]*>([^<]*)<\/source>/i;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(re);
+    if (!m) continue;
+    const name = m[1].trim();
+    if (name && !out.has(name)) out.set(name, i);
   }
   return out;
 }

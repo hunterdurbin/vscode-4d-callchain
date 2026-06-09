@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 37 after the incremental patch path started deduping edges on append", () => {
-    expect(INDEX_VERSION).toBe(37);
+  it("INDEX_VERSION is 38 after user constants gained a real XLF source line", () => {
+    expect(INDEX_VERSION).toBe(38);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {

@@ -241,9 +241,12 @@ export interface ChainStep {
 // append (`appendEdgeDeduped`). Caches built by the old patch path could
 // contain doubled call edges (same from/to/line/callKind/column) when a
 // file's add ran without a preceding remove; the bump flushes those.
+// Bumped to 38 when user constants gained a real `<source>` line in their
+// XLF (was a stub line 0 → bogus :1). Unknown lines use a -1 sentinel that
+// summarize() omits.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 37;
+export const INDEX_VERSION = 38;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {
