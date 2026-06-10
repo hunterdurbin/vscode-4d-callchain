@@ -18,6 +18,19 @@ const FIELD_LIKE_KINDS = new Set<SymbolKind>([
 ]);
 
 /**
+ * Symbols that can carry a "tests cover this" lens — things that are actually
+ * invoked. Plain fields (ClassProperty / Alias) are excluded: coverage means a
+ * function runs, and reading a field is not an invocation.
+ */
+const COVERAGE_LENS_KINDS = new Set<SymbolKind>([
+  SymbolKind.ProjectMethod,
+  SymbolKind.ClassFunction,
+  SymbolKind.ClassConstructor,
+  SymbolKind.ClassGetter,
+  SymbolKind.ClassSetter
+]);
+
+/**
  * Build the usage-lens title. `compact` (used when multiple field-like members
  * share one line) shortens "reads/writes" to "r/w" and prefixes the member name
  * so each stacked lens stays identifiable.
@@ -186,9 +199,10 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
         }
       }
 
-      // Tests covering this (only for non-test functions / methods)
+      // Tests covering this (only for non-test, actually-invokable symbols —
+      // never plain properties/aliases, which are read, not called).
       const isTest = s.classFlavor === ClassFlavor.Test || s.name.startsWith("test_");
-      if (!isTest && coverage) {
+      if (!isTest && coverage && COVERAGE_LENS_KINDS.has(s.kind)) {
         const tests = coverage.reachedByTests.get(s.id);
         if (tests && tests.size > 0) {
           out.push(new vscode.CodeLens(range, {

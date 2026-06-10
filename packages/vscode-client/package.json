@@ -410,7 +410,17 @@
         "callchain.showCoverageHints": {
           "type": "boolean",
           "default": false,
-          "description": "Show gutter markers on functions not reached by any test_* function."
+          "description": "Show gutter markers on functions not reached by any test function. Works on its own — does not require callchain.testIntegration.enabled."
+        },
+        "callchain.coverage.testFunctionPattern": {
+          "type": "string",
+          "default": "^test_",
+          "description": "Regular expression matched against a function's name to decide whether it is a test (a coverage seed). Functions that match are excluded from the uncovered list. Defaults to the test_ prefix convention."
+        },
+        "callchain.coverage.testClassPattern": {
+          "type": "string",
+          "default": "_Test$",
+          "description": "Regular expression matched against a class name to decide whether it is a test class. Functions belonging to a matching class are excluded from the uncovered list. Defaults to the _Test suffix convention."
         },
         "callchain.autoIndexOnStartup": {
           "type": "boolean",

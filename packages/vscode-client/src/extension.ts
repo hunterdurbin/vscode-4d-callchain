@@ -9,9 +9,10 @@ import { SymbolSearchProvider } from "./views/symbolSearchProvider";
 import { CursorTracker } from "./views/cursorTracker";
 import { GraphPanel } from "./views/graphView/graphPanel";
 import { TestStatusDecorator } from "./decorations/testStatusDecorator";
+import { CoverageHintsDecorator } from "./decorations/coverageHintsDecorator";
 import { delegateToScottHarris, isScottHarrisInstalled, runTests } from "./testing/testRunner";
 import { TestResultsWatcher } from "./testing/resultsWatcher";
-import { CoverageReport, computeCoverage } from "./testing/coverage";
+import { CoverageReport, computeCoverage, DEFAULT_TEST_FUNCTION_PATTERN, DEFAULT_TEST_CLASS_PATTERN } from "./testing/coverage";
 import { CallChainLensProvider } from "./codelens/callChainLens";
 import { descendantClasses, findOverriddenFunction, findOverridesOfFunction } from "./codelens/overrides";
 import { registerMcpSetup } from "./mcp/setupMcp";
@@ -61,6 +62,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // run in their own process and scan independently) and are not required by
   // Call Chain — default off, flip the matching callchain.* setting to re-enable.
   const testEnabled = cfg.get<boolean>("testIntegration.enabled", false);
+  // Coverage hints stand alone: when on, coverage is computed even with test
+  // integration off. The two patterns decide what counts as a test.
+  let coverageHintsEnabled = cfg.get<boolean>("showCoverageHints", false);
+  const compileCoveragePatterns = (): { testFunctionPattern: RegExp; testClassPattern: RegExp } => {
+    const ccfg = vscode.workspace.getConfiguration("callchain");
+    const compile = (key: string, fallback: RegExp): RegExp => {
+      const raw = ccfg.get<string>(key, "");
+      if (!raw) return fallback;
+      try {
+        return new RegExp(raw);
+      } catch (e) {
+        output.appendLine(`[Coverage] Invalid regex for callchain.${key} ("${raw}"): ${(e as Error).message}. Using default.`);
+        return fallback;
+      }
+    };
+    return {
+      testFunctionPattern: compile("coverage.testFunctionPattern", DEFAULT_TEST_FUNCTION_PATTERN),
+      testClassPattern: compile("coverage.testClassPattern", DEFAULT_TEST_CLASS_PATTERN)
+    };
+  };
+  let coveragePatterns = compileCoveragePatterns();
   const indexer = new Indexer({
     projectRoot,
     exclusions,
@@ -81,7 +103,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const search  = new SymbolSearchProvider();
   const tracker = new CursorTracker();
   const decorator = new TestStatusDecorator();
+  const coverageHints = new CoverageHintsDecorator();
   let coverage: CoverageReport | undefined;
+
+  // Recompute coverage from the current graph and push it to the consumers.
+  // Used both on index updates and on coverage-related config changes so the
+  // two paths can never disagree. Coverage is skipped entirely when neither
+  // test integration nor coverage hints need it.
+  const recomputeCoverage = (graph = indexer.getGraph()): void => {
+    if (graph && (testEnabled || coverageHintsEnabled)) {
+      coverage = computeCoverage(graph, coveragePatterns);
+    } else {
+      coverage = undefined;
+    }
+    coverageHints.setUncovered(coverage?.uncovered ?? []);
+    coverageHints.setEnabled(coverageHintsEnabled);
+  };
 
   const callersView = vscode.window.createTreeView("callchain.callers", { treeDataProvider: callers });
   const calleesView = vscode.window.createTreeView("callchain.callees", { treeDataProvider: callees });
@@ -159,6 +196,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         callers.refresh();
         callees.refresh();
       }
+      if (
+        e.affectsConfiguration("callchain.showCoverageHints") ||
+        e.affectsConfiguration("callchain.coverage.testFunctionPattern") ||
+        e.affectsConfiguration("callchain.coverage.testClassPattern")
+      ) {
+        coverageHintsEnabled = vscode.workspace.getConfiguration("callchain").get<boolean>("showCoverageHints", false);
+        coveragePatterns = compileCoveragePatterns();
+        recomputeCoverage();
+        lensProvider.refresh();
+      }
     })
   );
 
@@ -203,10 +250,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     callees.setGraph(graph);
     search.setGraph(graph);
     tracker.setGraph(graph);
-    // Coverage drives only the "N tests cover this" lens; skip the graph walk
-    // entirely when test integration is off. Leaving `coverage` undefined makes
-    // the lens fall back to just the caller/callee/graph annotations.
-    if (testEnabled) coverage = computeCoverage(graph);
+    // Coverage drives the "N tests cover this" lens and the gutter hints; skip
+    // the graph walk entirely when nothing needs it. Leaving `coverage`
+    // undefined makes the lens fall back to caller/callee/graph annotations.
+    recomputeCoverage(graph);
     lensProvider.refresh();
   });
   tracker.onDidChange((s) => {
