@@ -60,9 +60,10 @@ export type AccessFilter = "all" | "read" | "write";
 
 /**
  * Test filter for the callers view: "all" shows every caller, "only" keeps only
- * callers that are tests, "exclude" hides them. Unlike the access filter this
- * persists across root changes — it's a sticky "focus on / hide test noise" mode
- * cleared by the clear-all-filters button.
+ * callers that are tests, "exclude" hides them. Like the access filter it is
+ * per-navigation — any root change clears it (so navigating via "N callers"
+ * shows unfiltered callers); "only" is applied explicitly by the "tests cover
+ * this" command, and the clear-all-filters button resets it on demand.
  */
 export type TestFilter = "all" | "only" | "exclude";
 
@@ -276,7 +277,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
     if (this.locked) return;
     if (this.rootSymbolId === symbolId) return;
     this.rootSymbolId = symbolId;
-    this.resetAccessFilterOnRootChange();
+    this.resetFiltersOnRootChange();
     this.emitter.fire(undefined);
     this.rootChangedEmitter.fire(symbolId);
   }
@@ -285,16 +286,27 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   pinRoot(symbolId: string | undefined): void {
     if (this.rootSymbolId === symbolId) return;
     this.rootSymbolId = symbolId;
-    this.resetAccessFilterOnRootChange();
+    this.resetFiltersOnRootChange();
     this.emitter.fire(undefined);
     this.rootChangedEmitter.fire(symbolId);
   }
 
-  /** The read/write filter is per-symbol — clear it whenever the root changes. */
-  private resetAccessFilterOnRootChange(): void {
-    if (this.accessFilterValue === "all") return;
-    this.accessFilterValue = "all";
-    this.accessFilterChangedEmitter.fire("all");
+  /**
+   * The access and test filters are per-navigation, not persistent: any root
+   * change (cursor move, "N callers" lens, pin) clears them so the new symbol's
+   * callers show unfiltered. The only-tests filter is (re)applied explicitly
+   * afterwards by the "tests cover this" command (setTestFilter), and the
+   * clear-all button resets them on demand.
+   */
+  private resetFiltersOnRootChange(): void {
+    if (this.accessFilterValue !== "all") {
+      this.accessFilterValue = "all";
+      this.accessFilterChangedEmitter.fire("all");
+    }
+    if (this.testFilterValue !== "all") {
+      this.testFilterValue = "all";
+      this.testFilterChangedEmitter.fire("all");
+    }
   }
 
   /** Re-emit current tree without changing root — used by config changes. */
