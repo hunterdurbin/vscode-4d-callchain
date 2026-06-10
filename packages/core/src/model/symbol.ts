@@ -297,9 +297,15 @@ export interface ChainStep {
 // not real 4D commands, so references to them now classify as project/unresolved
 // calls instead of being filtered out as builtins. Caches built with the old
 // builtins set must rebuild to reclassify those edges.
+// Bumped to 45 when the tree-sitter parser began capturing reads/calls in the
+// boolean tail of a `Case of` arm (`Case of : (a) && (This.foo)`). The
+// `case_label_arm` grammar puts only the first `(...)` group in the condition
+// field and splices the `&& (...)` remainder in as `_if_tail` children, which
+// the CST visitor previously walked only as statements and dropped. Caches
+// built before the fix are missing those edges and must rebuild.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 44;
+export const INDEX_VERSION = 45;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

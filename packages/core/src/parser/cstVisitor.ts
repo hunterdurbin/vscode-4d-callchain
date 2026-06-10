@@ -244,13 +244,24 @@ export class CstVisitor {
       case "case_label_arm":
       case "while_statement":
       case "repeat_statement":
-      case "use_statement":
-        this.visitExpression(node.childForFieldName("condition"));
+      case "use_statement": {
+        const cond = node.childForFieldName("condition");
+        this.visitExpression(cond);
         this.visitExpression(node.childForFieldName("semaphore"));
         for (let i = 0; i < node.childCount; i++) {
-          this.visitTopLevel(node.child(i)!);
+          const child = node.child(i)!;
+          this.visitTopLevel(child);
+          // `_if_tail` nodes — the `&& (b)` part of `Case of : (a) && (b)`
+          // (and the rare split form of `If (a) && (b)`) — are spliced in as
+          // direct children but aren't statements, so `visitTopLevel` ignores
+          // them. Walk them as expressions so reads/calls in the tail land on
+          // the enclosing symbol. Skip the already-visited condition node.
+          if (child.id !== cond?.id && this.isTailExpressionNode(child)) {
+            this.visitExpression(child);
+          }
         }
         break;
+      }
       case "for_statement":
         this.visitExpression(node.childForFieldName("counter"));
         this.visitExpression(node.childForFieldName("start"));
@@ -841,6 +852,32 @@ export class CstVisitor {
       column: property.startPosition.column,
       endColumn: property.endPosition.column,
     });
+  }
+
+  /**
+   * True for the reference-bearing node types the hidden `_if_tail` grammar
+   * rule can splice in as direct children of an `if_statement` / `case_label_arm`
+   * / `else_if_clause` (the `&& (b)` part of `Case of : (a) && (b)`). These get
+   * routed through `visitExpression` so their reads/calls aren't dropped.
+   * Operators and literals (`op_other`, `number`, `string`, …) carry no refs and
+   * are intentionally excluded.
+   */
+  private isTailExpressionNode(node: Node): boolean {
+    switch (node.type) {
+      case "parenthesized_expression":
+      case "binary_expression":
+      case "unary_expression":
+      case "call_expression":
+      case "member_expression":
+      case "subscript_expression":
+      case "identifier":
+      case "multi_word_identifier":
+      case "local_var":
+      case "interprocess_var":
+        return true;
+      default:
+        return false;
+    }
   }
 
   /** True when `member` is read, not written or called. */
