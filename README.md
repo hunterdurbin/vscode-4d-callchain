@@ -1,6 +1,6 @@
 # 4D Call Chain Explorer
 
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/hunterdurbin.vscode-4d-callchain?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=hunterdurbin.vscode-4d-callchain)
+[![VS Code Marketplace](https://vsmarketplacebadges.dev/version-short/hunterdurbin.vscode-4d-callchain.svg?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=hunterdurbin.vscode-4d-callchain)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 VS Code extension for navigating call chains in 4D v21 projects.
