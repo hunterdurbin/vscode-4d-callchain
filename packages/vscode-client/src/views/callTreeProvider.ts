@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
-import { CallGraph, SymbolKind, dispatchCallers, fuzzyMatch, parseFilterQuery } from "@4d/core";
+import { CallGraph, ClassFlavor, SymbolKind, dispatchCallers, fuzzyMatch, parseFilterQuery } from "@4d/core";
 import type { CallEdge, SymbolRecord } from "@4d/core";
 import { descriptionFor, iconFor } from "./treeIcons";
+import { DEFAULT_TEST_FUNCTION_PATTERN, DEFAULT_TEST_CLASS_PATTERN } from "../testing/coverage";
 
 export type Direction = "callers" | "callees";
 
@@ -58,6 +59,14 @@ type Node = SymbolGroup | CallSite | CalleeGroup | RootNode | ViaBaseGroup;
 export type AccessFilter = "all" | "read" | "write";
 
 /**
+ * Test filter for the callers view: "all" shows every caller, "only" keeps only
+ * callers that are tests, "exclude" hides them. Unlike the access filter this
+ * persists across root changes — it's a sticky "focus on / hide test noise" mode
+ * cleared by the clear-all-filters button.
+ */
+export type TestFilter = "all" | "only" | "exclude";
+
+/**
  * Field-like members whose inbound edges carry a read/write `access` tag. The
  * read/write access filter only applies (and is only offered) when the root is
  * one of these.
@@ -107,8 +116,63 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   private readonly accessFilterChangedEmitter = new vscode.EventEmitter<AccessFilter>();
   /** Fires whenever the read/write access filter changes. */
   readonly onDidChangeAccessFilter = this.accessFilterChangedEmitter.event;
+  /**
+   * Tri-state test filter (see {@link TestFilter}) and the patterns used to
+   * decide whether a caller is a test. Patterns default to the historical
+   * conventions and are kept in sync with the coverage settings via
+   * {@link setTestPatterns}.
+   */
+  private testFilterValue: TestFilter = "all";
+  private testFnRe: RegExp = DEFAULT_TEST_FUNCTION_PATTERN;
+  private testClassRe: RegExp = DEFAULT_TEST_CLASS_PATTERN;
+  private readonly testFilterChangedEmitter = new vscode.EventEmitter<TestFilter>();
+  /** Fires whenever the test filter changes. */
+  readonly onDidChangeTestFilter = this.testFilterChangedEmitter.event;
 
   constructor(private readonly direction: Direction) {}
+
+  get testFilter(): TestFilter {
+    return this.testFilterValue;
+  }
+
+  setTestFilter(value: TestFilter): void {
+    if (this.testFilterValue === value) return;
+    this.testFilterValue = value;
+    this.emitter.fire(undefined);
+    this.testFilterChangedEmitter.fire(value);
+  }
+
+  /** Keep test detection in sync with the callchain.coverage.* regex settings. */
+  setTestPatterns(testFnRe: RegExp, testClassRe: RegExp): void {
+    this.testFnRe = testFnRe;
+    this.testClassRe = testClassRe;
+    if (this.testFilterValue !== "all") this.emitter.fire(undefined);
+  }
+
+  /** A symbol is a test if it's a test-flavored member, matches the test-function
+   *  name pattern, or belongs to a class matching the test-class pattern. */
+  private isTest(s: SymbolRecord): boolean {
+    if (s.classFlavor === ClassFlavor.Test) return true;
+    if (this.testFnRe.test(s.name)) return true;
+    if (s.ownerClass && this.testClassRe.test(s.ownerClass)) return true;
+    return false;
+  }
+
+  /** Test/non-test counts among the current root's direct callers (pre-test-filter). */
+  testCounts(): { tests: number; nonTests: number } {
+    if (!this.graph || !this.rootSymbolId) return { tests: 0, nonTests: 0 };
+    const seen = new Map<string, boolean>();
+    for (const e of this.baseRootEdges(this.rootSymbolId)) {
+      const id = this.direction === "callers" ? e.fromId : e.toId;
+      if (seen.has(id)) continue;
+      const s = this.graph.symbol(id);
+      seen.set(id, !!s && this.isTest(s));
+    }
+    let tests = 0;
+    let nonTests = 0;
+    for (const isT of seen.values()) isT ? tests++ : nonTests++;
+    return { tests, nonTests };
+  }
 
   get accessFilter(): AccessFilter {
     return this.accessFilterValue;
@@ -278,6 +342,23 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
    * nothing even when the bundle has thousands of inbound edges.
    */
   private rootEdges(rootId: string): CallEdge[] {
+    let out = this.baseRootEdges(rootId);
+    // Test filter — narrow the direct callers to (only|exclude) tests. Classifies
+    // the caller side of each edge; for callees this is a no-op in practice since
+    // only the callers view wires it up.
+    if (this.testFilterValue !== "all" && this.graph) {
+      out = out.filter((e) => {
+        const id = this.direction === "callers" ? e.fromId : e.toId;
+        const s = this.graph!.symbol(id);
+        const t = !!s && this.isTest(s);
+        return this.testFilterValue === "only" ? t : !t;
+      });
+    }
+    return out;
+  }
+
+  /** Root's direct edges with bundle rollup + read/write access filter, before the test filter. */
+  private baseRootEdges(rootId: string): CallEdge[] {
     if (!this.graph) return [];
     const root = this.graph.symbol(rootId);
     const memberIds = root ? this.bundleMemberIds(root) : undefined;

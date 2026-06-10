@@ -207,7 +207,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
         if (tests && tests.size > 0) {
           out.push(new vscode.CodeLens(range, {
             title: `ⓘ ${tests.size} test${tests.size === 1 ? "" : "s"} cover this`,
-            command: "callchain.jumpToTests",
+            command: "callchain.showTestCallers",
             arguments: [s.id]
           }));
         } else if (s.kind === SymbolKind.ClassFunction || s.kind === SymbolKind.ProjectMethod) {

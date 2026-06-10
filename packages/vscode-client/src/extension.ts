@@ -105,6 +105,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const decorator = new TestStatusDecorator();
   const coverageHints = new CoverageHintsDecorator();
   let coverage: CoverageReport | undefined;
+  // Keep the callers test filter using the same test-detection regexes as coverage.
+  callers.setTestPatterns(coveragePatterns.testFunctionPattern, coveragePatterns.testClassPattern);
 
   // Recompute coverage from the current graph and push it to the consumers.
   // Used both on index updates and on coverage-related config changes so the
@@ -139,6 +141,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const tag = `↔${callers.accessFilter}`;
       desc = desc ? `${desc} ${tag}` : tag;
     }
+    if (callers.testFilter !== "all") {
+      const tag = callers.testFilter === "only" ? "🧪only" : "🧪excl";
+      desc = desc ? `${desc} ${tag}` : tag;
+    }
     callersView.description = desc;
     // Drives visibility of the read/write filter button in the view title.
     vscode.commands.executeCommand("setContext", "callchain.callersFieldLike", callers.rootIsFieldLike);
@@ -167,6 +173,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.commands.executeCommand("setContext", "callchain.callersAccessFiltered", a !== "all");
       refreshCallersBadge();
     }),
+    callers.onDidChangeTestFilter((t) => {
+      vscode.commands.executeCommand("setContext", "callchain.callersTestFiltered", t !== "all");
+      refreshCallersBadge();
+    }),
     callees.onDidChangeFilter((q) => {
       vscode.commands.executeCommand("setContext", "callchain.calleesFiltered", q.length > 0);
       refreshCalleesBadge();
@@ -188,6 +198,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   vscode.commands.executeCommand("setContext", "callchain.symbolsFiltered", false);
   vscode.commands.executeCommand("setContext", "callchain.callersFieldLike", false);
   vscode.commands.executeCommand("setContext", "callchain.callersAccessFiltered", false);
+  vscode.commands.executeCommand("setContext", "callchain.callersTestFiltered", false);
 
   // React to config changes that affect tree rendering.
   context.subscriptions.push(
@@ -203,6 +214,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ) {
         coverageHintsEnabled = vscode.workspace.getConfiguration("callchain").get<boolean>("showCoverageHints", false);
         coveragePatterns = compileCoveragePatterns();
+        callers.setTestPatterns(coveragePatterns.testFunctionPattern, coveragePatterns.testClassPattern);
         recomputeCoverage();
         lensProvider.refresh();
       }
@@ -359,6 +371,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // bring the pane forward when it's hidden behind another view.
       const focusCmd = which === "callers" ? "callchain.callers.focus" : "callchain.callees.focus";
       try { await vscode.commands.executeCommand(focusCmd); } catch { /* ignore */ }
+    }),
+    // Invoked by the "ⓘ N tests cover this" lens: pin the symbol and show only
+    // its test callers.
+    vscode.commands.registerCommand("callchain.showTestCallers", async (symbolId: string) => {
+      const graph = indexer.getGraph();
+      if (!graph) return;
+      const sym = graph.symbol(symbolId);
+      if (!sym) return;
+      callers.pinRoot(sym.id);
+      callees.pinRoot(sym.id);
+      tracker.pin(sym);
+      callers.setTestFilter("only");
+      try { await vscode.commands.executeCommand("callchain.callers.focus"); } catch { /* ignore */ }
+      refreshCallersBadge();
     }),
     vscode.commands.registerCommand("callchain.lockCallers", () => {
       callers.setLocked(true);
@@ -523,9 +549,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       if (pick) callers.setAccessFilter(pick.value);
     }),
+    vscode.commands.registerCommand("callchain.filterCallersTests", async () => {
+      const { tests, nonTests } = callers.testCounts();
+      const cur = callers.testFilter;
+      const mark = (v: "all" | "only" | "exclude") => (cur === v ? "$(check) " : "$(blank) ");
+      type Item = vscode.QuickPickItem & { value: "all" | "only" | "exclude" };
+      const items: Item[] = [
+        { label: `${mark("all")}All callers`, value: "all", description: `${tests + nonTests} caller${tests + nonTests === 1 ? "" : "s"}` },
+        { label: `${mark("only")}Only tests`, value: "only", description: `${tests} test${tests === 1 ? "" : "s"}` },
+        { label: `${mark("exclude")}Exclude tests`, value: "exclude", description: `${nonTests} non-test${nonTests === 1 ? "" : "s"}` }
+      ];
+      const pick = await vscode.window.showQuickPick(items, {
+        title: "Filter callers by tests",
+        placeHolder: "Show all callers, only tests, or exclude tests"
+      });
+      if (pick) callers.setTestFilter(pick.value);
+    }),
     vscode.commands.registerCommand("callchain.filterCallees", () => openFilterInput("Filter Callees", callees)),
     vscode.commands.registerCommand("callchain.filterSymbols", () => openFilterInput("Filter Symbols", search)),
-    vscode.commands.registerCommand("callchain.clearFilterCallers", () => callers.setFilter("")),
+    vscode.commands.registerCommand("callchain.clearFilterCallers", () => {
+      callers.setFilter("");
+      callers.setAccessFilter("all");
+      callers.setTestFilter("all");
+    }),
     vscode.commands.registerCommand("callchain.clearFilterCallees", () => callees.setFilter("")),
     vscode.commands.registerCommand("callchain.clearFilterSymbols", () => search.setFilter("")),
     vscode.commands.registerCommand("callchain.toggleSymbolsSort", () => search.cycleSort()),
