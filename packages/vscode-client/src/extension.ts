@@ -436,13 +436,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       tracker.pin(picked.symbol);
       await openSymbol(picked.symbol);
     }),
-    vscode.commands.registerCommand("callchain.openSymbol", async (symbolId: string, lineOverride?: number) => {
-      const graph = indexer.getGraph();
-      if (!graph) return;
-      const sym = graph.symbol(symbolId);
-      if (!sym) return;
-      await openSymbol(sym, lineOverride);
-    }),
+    vscode.commands.registerCommand(
+      "callchain.openSymbol",
+      async (symbolId: string, lineOverride?: number, columnOverride?: number, endColumnOverride?: number) => {
+        const graph = indexer.getGraph();
+        if (!graph) return;
+        const sym = graph.symbol(symbolId);
+        if (!sym) return;
+        await openSymbol(sym, lineOverride, columnOverride, endColumnOverride);
+      }
+    ),
     vscode.commands.registerCommand("callchain.showOverrides", async (symbolId: string, anchorLine?: number) => {
       const graph = indexer.getGraph();
       if (!graph) return;
@@ -848,12 +851,23 @@ function extractSymbol(arg: any): SymbolRecord | undefined {
   return undefined;
 }
 
-async function openSymbol(s: SymbolRecord, lineOverride?: number): Promise<void> {
+async function openSymbol(
+  s: SymbolRecord,
+  lineOverride?: number,
+  columnOverride?: number,
+  endColumnOverride?: number
+): Promise<void> {
   if (!s.location.uri) return;
   const uri = vscode.Uri.parse(s.location.uri);
   const doc = await vscode.workspace.openTextDocument(uri);
-  const line = lineOverride ?? s.location.line ?? 0;
-  await vscode.window.showTextDocument(doc, { selection: new vscode.Range(line, 0, line, 0) });
+  // When a lineOverride is given (call site), it lives on a different line than
+  // the symbol definition, so fall back to column 0 — never borrow the symbol's
+  // own definition column. Without an override, select the identifier itself.
+  const usingLineOverride = lineOverride !== undefined;
+  const line = usingLineOverride ? lineOverride : s.location.line ?? 0;
+  const col = columnOverride ?? (usingLineOverride ? 0 : s.location.column ?? 0);
+  const endCol = endColumnOverride ?? (usingLineOverride ? col : s.location.endColumn ?? col);
+  await vscode.window.showTextDocument(doc, { selection: new vscode.Range(line, col, line, endCol) });
 }
 
 /**

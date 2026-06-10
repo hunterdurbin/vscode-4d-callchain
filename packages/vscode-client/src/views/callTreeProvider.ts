@@ -497,7 +497,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
       item.command = {
         command: "callchain.openSymbol",
         title: "Open",
-        arguments: [node.edge.fromId, node.edge.line]
+        arguments: [node.edge.fromId, node.edge.line, node.edge.column, node.edge.endColumn]
       };
       item.contextValue = "callchain.site";
       return item;
@@ -542,7 +542,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
       item.command = {
         command: "callchain.openSymbol",
         title: "Open",
-        arguments: [firstEdge.fromId, firstEdge.line]
+        arguments: [firstEdge.fromId, firstEdge.line, firstEdge.column, firstEdge.endColumn]
       };
     } else if (node.symbol.location.uri) {
       item.command = {
