@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { CallGraph, ClassFlavor, SymbolKind } from "@4d/core";
 import type { SymbolRecord } from "@4d/core";
 import { TestStatusDecorator } from "../decorations/testStatusDecorator";
-import { CoverageReport } from "../testing/coverage";
+import { CoverageReport, DEFAULT_TEST_PATTERNS, isTestSymbol, type TestPatterns } from "../testing/coverage";
 import { FUNCTION_KINDS, descendantClassNames, directSubclasses, dispatchCallers, inheritedFunctions, overridesForClass } from "./overrides";
 
 /**
@@ -54,6 +54,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     private graphGetter: () => CallGraph | undefined,
     private testStatusGetter: () => TestStatusDecorator,
     private coverageGetter: () => CoverageReport | undefined,
+    private testPatternsGetter: () => TestPatterns = () => DEFAULT_TEST_PATTERNS,
     private lineMap?: (uri: string, savedLine: number) => number
   ) {}
 
@@ -82,6 +83,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
 
     const decorator = this.testStatusGetter();
     const coverage = this.coverageGetter();
+    const testPatterns = this.testPatternsGetter();
 
     const cfg = vscode.workspace.getConfiguration("callchain");
     const showCallers = cfg.get<boolean>("codeLens.showCallers", true);
@@ -201,7 +203,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
 
       // Tests covering this (only for non-test, actually-invokable symbols —
       // never plain properties/aliases, which are read, not called).
-      const isTest = s.classFlavor === ClassFlavor.Test || s.name.startsWith("test_");
+      const isTest = isTestSymbol(s, testPatterns);
       if (!isTest && coverage && COVERAGE_LENS_KINDS.has(s.kind)) {
         const transitive = coverage.reachedByTests.get(s.id)?.size ?? 0;
         if (transitive > 0) {
@@ -223,8 +225,10 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
         }
       }
 
-      // Test result + run button on test functions
-      if (s.classFlavor === ClassFlavor.Test && s.name.startsWith("test_") && s.ownerClass) {
+      // Test result + run button on test functions. Keyed on the test-function
+      // pattern + a test-flavored class: these run via the 4D test runner, which
+      // needs an owning class (standalone test methods can't be run this way).
+      if (s.classFlavor === ClassFlavor.Test && testPatterns.testFunctionPattern.test(s.name) && s.ownerClass) {
         const r = decorator.resultFor(s.ownerClass, s.name);
         const status = r ? (r.status === "passed" ? "✓" : "✗") : "○";
         out.push(new vscode.CodeLens(range, {

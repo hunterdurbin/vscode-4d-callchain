@@ -12,7 +12,7 @@ import { TestStatusDecorator } from "./decorations/testStatusDecorator";
 import { CoverageHintsDecorator } from "./decorations/coverageHintsDecorator";
 import { delegateToScottHarris, isScottHarrisInstalled, runTests } from "./testing/testRunner";
 import { TestResultsWatcher } from "./testing/resultsWatcher";
-import { CoverageReport, computeCoverage, DEFAULT_TEST_FUNCTION_PATTERN, DEFAULT_TEST_CLASS_PATTERN } from "./testing/coverage";
+import { CoverageReport, computeCoverage, DEFAULT_TEST_FUNCTION_PATTERN, DEFAULT_TEST_CLASS_PATTERN, DEFAULT_TEST_METHOD_PATTERN, type TestPatterns } from "./testing/coverage";
 import { CallChainLensProvider } from "./codelens/callChainLens";
 import { descendantClasses, findOverriddenFunction, findOverridesOfFunction } from "./codelens/overrides";
 import { registerMcpSetup } from "./mcp/setupMcp";
@@ -65,7 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Coverage hints stand alone: when on, coverage is computed even with test
   // integration off. The two patterns decide what counts as a test.
   let coverageHintsEnabled = cfg.get<boolean>("showCoverageHints", false);
-  const compileCoveragePatterns = (): { testFunctionPattern: RegExp; testClassPattern: RegExp } => {
+  const compileCoveragePatterns = (): TestPatterns => {
     const ccfg = vscode.workspace.getConfiguration("callchain");
     const compile = (key: string, fallback: RegExp): RegExp => {
       const raw = ccfg.get<string>(key, "");
@@ -79,7 +79,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
     return {
       testFunctionPattern: compile("coverage.testFunctionPattern", DEFAULT_TEST_FUNCTION_PATTERN),
-      testClassPattern: compile("coverage.testClassPattern", DEFAULT_TEST_CLASS_PATTERN)
+      testClassPattern: compile("coverage.testClassPattern", DEFAULT_TEST_CLASS_PATTERN),
+      testMethodPattern: compile("coverage.testMethodPattern", DEFAULT_TEST_METHOD_PATTERN)
     };
   };
   let coveragePatterns = compileCoveragePatterns();
@@ -106,7 +107,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const coverageHints = new CoverageHintsDecorator();
   let coverage: CoverageReport | undefined;
   // Keep the callers test filter using the same test-detection regexes as coverage.
-  callers.setTestPatterns(coveragePatterns.testFunctionPattern, coveragePatterns.testClassPattern);
+  callers.setTestPatterns(coveragePatterns);
 
   // Recompute coverage from the current graph and push it to the consumers.
   // Used both on index updates and on coverage-related config changes so the
@@ -210,11 +211,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (
         e.affectsConfiguration("callchain.showCoverageHints") ||
         e.affectsConfiguration("callchain.coverage.testFunctionPattern") ||
-        e.affectsConfiguration("callchain.coverage.testClassPattern")
+        e.affectsConfiguration("callchain.coverage.testClassPattern") ||
+        e.affectsConfiguration("callchain.coverage.testMethodPattern")
       ) {
         coverageHintsEnabled = vscode.workspace.getConfiguration("callchain").get<boolean>("showCoverageHints", false);
         coveragePatterns = compileCoveragePatterns();
-        callers.setTestPatterns(coveragePatterns.testFunctionPattern, coveragePatterns.testClassPattern);
+        callers.setTestPatterns(coveragePatterns);
         recomputeCoverage();
         lensProvider.refresh();
       }
@@ -234,6 +236,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => indexer.getGraph(),
     () => decorator,
     () => coverage,
+    () => coveragePatterns,
     (uri, savedLine) => dirtyLines.displayLine(uri, savedLine)
   );
   context.subscriptions.push(

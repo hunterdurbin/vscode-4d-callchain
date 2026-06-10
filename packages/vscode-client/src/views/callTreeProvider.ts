@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
-import { CallGraph, ClassFlavor, SymbolKind, dispatchCallers, fuzzyMatch, parseFilterQuery } from "@4d/core";
+import { CallGraph, SymbolKind, dispatchCallers, fuzzyMatch, parseFilterQuery } from "@4d/core";
 import type { CallEdge, SymbolRecord } from "@4d/core";
 import { descriptionFor, iconFor } from "./treeIcons";
-import { DEFAULT_TEST_FUNCTION_PATTERN, DEFAULT_TEST_CLASS_PATTERN } from "../testing/coverage";
+import { DEFAULT_TEST_PATTERNS, isTestSymbol, type TestPatterns } from "../testing/coverage";
 
 export type Direction = "callers" | "callees";
 
@@ -124,8 +124,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
    * {@link setTestPatterns}.
    */
   private testFilterValue: TestFilter = "all";
-  private testFnRe: RegExp = DEFAULT_TEST_FUNCTION_PATTERN;
-  private testClassRe: RegExp = DEFAULT_TEST_CLASS_PATTERN;
+  private testPatterns: TestPatterns = DEFAULT_TEST_PATTERNS;
   private readonly testFilterChangedEmitter = new vscode.EventEmitter<TestFilter>();
   /** Fires whenever the test filter changes. */
   readonly onDidChangeTestFilter = this.testFilterChangedEmitter.event;
@@ -144,19 +143,13 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
   }
 
   /** Keep test detection in sync with the callchain.coverage.* regex settings. */
-  setTestPatterns(testFnRe: RegExp, testClassRe: RegExp): void {
-    this.testFnRe = testFnRe;
-    this.testClassRe = testClassRe;
+  setTestPatterns(patterns: TestPatterns): void {
+    this.testPatterns = patterns;
     if (this.testFilterValue !== "all") this.emitter.fire(undefined);
   }
 
-  /** A symbol is a test if it's a test-flavored member, matches the test-function
-   *  name pattern, or belongs to a class matching the test-class pattern. */
   private isTest(s: SymbolRecord): boolean {
-    if (s.classFlavor === ClassFlavor.Test) return true;
-    if (this.testFnRe.test(s.name)) return true;
-    if (s.ownerClass && this.testClassRe.test(s.ownerClass)) return true;
-    return false;
+    return isTestSymbol(s, this.testPatterns);
   }
 
   /** Test/non-test counts among the current root's direct callers (pre-test-filter). */

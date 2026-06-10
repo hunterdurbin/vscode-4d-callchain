@@ -29,12 +29,42 @@ const NON_COVERAGE_KINDS = new Set<SymbolKind>([
 /** Default detection patterns mirror the historical hardcoded conventions. */
 export const DEFAULT_TEST_FUNCTION_PATTERN = /^test_/;
 export const DEFAULT_TEST_CLASS_PATTERN = /_Test$/;
+export const DEFAULT_TEST_METHOD_PATTERN = /^UT_/;
 
 export interface CoverageOptions {
-  /** A function whose name matches is a test seed (and is never "uncovered"). */
+  /** A class function whose name matches is a test seed (and is never "uncovered"). */
   testFunctionPattern?: RegExp;
   /** A function whose owning class name matches is excluded from "uncovered". */
   testClassPattern?: RegExp;
+  /** A project method whose name matches is a test seed (and is never "uncovered"). */
+  testMethodPattern?: RegExp;
+}
+
+/** The three regexes that together decide what counts as a test. */
+export interface TestPatterns {
+  testFunctionPattern: RegExp;
+  testClassPattern: RegExp;
+  testMethodPattern: RegExp;
+}
+
+export const DEFAULT_TEST_PATTERNS: TestPatterns = {
+  testFunctionPattern: DEFAULT_TEST_FUNCTION_PATTERN,
+  testClassPattern: DEFAULT_TEST_CLASS_PATTERN,
+  testMethodPattern: DEFAULT_TEST_METHOD_PATTERN
+};
+
+/**
+ * Whether a symbol is a test: a test-flavored member, a class function matching
+ * the test-function pattern, a project method matching the test-method pattern,
+ * or any member of a class whose name matches the test-class pattern. Used to
+ * exclude tests from the "uncovered" list and to drive the callers test filter.
+ */
+export function isTestSymbol(s: SymbolRecord, p: TestPatterns): boolean {
+  if (s.classFlavor === ClassFlavor.Test) return true;
+  if (p.testFunctionPattern.test(s.name)) return true;
+  if (s.kind === SymbolKind.ProjectMethod && p.testMethodPattern.test(s.name)) return true;
+  if (s.ownerClass && p.testClassPattern.test(s.ownerClass)) return true;
+  return false;
 }
 
 /**
@@ -78,11 +108,18 @@ function callOnlyReached(graph: CallGraph, seed: string): Set<string> {
 }
 
 export function computeCoverage(graph: CallGraph, opts: CoverageOptions = {}): CoverageReport {
-  const testFnRe = opts.testFunctionPattern ?? DEFAULT_TEST_FUNCTION_PATTERN;
-  const testClassRe = opts.testClassPattern ?? DEFAULT_TEST_CLASS_PATTERN;
+  const patterns: TestPatterns = {
+    testFunctionPattern: opts.testFunctionPattern ?? DEFAULT_TEST_FUNCTION_PATTERN,
+    testClassPattern: opts.testClassPattern ?? DEFAULT_TEST_CLASS_PATTERN,
+    testMethodPattern: opts.testMethodPattern ?? DEFAULT_TEST_METHOD_PATTERN
+  };
   const testSeeds: string[] = [];
   for (const s of graph.allSymbols()) {
-    if (s.kind === SymbolKind.ClassFunction && testFnRe.test(s.name)) {
+    // Test seeds run on their own: a class function named like a test, or a
+    // standalone project method named like a test method.
+    if (s.kind === SymbolKind.ClassFunction && patterns.testFunctionPattern.test(s.name)) {
+      testSeeds.push(s.id);
+    } else if (s.kind === SymbolKind.ProjectMethod && patterns.testMethodPattern.test(s.name)) {
       testSeeds.push(s.id);
     }
   }
@@ -113,9 +150,7 @@ export function computeCoverage(graph: CallGraph, opts: CoverageOptions = {}): C
   const uncovered: SymbolRecord[] = [];
   for (const s of graph.allSymbols()) {
     if (NON_COVERAGE_KINDS.has(s.kind)) continue;
-    if (s.classFlavor === ClassFlavor.Test) continue;
-    if (testFnRe.test(s.name)) continue;
-    if (s.ownerClass && testClassRe.test(s.ownerClass)) continue;
+    if (isTestSymbol(s, patterns)) continue;
     if (s.kind !== SymbolKind.ProjectMethod && s.kind !== SymbolKind.ClassFunction) continue;
     if (!covered.has(s.id)) uncovered.push(s);
   }
