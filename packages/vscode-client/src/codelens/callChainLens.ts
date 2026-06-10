@@ -203,10 +203,14 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
       // never plain properties/aliases, which are read, not called).
       const isTest = s.classFlavor === ClassFlavor.Test || s.name.startsWith("test_");
       if (!isTest && coverage && COVERAGE_LENS_KINDS.has(s.kind)) {
-        const tests = coverage.reachedByTests.get(s.id);
-        if (tests && tests.size > 0) {
+        const transitive = coverage.reachedByTests.get(s.id)?.size ?? 0;
+        if (transitive > 0) {
+          // Lens shows DIRECT test callers (matches the only-tests callers panel
+          // the lens opens); the hover adds the transitive "executed by" count.
+          const direct = coverage.directTestCallers.get(s.id)?.size ?? 0;
           out.push(new vscode.CodeLens(range, {
-            title: `ⓘ ${tests.size} test${tests.size === 1 ? "" : "s"} cover this`,
+            title: `ⓘ ${direct} test${direct === 1 ? "" : "s"} call this directly`,
+            tooltip: `${direct} call${direct === 1 ? "s" : ""} directly · ${transitive} execute${transitive === 1 ? "s" : ""} it transitively`,
             command: "callchain.showTestCallers",
             arguments: [s.id]
           }));

@@ -6,8 +6,17 @@ export interface CoverageReport {
   covered: Set<string>;
   /** Symbols not reached (excluding tests themselves, builtins, plugins) */
   uncovered: SymbolRecord[];
-  /** Map: target symbol id → set of test function ids that reach it */
+  /**
+   * Map: target symbol id → set of test ids that *transitively* reach it (a test
+   * "covers" it if running the test executes it through any call path).
+   */
   reachedByTests: Map<string, Set<string>>;
+  /**
+   * Map: target symbol id → set of test ids that invoke it *directly* (the test
+   * body calls `X.func()` itself). A subset of {@link reachedByTests}; this is
+   * what the only-tests callers panel shows.
+   */
+  directTestCallers: Map<string, Set<string>>;
 }
 
 const NON_COVERAGE_KINDS = new Set<SymbolKind>([
@@ -78,16 +87,26 @@ export function computeCoverage(graph: CallGraph, opts: CoverageOptions = {}): C
     }
   }
   const reachedByTests = new Map<string, Set<string>>();
+  const directTestCallers = new Map<string, Set<string>>();
+  const addTo = (map: Map<string, Set<string>>, id: string, seed: string) => {
+    let bucket = map.get(id);
+    if (!bucket) {
+      bucket = new Set();
+      map.set(id, bucket);
+    }
+    bucket.add(seed);
+  };
   for (const seed of testSeeds) {
-    const reached = callOnlyReached(graph, seed);
-    for (const id of reached) {
+    // Transitive: everything the test executes through any call path.
+    for (const id of callOnlyReached(graph, seed)) {
       if (id === seed) continue;
-      let bucket = reachedByTests.get(id);
-      if (!bucket) {
-        bucket = new Set();
-        reachedByTests.set(id, bucket);
-      }
-      bucket.add(seed);
+      addTo(reachedByTests, id, seed);
+    }
+    // Direct: only what the test body invokes itself (one hop, invocation edges).
+    for (const e of graph.callees(seed)) {
+      if (e.toId === seed) continue;
+      if (!isInvocationEdge(e, graph.symbol(e.toId))) continue;
+      addTo(directTestCallers, e.toId, seed);
     }
   }
   const covered = new Set<string>(reachedByTests.keys());
@@ -100,5 +119,5 @@ export function computeCoverage(graph: CallGraph, opts: CoverageOptions = {}): C
     if (s.kind !== SymbolKind.ProjectMethod && s.kind !== SymbolKind.ClassFunction) continue;
     if (!covered.has(s.id)) uncovered.push(s);
   }
-  return { covered, uncovered, reachedByTests };
+  return { covered, uncovered, reachedByTests, directTestCallers };
 }
