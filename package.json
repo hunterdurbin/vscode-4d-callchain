@@ -1,7 +1,7 @@
 {
   "name": "vscode-4d-callchain-monorepo",
   "private": true,
-  "version": "0.1.16",
+  "version": "0.1.17",
   "workspaces": [
     "packages/parser-4d",
     "packages/core",
