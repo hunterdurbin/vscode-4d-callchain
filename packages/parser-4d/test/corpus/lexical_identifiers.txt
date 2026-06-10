@@ -30,7 +30,7 @@ abc123
 identifiers — may start with digit (4D constants)
 ==================
 
-4Q_TYPE_AuditCreditCards
+4X_TYPE_SAMPLE
 
 ---
 

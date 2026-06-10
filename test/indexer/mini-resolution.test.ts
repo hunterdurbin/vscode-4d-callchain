@@ -291,7 +291,7 @@ describeWithFixture("indexer/mini-resolution — pattern-by-pattern correctness"
       ["_Rules", "Text", "Rules"],
       ["Worker_Backend", "Longint", "1"],
       ["MODULE_INVOICES", "Text", "Invoices"],
-      ["4Q_TYPE_AuditCreditCards", "Text", "audit_credit_cards"]
+      ["4X_TYPE_SAMPLE", "Text", "sample_type"]
     ];
     for (const [name, type, value] of cases) {
       const c = sym("Constant", name) as any;

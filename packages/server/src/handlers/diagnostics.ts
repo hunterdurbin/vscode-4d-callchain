@@ -148,7 +148,7 @@ export function registerDiagnostics(
     const t0 = Date.now();
     // Pre-bucket symbols by URI in one pass — without this we'd scan all
     // graph.allSymbols() once per URI (O(URIs × symbols) ≈ N² for large
-    // projects: ~625M iterations on Symphony's 25k files).
+    // projects: ~625M iterations on a 25k-file project).
     const byUri = new Map<string, Array<{ id: string; kind: SymbolKind }>>();
     for (const sym of graph.allSymbols()) {
       const uri = sym.location.uri;

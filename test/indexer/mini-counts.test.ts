@@ -5,7 +5,7 @@ import type { SymbolIndex } from "../../packages/core/dist";
 
 // These exact-count assertions only make sense against the curated
 // mini-fixture. When a developer overrides FOURD_TEST_PROJECT (e.g., to
-// run against Symphony), the counts will be different — so we skip this
+// run against a large project), the counts will be different — so we skip this
 // suite entirely outside the mini-fixture.
 const MINI_FIXTURE_BASENAME = "mini-4d";
 

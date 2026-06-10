@@ -14,13 +14,13 @@ describeWithFixture("indexer/edges — resolution heuristics", (root) => {
 
   it("CALL WORKER with Choose(...) first arg resolves the named worker", () => {
     // Mini-fixture: CallWorker_DynamicFirstArg → CallWorker_Target.
-    // Symphony: probably still has AuditCard_New → AuditCard_WS.
+    // A real project may use a differently named worker-call method.
     const callerName = sym("ProjectMethod", "CallWorker_DynamicFirstArg")
       ? "CallWorker_DynamicFirstArg"
-      : "AuditCard_New";
+      : "Worker_Caller";
     const targetName = callerName === "CallWorker_DynamicFirstArg"
       ? "CallWorker_Target"
-      : "AuditCard_WS";
+      : "Worker_Target";
     const caller = sym("ProjectMethod", callerName);
     if (!caller) return;
     const callee = calleesOf(idx, caller).find((e) => {
@@ -54,14 +54,14 @@ describeWithFixture("indexer/edges — resolution heuristics", (root) => {
 
   it("bare-name (parenthesis-less) project method calls are linked", () => {
     // Mini-fixture has Bare_ParenLessCalls → _Target1/_Target2.
-    // Symphony historically uses WebOrder_Assign → _Assign2/_Assign3.
+    // A real project may use a differently named chain of bare-name calls.
     const sourceName = sym("ProjectMethod", "Bare_ParenLessCalls")
       ? "Bare_ParenLessCalls"
-      : "WebOrder_Assign";
+      : "Bare_Caller";
     const [t1, t2] =
       sourceName === "Bare_ParenLessCalls"
         ? ["Bare_ParenLessCalls_Target1", "Bare_ParenLessCalls_Target2"]
-        : ["WebOrder_Assign2", "WebOrder_Assign3"];
+        : ["Bare_Target2", "Bare_Target3"];
     const source = sym("ProjectMethod", sourceName);
     if (!source) return;
     const calleeNames = new Set(
@@ -78,7 +78,7 @@ describeWithFixture("indexer/edges — resolution heuristics", (root) => {
     // user-defined entity class for `Rules`:
     //   * Mini-fixture has RulesEntity → edges go to that Class + its
     //     `save` ClassFunction.
-    //   * Symphony (typically) lacks a Rules class → resolver synthesizes
+    //   * A real project (typically) lacks a Rules class → resolver synthesizes
     //     `ds.Rules.new` + `ds.Rules.save` TableBuiltins.
     // Both code paths must produce an edge; this test enforces "some
     // resolution happened" without locking the specific shape.

@@ -530,7 +530,7 @@ export function extractCallSitesFromLine(
 
   // --- Bare identifiers used as values (constant references) ---
   // Constants in 4D have many naming patterns:
-  //   `_Rules`, `MODULE_INVOICES`, `4Q_TYPE_*`, `Worker_Backend` — single-word
+  //   `_Rules`, `MODULE_INVOICES`, `4X_TYPE_*`, `Worker_Backend` — single-word
   //   `Char Quote`, `Is text`, `On Load`, `Form event code` — multi-word
   // We tokenize the line into identifier words, then at each starting position
   // try matching the longest constant name (1 to 5 words) against the known

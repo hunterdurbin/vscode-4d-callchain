@@ -30,7 +30,7 @@ interface CachedParse {
 // LRU cache of recent parses, keyed by absolute path. Capped at 256 entries
 // — large enough for the active editing surface (open documents and their
 // neighbors that get patched together) but small enough to keep total
-// memory bounded. Symphony has 25k files; we'd never want to cache them
+// memory bounded. A large project can have 25k+ files; we'd never want to cache them
 // all (tens of MB per Tree, gigabytes total). Files that aren't re-parsed
 // (i.e. the bulk of the project after the initial rebuild) never enter
 // the cache.
@@ -121,7 +121,7 @@ export function parseFileWithTreeSitter(
   // the indexer (indexStore.doRebuild) and the patch path (indexStore
   // .patchFiles) lowercase once when building the set. Re-lowercasing
   // here per-file cost ~5k toLowerCase() × 27k files = 135M ops on
-  // Symphony cold load, all redundant.
+  // a large-project cold load, all redundant.
   const constants =
     constantsSet && constantsSet.size > 0 ? constantsSet : undefined;
   const visitor = new CstVisitor(file, source, constants);

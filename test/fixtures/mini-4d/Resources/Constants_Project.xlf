@@ -34,9 +34,9 @@
           <source>MODULE_INVOICES</source>
         </trans-unit>
       </group>
-      <group d4:groupName="theme-audit">
-        <trans-unit id="k_0030" d4:value="audit_credit_cards:S">
-          <source>4Q_TYPE_AuditCreditCards</source>
+      <group d4:groupName="theme-sample">
+        <trans-unit id="k_0030" d4:value="sample_type:S">
+          <source>4X_TYPE_SAMPLE</source>
         </trans-unit>
       </group>
     </body>

@@ -11,7 +11,7 @@ describeWithFixture("indexer/discovery (against fixture project)", (root) => {
   });
 
   it("discovers a non-trivial number of symbols and edges", () => {
-    // Mini-fixture has ~50 symbols + ~50 edges. Symphony has thousands.
+    // Mini-fixture has ~50 symbols + ~50 edges. A large project has thousands.
     expect(idx.symbols.length).toBeGreaterThan(20);
     expect(idx.edges.length).toBeGreaterThan(20);
   });

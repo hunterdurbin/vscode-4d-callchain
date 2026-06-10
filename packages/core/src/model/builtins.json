@@ -1,6 +1,6 @@
 {
   "generatedAt": "2026-05-13T15:23:34.221Z",
-  "source": "/Users/hunterdurbin/src/4d/symphony/.claude/skills/4d-v21",
+  "source": "4d-v21 builtins skill",
   "count": 1313,
   "commands": [
     "#DECLARE",

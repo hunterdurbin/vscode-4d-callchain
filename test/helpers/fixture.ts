@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { describe } from "vitest";
 
 // Default to the committed mini-fixture under test/fixtures/mini-4d/. Set
-// FOURD_TEST_PROJECT=/path/to/symphony to run against a larger real project
+// FOURD_TEST_PROJECT=/path/to/4d-project to run against a larger real project
 // for volume-style coverage; the curated mini-fixture is the source of truth
 // for deterministic regression assertions.
 const DEFAULT_FIXTURE = path.resolve(__dirname, "../fixtures/mini-4d");

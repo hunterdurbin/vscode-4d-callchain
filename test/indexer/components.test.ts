@@ -12,7 +12,7 @@ describeWithFixture("indexer/components — Component symbols + method refs", (r
 
   // Components require committed .4DZ archives (binary) and are out of scope
   // for the mini-fixture. These probes self-skip when no components are
-  // present; against Symphony (or any project with Components/*.4dbase/) they
+  // present; against a large project (or any project with Components/*.4dbase/) they
   // still assert ≥1 indexed component + ≥1 component-method caller.
 
   it("≥1 Component symbol is indexed when the fixture has components", () => {

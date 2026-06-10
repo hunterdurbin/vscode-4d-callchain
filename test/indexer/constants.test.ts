@@ -3,7 +3,7 @@ import { describeWithFixture } from "../helpers/fixture";
 import { callersOf, getSharedIndex, symFinder } from "../helpers/sharedIndex";
 import type { SymbolIndex } from "../../packages/core/dist";
 
-// Mini-floor caller counts. Symphony has many more; we just need ≥1 to
+// Mini-floor caller counts. A large project has many more; we just need ≥1 to
 // prove the constant gets wired up via ConstantRef edges.
 // expectedLine is the zero-based line of the constant's <source> tag in
 // Constants_Project.xlf (1-based source line minus one).
@@ -11,7 +11,7 @@ const CONST_SAMPLES = [
   { name: "_Rules",                  expectedType: "Text",    expectedValue: "Rules",              minCallers: 1, expectedLine: 20 },
   { name: "Worker_Backend",          expectedType: "Longint", expectedValue: "1",                  minCallers: 1, expectedLine: 25 },
   { name: "MODULE_INVOICES",         expectedType: "Text",    expectedValue: "Invoices",           minCallers: 1, expectedLine: 33 },
-  { name: "4Q_TYPE_AuditCreditCards",expectedType: "Text",    expectedValue: "audit_credit_cards", minCallers: 1, expectedLine: 38 }
+  { name: "4X_TYPE_SAMPLE",          expectedType: "Text",    expectedValue: "sample_type",        minCallers: 1, expectedLine: 38 }
 ] as const;
 
 describeWithFixture("indexer/constants — user-defined constants", (root) => {

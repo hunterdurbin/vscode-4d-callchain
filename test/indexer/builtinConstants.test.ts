@@ -35,18 +35,13 @@ describeWithFixture("indexer/builtinConstants — refs + lookbehind regression",
     const april = sym("BuiltinConstant", "April");
     if (!april) return;
     const callers = callersOf(idx, april);
-    // The fixture file that exercises [Goals]April differs per fixture:
-    //   * mini-fixture: BuiltinConst_LookbehindRegression
-    //   * Symphony: Inventory_SetGoals (often with a bSave subroutine)
-    // Either way, the regression assertion is: no caller from EITHER name
-    // exists on the April BuiltinConstant.
+    // The fixture file that exercises [Goals]April is
+    // BuiltinConst_LookbehindRegression. The regression assertion is: no
+    // caller from that file exists on the April BuiltinConstant.
     const stray = callers.find((e) => {
       const f = idx.symbols.find((s) => s.id === e.fromId);
       if (!f || !f.name) return false;
-      return (
-        f.name.includes("Inventory_SetGoals") ||
-        f.name.includes("BuiltinConst_LookbehindRegression")
-      );
+      return f.name.includes("BuiltinConst_LookbehindRegression");
     });
     expect(stray).toBeFalsy();
   });

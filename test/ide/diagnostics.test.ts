@@ -66,7 +66,7 @@ describeWithFixture("ide/diagnostics — publish on didOpen", (root) => {
   });
 
   it("diagnostics arrays are well-formed (range + message when non-empty)", () => {
-    // Pick whichever opened file had ≥1 diagnostic, if any. Symphony may have
+    // Pick whichever opened file had ≥1 diagnostic, if any. A real project may have
     // dropped most unresolved edges since this probe was written — we no
     // longer assert a specific count, just that the wire format is correct
     // for any diagnostic that does get published.

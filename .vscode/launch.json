@@ -2,12 +2,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension (Symphony)",
+      "name": "Run Extension (Test Project)",
       "type": "extensionHost",
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode-client",
-        "/Users/hunterdurbin/src/4d/symphony"
+        "/path/to/4d-project"
       ],
       "outFiles": [
         "${workspaceFolder}/packages/vscode-client/dist/**/*.js",

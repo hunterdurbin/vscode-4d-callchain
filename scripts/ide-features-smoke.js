@@ -9,7 +9,7 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const projectRoot = process.argv[2] || "/Users/hunterdurbin/src/4d/symphony";
+const projectRoot = process.argv[2] || "/path/to/4d-project";
 const rootUri = "file://" + projectRoot;
 
 function makeServer(distRelative) {
@@ -74,7 +74,7 @@ const TARGET_FILE = "Project/Sources/Classes/ConfigRepo.4dm";
     await s.request("initialize", {
       processId: process.pid,
       rootUri,
-      workspaceFolders: [{ uri: rootUri, name: "symphony" }],
+      workspaceFolders: [{ uri: rootUri, name: "project" }],
       capabilities: {}
     });
     s.notify("initialized", {});

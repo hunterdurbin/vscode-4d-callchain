@@ -25,7 +25,7 @@ export function cleanLine(input: string): { text: string; strings: string[]; col
     }
     if (ch === "`") {
       // 4D v18+ line comment — everything from the backtick to EOL is a
-      // comment. Symphony-era code uses this for inline annotations.
+      // comment. Some legacy code uses this for inline annotations.
       break;
     }
     if (ch === "/" && input[i + 1] === "*") {

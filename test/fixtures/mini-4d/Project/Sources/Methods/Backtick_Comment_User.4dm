@@ -1,7 +1,7 @@
 // LOCKS: 4D v18+ backtick (`) single-line comment recognition. The text
 // after the backtick must NOT be extracted as a call site (regression
 // guard for "Cannot resolve 'assumes there is a record loaded in classic
-// for'" against Symphony's CombineNames_LockedRecord.4dm).
+// for'" seen in legacy backtick-annotated code).
 ` assumes there is a record loaded in classic for $table
 
 $x:=1

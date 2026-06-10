@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Generates packages/core/src/model/builtins.json from the 4d-v21 skill docs.
 // Usage: node scripts/build-builtins.js [path-to-skill-root]
-// Default: /Users/hunterdurbin/src/4d/symphony/.claude/skills/4d-v21
+// Default: ./4d-v21-skill (override with the [path-to-skill-root] argument)
 
 const fs = require("fs");
 const path = require("path");
 
-const skillRoot = process.argv[2] || "/Users/hunterdurbin/src/4d/symphony/.claude/skills/4d-v21";
+const skillRoot = process.argv[2] || "./4d-v21-skill";
 const docsRoot = path.join(skillRoot, "docs");
 
 function walk(dir) {
@@ -79,7 +79,7 @@ const pluginCommandPrefixes = [
 
 const output = {
   generatedAt: new Date().toISOString(),
-  source: skillRoot,
+  source: "4d-v21 builtins skill",
   count: builtins.size,
   commands: Array.from(builtins).sort(),
   pluginCommandPrefixes

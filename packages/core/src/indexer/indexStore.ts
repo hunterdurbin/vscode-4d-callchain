@@ -225,7 +225,7 @@ export class Indexer {
     const parsed = [];
     // `isFresh` only inspects the first ~100 entries of `fileMtimes` (see
     // `isFresh` for the sample cap), so capturing an mtime per file
-    // (25k statSync calls on Symphony) is wasted I/O in the parse loop.
+    // (25k statSync calls on a large project) is wasted I/O in the parse loop.
     // Sample at a stride that yields ~100 entries; the patch path still
     // adds/removes single-file entries on `change`/`delete` events so
     // edited files always stay current.

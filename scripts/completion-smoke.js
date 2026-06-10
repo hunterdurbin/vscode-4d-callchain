@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Smoke-test completion against a real 4D file in symphony.
+// Smoke-test completion against a real 4D file in a 4D project.
 
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const projectRoot = process.argv[2] || "/Users/hunterdurbin/src/4d/symphony";
+const projectRoot = process.argv[2] || "/path/to/4d-project";
 const rootUri = "file://" + projectRoot;
 const server = spawn("node", [path.join(__dirname, "..", "packages", "ide-server", "dist", "bin.js"), "--stdio"], {
   stdio: ["pipe", "pipe", "inherit"]
@@ -55,7 +55,7 @@ server.stdout.on("data", (chunk) => {
   await request("initialize", {
     processId: process.pid,
     rootUri,
-    workspaceFolders: [{ uri: rootUri, name: "symphony" }],
+    workspaceFolders: [{ uri: rootUri, name: "project" }],
     capabilities: {}
   });
   notify("initialized", {});

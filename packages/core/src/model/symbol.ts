@@ -246,7 +246,7 @@ export interface ChainStep {
 // Bumped to 30 when the tree-sitter parser became the default (TODO #13).
 // Bumped to 31 after fixing flattenChain's call-flag annotation (`cs.X.new()
 // .method()` chains were emitting bogus `CsCallNs` edges; ~3k spurious
-// `Cannot resolve` diagnostics per Symphony project).
+// `Cannot resolve` diagnostics on a large project).
 // Bumped to 32 when variadic params from Compiler_*.4dm started landing
 // on `SymbolRecord.params[]`.
 // Bumped to 33 when discoverComponents() started picking up 4D-bundled

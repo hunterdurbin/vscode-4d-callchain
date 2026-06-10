@@ -2,8 +2,7 @@
  * @file 4D programming language grammar for tree-sitter.
  * @license MIT
  *
- * Built up in phases (see plan at
- * /Users/hunterdurbin/.claude/plans/let-s-do-the-todo-sleepy-boole.md):
+ * Built up in phases:
  *
  *  - Phase 0: skeleton (done)
  *  - Phase 1: lexical layer (done)
@@ -374,7 +373,7 @@ module.exports = grammar({
 
     // `#DECLARE($a : T; $b)` — with optional return type. Two forms:
     //   * arrow: `-> $result : Type` (4D v18+ canonical)
-    //   * colon: `: Type` (shorter form, used in some legacy / Symphony code)
+    //   * colon: `: Type` (shorter form, used in some legacy code)
     declare_directive: ($) =>
       seq(
         $.declare_keyword,
@@ -967,7 +966,7 @@ module.exports = grammar({
 
     // Identifier — letters, digits, and underscore. Must contain at least one
     // letter or underscore (otherwise it's a number). 4D allows constants and
-    // identifiers to start with a digit (`4Q_TYPE_X`).
+    // identifiers to start with a digit (`4X_TYPE_X`).
     identifier: ($) => /[A-Za-z0-9_]*[A-Za-z_][A-Za-z0-9_]*/,
     local_var: ($) =>
       /\$[A-Za-z_][A-Za-z0-9_]*|\$\d+[A-Za-z_][A-Za-z0-9_]*/,
@@ -1006,7 +1005,7 @@ module.exports = grammar({
     line_comment: ($) => token(seq("//", /[^\n]*/)),
 
     // 4D v18+ also accepts a backtick at column-zero (or anywhere a token
-    // can start) as a single-line comment marker — Symphony-era code uses
+    // can start) as a single-line comment marker — some legacy code uses
     // it for author/annotation lines like `` `assumes there is a record
     // loaded in classic for $table ``. Treat the rest of the line as
     // comment text, identical to `//`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Smoke test: build a full index against Symphony, print summary stats,
+// Smoke test: build a full index against a real 4D project, print summary stats,
 // and assert a battery of regression probes that lock in past bug fixes.
 // Usage: node scripts/smoke-test.js [projectRoot]
 // Exit code: 0 if all probes pass, 1 if any fail.
@@ -12,7 +12,7 @@ const { discoverConstants, discoverBuiltinConstants, DEFAULT_BUILTIN_CONSTANTS_P
 const { discoverVariables } = require("../packages/core/dist/indexer/variableScanner");
 const { discoverComponents } = require("../packages/core/dist/indexer/componentScanner");
 
-const projectRoot = process.argv[2] || "/Users/hunterdurbin/src/4d/symphony";
+const projectRoot = process.argv[2] || "/path/to/4d-project";
 console.log(`Smoke-testing against ${projectRoot}`);
 
 const start = Date.now();
@@ -101,13 +101,13 @@ if (fnGet) {
 }
 
 // ----- CALL WORKER with a Choose(...) first arg -----
-const auditCardNew = sym("ProjectMethod", "AuditCard_New");
-if (auditCardNew) {
-  const auditWS = calleesOf(auditCardNew).find((e) => {
+const callWorkerSrc = sym("ProjectMethod", "CallWorker_DynamicFirstArg");
+if (callWorkerSrc) {
+  const workerEdge = calleesOf(callWorkerSrc).find((e) => {
     const t = idx.symbols.find((s) => s.id === e.toId);
-    return t && t.name === "AuditCard_WS";
+    return t && t.name === "CallWorker_Target";
   });
-  assert("AuditCard_New → AuditCard_WS (CALL WORKER)", !!auditWS);
+  assert("CallWorker_DynamicFirstArg → CallWorker_Target (CALL WORKER)", !!workerEdge);
 }
 
 // ----- Multi-word builtins must not produce phantom bare-name edges -----
@@ -115,20 +115,20 @@ const recordGhost = sym("Unresolved", "RECORD");
 assert("RECORD is NOT an Unresolved symbol (multi-word filter)", !recordGhost);
 
 // ----- Parenthesis-less project method calls -----
-const webOrderAssign = sym("ProjectMethod", "WebOrder_Assign");
-if (webOrderAssign) {
+const bareCalls = sym("ProjectMethod", "Bare_ParenLessCalls");
+if (bareCalls) {
   const calleeNames = new Set(
-    calleesOf(webOrderAssign)
+    calleesOf(bareCalls)
       .map((e) => idx.symbols.find((s) => s.id === e.toId)?.name)
       .filter(Boolean)
   );
   assert(
-    "WebOrder_Assign → WebOrder_Assign2 (bare-name call)",
-    calleeNames.has("WebOrder_Assign2")
+    "Bare_ParenLessCalls → Bare_ParenLessCalls_Target1 (bare-name call)",
+    calleeNames.has("Bare_ParenLessCalls_Target1")
   );
   assert(
-    "WebOrder_Assign → WebOrder_Assign3 (bare-name call)",
-    calleeNames.has("WebOrder_Assign3")
+    "Bare_ParenLessCalls → Bare_ParenLessCalls_Target2 (bare-name call)",
+    calleeNames.has("Bare_ParenLessCalls_Target2")
   );
 }
 
@@ -166,7 +166,7 @@ const constSamples = [
   { name: "_Rules",                  expectedType: "Text",    expectedValue: "Rules",              minCallers: 5 },
   { name: "Worker_Backend",          expectedType: "Longint", expectedValue: "1",                  minCallers: 5 },
   { name: "MODULE_INVOICES",         expectedType: "Text",    expectedValue: "Invoices",           minCallers: 50 },
-  { name: "4Q_TYPE_AuditCreditCards",expectedType: "Text",    expectedValue: "audit_credit_cards", minCallers: 1 }
+  { name: "4X_TYPE_SAMPLE",          expectedType: "Text",    expectedValue: "sample_type",        minCallers: 1 }
 ];
 for (const probe of constSamples) {
   const c = sym("Constant", probe.name);
@@ -206,7 +206,7 @@ if (april) {
   const callers = callersOf(april);
   const goalsBSave = callers.find((e) => {
     const f = idx.symbols.find((s) => s.id === e.fromId);
-    return f && f.name && f.name.includes("Inventory_SetGoals.bSave");
+    return f && f.name && f.name.includes("BuiltinConst_LookbehindRegression");
   });
   assert("`[Goals]April` field access NOT counted as April ref", !goalsBSave);
 }
@@ -233,14 +233,15 @@ if (lineItemsDesc) {
 console.log(`\nComponents:`);
 const componentSyms = idx.symbols.filter((s) => s.kind === "Component");
 assert("≥1 Component symbol indexed", componentSyms.length >= 1, `${componentSyms.length}`);
-const checkoutMethods = idx.symbols.filter(
-  (s) => s.kind === "ComponentMethod" && s.ownerComponent === "Checkout"
+const componentName = process.env.FOURD_TEST_COMPONENT || "SampleComponent";
+const componentMethods = idx.symbols.filter(
+  (s) => s.kind === "ComponentMethod" && s.ownerComponent === componentName
 );
-const checkoutCallerCount = checkoutMethods.reduce(
+const componentCallerCount = componentMethods.reduce(
   (n, m) => n + callersOf(m).length,
   0
 );
-assert("Checkout has ≥1 component-method caller (aggregated)", checkoutCallerCount >= 1, `${checkoutCallerCount} edges across ${checkoutMethods.length} methods`);
+assert(`${componentName} has ≥1 component-method caller (aggregated)`, componentCallerCount >= 1, `${componentCallerCount} edges across ${componentMethods.length} methods`);
 
 // ===== Summary =====
 console.log(`\n${"=".repeat(40)}`);

@@ -5,7 +5,7 @@ import { Indexer } from "../../packages/core/dist";
 
 /**
  * Skip-by-default performance smoke for the incremental patch path.
- * Set FOURD_TEST_PROJECT to a real (symphony-scale) project to opt in; the
+ * Set FOURD_TEST_PROJECT to a real (large-scale) project to opt in; the
  * mini-fixture is too small to make these thresholds meaningful.
  */
 const real = process.env.FOURD_TEST_PROJECT;
@@ -36,7 +36,7 @@ const skip = !real || !fs.existsSync(path.join(real, "Project"));
     const start = Date.now();
     await ix.patchFile(targetPath);
     const elapsed = Date.now() - start;
-    // 500 ms is the v1 target; if a regression triples this on symphony, fail.
+    // 500 ms is the v1 target; if a regression triples this on a large project, fail.
     expect(elapsed).toBeLessThan(500);
   });
 });

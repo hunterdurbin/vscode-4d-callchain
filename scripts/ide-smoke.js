@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// IDE-server smoke test: initialize + didOpen + textDocument/hover against symphony.
+// IDE-server smoke test: initialize + didOpen + textDocument/hover against a 4D project.
 // Usage: node scripts/ide-smoke.js [projectRoot]
 
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const projectRoot = process.argv[2] || "/Users/hunterdurbin/src/4d/symphony";
+const projectRoot = process.argv[2] || "/path/to/4d-project";
 const rootUri = "file://" + projectRoot;
 const server = spawn("node", [path.join(__dirname, "..", "packages", "ide-server", "dist", "bin.js"), "--stdio"], {
   stdio: ["pipe", "pipe", "inherit"]
@@ -63,7 +63,7 @@ server.stdout.on("data", (chunk) => {
   const init = await request("initialize", {
     processId: process.pid,
     rootUri,
-    workspaceFolders: [{ uri: rootUri, name: "symphony" }],
+    workspaceFolders: [{ uri: rootUri, name: "project" }],
     capabilities: {}
   });
   console.log("✓ initialize capabilities:", Object.keys(init.capabilities).join(", "));

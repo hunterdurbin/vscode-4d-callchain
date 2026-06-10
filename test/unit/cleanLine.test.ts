@@ -9,7 +9,7 @@ describe("cleanLine", () => {
 
   it("strips backtick single-line comments (4D v18+)", () => {
     // Anywhere a `` ` `` appears, the rest of the line is a comment. Found in
-    // Symphony-era code as inline author / behavior annotations like
+    // legacy code as inline author / behavior annotations like
     // `` `assumes there is a record loaded in classic for $table ``.
     const { text } = cleanLine("` assumes there is a record loaded in classic for $table");
     expect(text).toBe("");
