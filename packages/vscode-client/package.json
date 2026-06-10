@@ -502,11 +502,16 @@
       }
     }
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://gitlab.sweetwater.com/hunter_durbin/4d-callchain.git"
+    "url": "https://github.com/hunterdurbin/vscode-4d-callchain.git",
+    "directory": "packages/vscode-client"
   },
+  "bugs": {
+    "url": "https://github.com/hunterdurbin/vscode-4d-callchain/issues"
+  },
+  "homepage": "https://github.com/hunterdurbin/vscode-4d-callchain#readme",
   "scripts": {
     "vscode:prepublish": "node esbuild.js",
     "esbuild": "node esbuild.js",
@@ -520,6 +525,7 @@
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.24.0",
+    "ovsx": "^0.10.0",
     "typescript": "^5.4.0"
   },
   "dependencies": {

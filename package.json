@@ -10,6 +10,10 @@
     "packages/mcp-server",
     "packages/vscode-client"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hunterdurbin/vscode-4d-callchain.git"
+  },
   "scripts": {
     "build": "npm run build -w @4d/parser-4d && npm run build -w @4d/core && npm run build -w @4d/language-server && npm run build -w @4d/ide-server && npm run build -w @4d/mcp-server && npm run compile -w vscode-4d-callchain",
     "build:parser": "npm run build -w @4d/parser-4d",
