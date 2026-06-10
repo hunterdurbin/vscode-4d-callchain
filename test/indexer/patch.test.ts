@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 43 after property declarations became ClassProperty symbols with read/write edges", () => {
-    expect(INDEX_VERSION).toBe(43);
+  it("INDEX_VERSION is 44 after MethodMetric_* was dropped from the builtins stop-list", () => {
+    expect(INDEX_VERSION).toBe(44);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {

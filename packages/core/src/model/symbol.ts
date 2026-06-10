@@ -292,9 +292,14 @@ export interface ChainStep {
 // edges, now folded into the edge-dedup keys (resolve / resolveCallsForFile /
 // appendEdgeDeduped) so a same-line read+write pair survives in both the cold
 // and incremental paths.
+// Bumped to 44 when the internal `MethodMetric_Start`/`MethodMetric_End`
+// instrumentation names were dropped from the builtins stop-list — they are
+// not real 4D commands, so references to them now classify as project/unresolved
+// calls instead of being filtered out as builtins. Caches built with the old
+// builtins set must rebuild to reclassify those edges.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 43;
+export const INDEX_VERSION = 44;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

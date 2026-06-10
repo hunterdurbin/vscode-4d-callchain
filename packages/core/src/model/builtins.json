@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-05-13T15:23:34.221Z",
   "source": "4d-v21 builtins skill",
-  "count": 1313,
+  "count": 1311,
   "commands": [
     "#DECLARE",
     "4D",
@@ -647,8 +647,6 @@
     "Menu selected",
     "Method called on error",
     "Method called on event",
-    "MethodMetric_End",
-    "MethodMetric_Start",
     "Milliseconds",
     "Min",
     "Mod",

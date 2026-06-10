@@ -64,7 +64,7 @@ const keywords = [
   "return", "Return", "throw", "Throw", "Try", "Catch", "End try",
   "True", "False", "Null", "This", "Super", "self", "ds", "cs",
   "Form event code", "On Load", "On Unload", "On Clicked", "On Validate",
-  "MethodMetric_Start", "MethodMetric_End", "#DECLARE", "ARRAY TEXT",
+  "#DECLARE", "ARRAY TEXT",
   "CREATE RECORD", "SAVE RECORD", "DELETE RECORD", "QUERY", "ORDER BY",
   "READ ONLY", "READ WRITE", "UNLOAD RECORD", "LOAD RECORD"
 ];
