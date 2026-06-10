@@ -20,10 +20,11 @@ Navigate call chains in [4D](https://us.4d.com/) v21 projects — methods, class
 - Built-in linter with eleven best-practices rules (all off by default)
 - Optional **MCP server** that exposes the same call graph to AI agents
 
-## Requirements
+## Recommended
 
-The default build depends on [`4D.4d-analyzer`](https://marketplace.visualstudio.com/items?itemName=4D.4d-analyzer)
-for 4D syntax highlighting and installs it automatically.
+For 4D **syntax highlighting**, also install [`4D.4d-analyzer`](https://marketplace.visualstudio.com/items?itemName=4D.4d-analyzer)
+(the official 4D extension). Call Chain Explorer provides call-graph navigation; the analyzer
+provides the grammar and themes. They're independent — neither requires the other.
 
 ## Settings
 

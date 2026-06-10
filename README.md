@@ -12,8 +12,9 @@ VS Code extension for navigating call chains in 4D v21 projects.
 - **VSCodium / any editor:** download the `.vsix` from the [latest release](https://github.com/hunterdurbin/vscode-4d-callchain/releases)
   and run `code --install-extension vscode-4d-callchain-<version>.vsix`.
 
-The default build depends on [`4D.4d-analyzer`](https://marketplace.visualstudio.com/items?itemName=4D.4d-analyzer)
-for 4D syntax highlighting and installs it automatically.
+For 4D **syntax highlighting**, also install [`4D.4d-analyzer`](https://marketplace.visualstudio.com/items?itemName=4D.4d-analyzer)
+(the official 4D extension). Call Chain Explorer provides the call-graph navigation; the analyzer
+provides the grammar and themes. They're independent — install whichever you need.
 
 ## Features
 
@@ -40,19 +41,20 @@ npm run compile
 ## Syntax highlighting & building
 
 Syntax highlighting (the TextMate grammar, themes, and the `4d` language) is
-owned by [`4D.4d-analyzer`](https://marketplace.visualstudio.com/items?itemName=4D.4d-analyzer),
-which this extension declares as a hard dependency — installing the Call Chain
-extension pulls it in. We do **not** ship our own `4d` grammar in the default
-build, so the two extensions no longer fight over the `source.4dm` scope.
+owned by [`4D.4d-analyzer`](https://marketplace.visualstudio.com/items?itemName=4D.4d-analyzer).
+Call Chain Explorer ships **navigation only** and does **not** contribute its own
+`4d` grammar, so the two extensions never fight over the `source.4dm` scope —
+install the analyzer alongside it if you want highlighting.
 
 Two `.vsix` variants:
 
-- `make vsix` — the default, lean Call-Chain-only build. Depends on
-  `4D.4d-analyzer` for all 4D language support.
+- `make vsix` — the default, lean Call-Chain-only build. No dependencies; pairs
+  with `4D.4d-analyzer` for syntax highlighting if you have it installed. This is
+  the build published to the Marketplace and Open VSX.
 - `make vsix-full` → `vscode-4d-callchain-<version>-full.vsix` — a standalone
-  build that bundles its own 4D grammar/themes and drops the dependency, for
-  environments where `4D.4d-analyzer` can't be installed. (Build-time only;
-  VS Code can't toggle a contributed grammar at runtime.)
+  build that additionally bundles its own 4D grammar/themes, for environments
+  where `4D.4d-analyzer` can't be installed. (Build-time only; VS Code can't
+  toggle a contributed grammar at runtime.)
 
 ## Settings
 

@@ -16,9 +16,6 @@
     "workspaceContains:**/Project/**/*.4dm"
   ],
   "main": "./dist/extension.js",
-  "extensionDependencies": [
-    "4D.4d-analyzer"
-  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
