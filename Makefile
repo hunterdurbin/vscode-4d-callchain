@@ -6,7 +6,8 @@ VSIX     := packages/vscode-client/vscode-4d-callchain-$(VERSION).vsix
 VSIX_FULL := packages/vscode-client/vscode-4d-callchain-$(VERSION)-full.vsix
 
 .DEFAULT_GOAL := help
-.PHONY: help install core bundle vsix vsix-full package install-ext build watch test clean
+.PHONY: help install core bundle vsix vsix-full package install-ext build watch test clean \
+	bump bump-patch bump-minor bump-major
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -47,3 +48,15 @@ test: ## Run the test suite
 clean: ## Remove build output and the packaged .vsix
 	rm -rf packages/vscode-client/dist
 	rm -f packages/vscode-client/*.vsix
+
+bump: ## Bump version in every file that records it (PART=major|minor|patch, default patch)
+	node scripts/bump-version.mjs $(PART)
+
+bump-patch: ## Bump the patch version (0.1.18 -> 0.1.19)
+	node scripts/bump-version.mjs patch
+
+bump-minor: ## Bump the minor version (0.1.18 -> 0.2.0)
+	node scripts/bump-version.mjs minor
+
+bump-major: ## Bump the major version (0.1.18 -> 1.0.0)
+	node scripts/bump-version.mjs major
