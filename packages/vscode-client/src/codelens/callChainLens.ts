@@ -124,10 +124,16 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
       }
     }
 
+    // A 4D class file is one class. When it declares no `Class constructor`,
+    // `cs.X.new()` instantiation edges land on the Class symbol itself (the
+    // resolver falls back to it), so surface the caller count at the top of the
+    // class instead of on a constructor line that doesn't exist.
+    const hasConstructor = symbols.some((s) => s.kind === SymbolKind.ClassConstructor);
+
     const out: vscode.CodeLens[] = [];
     for (const s of symbols) {
       if (s.kind === SymbolKind.Class) {
-        out.push(...this.lensesForClass(s, docUri, showGraph, showExtendedBy, graph));
+        out.push(...this.lensesForClass(s, docUri, showGraph, showExtendedBy, graph, showCallers && !hasConstructor));
         continue;
       }
       const callerCount = graph.callers(s.id).length;
@@ -246,11 +252,22 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     docUri: string,
     showGraph: boolean,
     showExtendedBy: boolean,
-    graph: CallGraph
+    graph: CallGraph,
+    showClassCallers: boolean
   ): vscode.CodeLens[] {
     const line = this.mapLine(docUri, s.location.line);
     const range = new vscode.Range(line, 0, line, 1);
     const lenses: vscode.CodeLens[] = [];
+    // Constructor-less class: its instantiation (`cs.X.new()`) callers attach to
+    // the Class symbol. Show them first so the count sits at the top of the class.
+    if (showClassCallers) {
+      const callerCount = graph.callers(s.id).length;
+      lenses.push(new vscode.CodeLens(range, {
+        title: `▲ ${callerCount} callers`,
+        command: "callchain.pinAndReveal",
+        arguments: [s.id, "callers"]
+      }));
+    }
     if (showExtendedBy) {
       const direct = directSubclasses(graph, s.name).length;
       if (direct > 0) {
