@@ -30,6 +30,7 @@ const ORDER: SymbolKind[] = [
   SymbolKind.ClassConstructor,
   SymbolKind.ClassGetter,
   SymbolKind.ClassSetter,
+  SymbolKind.ClassProperty,
   SymbolKind.DatabaseMethod,
   SymbolKind.Form,
   SymbolKind.FormMethod,
@@ -52,7 +53,8 @@ const ORDER: SymbolKind[] = [
 ];
 
 const KIND_LABELS: Partial<Record<SymbolKind, string>> = {
-  [SymbolKind.TableBuiltin]: "Table Builtin"
+  [SymbolKind.TableBuiltin]: "Table Builtin",
+  [SymbolKind.ClassProperty]: "Class Properties"
 };
 
 /** Kinds that should bucket flat-folder children by their owner field. */
@@ -405,7 +407,15 @@ export class SymbolSearchProvider implements vscode.TreeDataProvider<Node> {
     item.id = `sym:${node.id}${this.bumpSuffixFor(...scopes)}`;
     const baseDesc = descriptionFor(node);
     const callers = this.callerCount(node);
-    item.description = callers > 0 ? `${baseDesc} · ▲ ${callers}` : baseDesc;
+    let desc = callers > 0 ? `${baseDesc} · ▲ ${callers}` : baseDesc;
+    if (node.kind === SymbolKind.ClassProperty && this.graph) {
+      // The ▲ badge already shows reads+writes (every edge to a property is one
+      // or the other); break the sum out into its read/write parts on the side.
+      const r = this.graph.reads(node.id).length;
+      const w = this.graph.writes(node.id).length;
+      if (r || w) desc += ` · ${r}r ${w}w`;
+    }
+    item.description = desc;
     item.iconPath = iconFor(node);
     if (node.kind === SymbolKind.Constant || node.kind === SymbolKind.BuiltinConstant) {
       // Constants all "live" in the same XLF file — navigation there is useless.
