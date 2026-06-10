@@ -4,11 +4,13 @@ name: Publish Extension
 #   1. build + package the lean .vsix,
 #   2. attach it to a GitHub Release (download this to upload to the VS Code
 #      Marketplace by hand at https://marketplace.visualstudio.com/manage),
-#   3. publish automatically to Open VSX.
+#   3. optionally publish to Open VSX — only runs if the OVSX_TOKEN secret is set.
 #
 # The VS Code Marketplace half is manual because publishing via the vsce CLI
 # requires an Azure DevOps PAT, which (as of Microsoft's Dec 2025 change) needs
-# a paid Azure subscription to obtain. Open VSX has no such requirement.
+# a paid Azure subscription to obtain. Open VSX is opt-in: it requires the
+# Eclipse Foundation publisher agreement, so the step stays dormant until you
+# add an OVSX_TOKEN repo secret.
 
 on:
   push:
@@ -21,6 +23,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }} # mapped so the step `if` can test it
     steps:
       - uses: actions/checkout@v4
 
@@ -53,6 +57,7 @@ jobs:
         with:
           files: packages/vscode-client/*.vsix
 
-      - name: Publish to Open VSX
+      - name: Publish to Open VSX (only if OVSX_TOKEN is set)
+        if: env.OVSX_TOKEN != ''
         working-directory: packages/vscode-client
-        run: npx ovsx publish ${{ steps.vsix.outputs.path }} --pat ${{ secrets.OVSX_TOKEN }}
+        run: npx ovsx publish ${{ steps.vsix.outputs.path }} --pat "$OVSX_TOKEN"

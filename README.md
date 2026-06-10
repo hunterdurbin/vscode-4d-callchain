@@ -1,7 +1,6 @@
 # 4D Call Chain Explorer
 
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/hunterdurbin.vscode-4d-callchain?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=hunterdurbin.vscode-4d-callchain)
-[![Open VSX](https://img.shields.io/open-vsx/v/hunterdurbin/vscode-4d-callchain?label=Open%20VSX)](https://open-vsx.org/extension/hunterdurbin/vscode-4d-callchain)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 VS Code extension for navigating call chains in 4D v21 projects.
@@ -10,9 +9,7 @@ VS Code extension for navigating call chains in 4D v21 projects.
 
 - **VS Code / Cursor:** search **"4D Call Chain Explorer"** in the Extensions view, or install from the
   [Marketplace](https://marketplace.visualstudio.com/items?itemName=hunterdurbin.vscode-4d-callchain).
-- **VSCodium / Open VSX clients:** install from
-  [Open VSX](https://open-vsx.org/extension/hunterdurbin/vscode-4d-callchain).
-- **Manually:** download the `.vsix` from the [latest release](https://github.com/hunterdurbin/vscode-4d-callchain/releases)
+- **VSCodium / any editor:** download the `.vsix` from the [latest release](https://github.com/hunterdurbin/vscode-4d-callchain/releases)
   and run `code --install-extension vscode-4d-callchain-<version>.vsix`.
 
 The default build depends on [`4D.4d-analyzer`](https://marketplace.visualstudio.com/items?itemName=4D.4d-analyzer)

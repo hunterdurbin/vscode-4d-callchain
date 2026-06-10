@@ -1,7 +1,6 @@
 # 4D Call Chain Explorer
 
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/hunterdurbin.vscode-4d-callchain?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=hunterdurbin.vscode-4d-callchain)
-[![Open VSX](https://img.shields.io/open-vsx/v/hunterdurbin/vscode-4d-callchain?label=Open%20VSX)](https://open-vsx.org/extension/hunterdurbin/vscode-4d-callchain)
 
 Navigate call chains in [4D](https://us.4d.com/) v21 projects — methods, class functions, and plugins — right inside VS Code.
 
