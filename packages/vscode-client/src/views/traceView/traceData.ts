@@ -269,6 +269,45 @@ export function buildTraceChildren(
 }
 
 /**
+ * On-demand override rows for the context menu's "Show overrides": the same
+ * candidate set the "⇣ N" badge counts, shaped exactly like the automatic
+ * "may run" alternatives (ghosted ↪ rows, each expandable with its own class
+ * pinned). `ancestors` is the PARENT chain (not including `base.calleeId`),
+ * mirroring how in-tree alternatives register.
+ */
+export function buildOverrideRows(
+  graph: CallGraph,
+  base: TraceRow,
+  ancestors: ReadonlySet<string>,
+  nextId: () => string
+): TraceRow[] {
+  const sym = graph.symbol(base.calleeId);
+  if (!sym?.ownerClass) return [];
+  const slot: MemberSlot = base.access === "read" ? "read" : base.access === "write" ? "write" : "call";
+  return overrideCandidates(graph, sym.ownerClass, sym.name, slot)
+    .filter((a) => a.id !== base.calleeId)
+    .map((a) => ({
+      nodeId: nextId(),
+      calleeId: a.id,
+      name: a.name,
+      kind: a.kind,
+      ownerClass: a.ownerClass,
+      callKind: base.callKind,
+      resolved: true,
+      access: base.access,
+      line: base.line,
+      column: base.column,
+      endColumn: base.endColumn,
+      fromId: base.fromId,
+      raw: base.raw,
+      childCount: graph.callees(a.id).length,
+      recursive: ancestors.has(a.id),
+      receiverClass: a.ownerClass,
+      isAlternative: true
+    }));
+}
+
+/**
  * One filterable category in the trace's Kinds menu. `access` narrows a
  * category to read or write references — the property categories share the
  * ClassProperty/Alias kinds and are distinguished only by the edge's access.
@@ -314,3 +353,30 @@ export const LEGACY_CLASSES_CATEGORIES = [
   "propertyReads",
   "propertyWrites"
 ];
+
+/** View settings the "Save as default" button snapshots into workspaceState. */
+export interface TraceOptions {
+  hiddenKinds: string[]; // TRACE_CATEGORIES keys
+  showSnippets: boolean;
+  expandDepth: number; // 1..6 — preset for the "Expand to" selector
+}
+
+/** Deserialization guard for workspaceState round-trips: unknown category ids
+ *  are dropped, the depth is clamped, and missing/invalid input falls back to
+ *  the config-derived seed (with depth 1). */
+export function normalizeTraceOptions(
+  raw: unknown,
+  seed: { hiddenKinds: string[]; showSnippets: boolean }
+): TraceOptions {
+  const d: TraceOptions = { hiddenKinds: seed.hiddenKinds, showSnippets: seed.showSnippets, expandDepth: 1 };
+  if (!raw || typeof raw !== "object") return d;
+  const r = raw as Record<string, unknown>;
+  const depth = Number(r.expandDepth);
+  return {
+    hiddenKinds: Array.isArray(r.hiddenKinds)
+      ? r.hiddenKinds.filter((k): k is string => typeof k === "string" && k in TRACE_CATEGORIES)
+      : d.hiddenKinds,
+    showSnippets: typeof r.showSnippets === "boolean" ? r.showSnippets : d.showSnippets,
+    expandDepth: Number.isFinite(depth) ? Math.min(6, Math.max(1, Math.round(depth))) : d.expandDepth
+  };
+}

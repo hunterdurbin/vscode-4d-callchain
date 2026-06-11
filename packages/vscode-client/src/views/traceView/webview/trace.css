@@ -11,6 +11,12 @@ html, body { margin: 0; padding: 0; height: 100%; width: 100%; font-family: var(
 /* display:flex above beats the UA [hidden]{display:none} rule — restore it. */
 .menu[hidden] { display: none; }
 
+/* Right-click context menu (positioned at the cursor by trace.js) */
+.menu.ctx { position: fixed; top: 0; left: 0; z-index: 10; gap: 0; padding: 4px; min-width: 180px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); }
+.menu.ctx button { background: none; border: 0; color: var(--vscode-foreground); text-align: left; padding: 3px 10px; cursor: pointer; font-size: 12px; border-radius: 3px; }
+.menu.ctx button:hover { background: var(--vscode-list-hoverBackground); }
+.menu.ctx .sep { border-top: 1px solid var(--vscode-panel-border); margin: 4px 0; }
+
 #tree { padding: 6px 10px; overflow: auto; height: calc(100% - 40px); box-sizing: border-box; }
 #tree ul { list-style: none; margin: 0; padding-left: 18px; border-left: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(128,128,128,0.25)); }
 #tree > ul { border-left: none; padding-left: 6px; }

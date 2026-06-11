@@ -2,16 +2,20 @@ import * as vscode from "vscode";
 import { CallGraph } from "@4d/core";
 import { showCallSiteSnippets, traceHiddenKinds } from "../../config";
 import {
+  buildOverrideRows,
   buildTraceChildren,
   createTraceCaches,
   LEGACY_CLASSES_CATEGORIES,
+  normalizeTraceOptions,
   TRACE_CATEGORIES,
+  TraceOptions,
   TraceRow
 } from "./traceData";
 import { resolveWebviewAssets } from "../webviewAssets";
 
 const EXPAND_BUDGET = 1000; // rows per single lazy expand
 const DEEP_BUDGET = 5000; // rows per expand-to-depth rebuild
+const OPTIONS_KEY = "callchain.trace.options";
 
 interface NodeEntry {
   row: TraceRow;
@@ -27,6 +31,9 @@ export class TracePanel {
   private rootId: string;
   private readonly nodes = new Map<string, NodeEntry>();
   private idCounter = 0;
+  // Defaults saved by the "Save as default" button (workspaceState); the
+  // config keys only seed the very first run.
+  private savedOptions: TraceOptions;
 
   static show(context: vscode.ExtensionContext, graph: CallGraph, rootId: string): TracePanel {
     if (this.current) {
@@ -70,6 +77,11 @@ export class TracePanel {
   ) {
     this.panel = panel;
     this.rootId = rootId;
+    this.savedOptions = normalizeTraceOptions(context.workspaceState.get(OPTIONS_KEY), {
+      // Expand the pre-split "classes" umbrella value to the fine-grained ids.
+      hiddenKinds: traceHiddenKinds().flatMap((id) => (id === "classes" ? LEGACY_CLASSES_CATEGORIES : [id])),
+      showSnippets: showCallSiteSnippets()
+    });
     this.panel.webview.html = this.renderHtml();
     this.panel.onDidDispose(() => this.dispose(), undefined, this.disposables);
     this.panel.webview.onDidReceiveMessage((msg) => this.handleMessage(msg), undefined, this.disposables);
@@ -133,13 +145,10 @@ export class TracePanel {
   }
 
   private options(truncated: boolean) {
-    // Expand the pre-split "classes" umbrella value to the fine-grained ids.
-    const hidden = traceHiddenKinds().flatMap((id) =>
-      id === "classes" ? LEGACY_CLASSES_CATEGORIES : [id]
-    );
     return {
-      hiddenCategories: hidden,
-      showSnippets: showCallSiteSnippets(),
+      hiddenCategories: this.savedOptions.hiddenKinds,
+      showSnippets: this.savedOptions.showSnippets,
+      expandDepth: this.savedOptions.expandDepth,
       categories: TRACE_CATEGORIES,
       truncated
     };
@@ -148,8 +157,19 @@ export class TracePanel {
   private handleMessage(msg: { type: string; payload?: any }): void {
     switch (msg.type) {
       case "ready":
-        this.postRoot();
+        // A saved depth > 1 pre-expands on open (DEEP_BUDGET bounds the cost).
+        this.postRoot(this.savedOptions.expandDepth);
         break;
+      case "saveDefaults": {
+        const next = normalizeTraceOptions(msg.payload, {
+          hiddenKinds: this.savedOptions.hiddenKinds,
+          showSnippets: this.savedOptions.showSnippets
+        });
+        this.savedOptions = next;
+        void this.context.workspaceState.update(OPTIONS_KEY, next);
+        this.panel.webview.postMessage({ type: "defaultsSaved" });
+        break;
+      }
       case "expand": {
         const entry = this.nodes.get(String(msg.payload?.nodeId));
         if (!entry || entry.row.recursive) return;
@@ -191,6 +211,33 @@ export class TracePanel {
       case "setRoot":
         if (typeof msg.payload?.symbolId === "string") this.setRoot(msg.payload.symbolId);
         break;
+      case "showOverrides": {
+        const entry = this.nodes.get(String(msg.payload?.nodeId));
+        if (!entry) return;
+        // Overrides register against the parent's chain, like in-tree
+        // alternatives (each is a sibling possibility, not a descendant).
+        const parentAncestors = new Set([...entry.ancestors].filter((id) => id !== entry.row.calleeId));
+        const rows = buildOverrideRows(this.graph, entry.row, parentAncestors, this.nextId);
+        this.registerRows(rows, parentAncestors);
+        this.panel.webview.postMessage({
+          type: "overrides",
+          payload: { nodeId: entry.row.nodeId, rows }
+        });
+        break;
+      }
+      case "showInGraph":
+        if (typeof msg.payload?.symbolId === "string") {
+          vscode.commands.executeCommand("callchain.showGraph", msg.payload.symbolId);
+        }
+        break;
+      case "openSymbolById":
+        if (typeof msg.payload?.symbolId === "string") {
+          vscode.commands.executeCommand("callchain.openSymbol", msg.payload.symbolId);
+        }
+        break;
+      case "copy":
+        if (typeof msg.payload?.text === "string") void vscode.env.clipboard.writeText(msg.payload.text);
+        break;
     }
   }
 
@@ -221,10 +268,12 @@ export class TracePanel {
       </select>
       <button id="expandBtn">Go</button>
     </label>
+    <button id="saveDefaults" title="Save the current Kinds, Snippets and Expand-to settings as this workspace's default">Save as default</button>
     <span id="truncated" hidden>⚠ truncated</span>
     <span id="stats"></span>
   </div>
   <div id="tree"></div>
+  <div id="ctxMenu" class="menu ctx" hidden></div>
   <script src="${indexJs}"></script>
 </body>
 </html>`;

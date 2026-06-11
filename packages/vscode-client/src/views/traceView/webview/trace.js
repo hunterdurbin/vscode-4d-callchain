@@ -55,6 +55,7 @@
         hidden = new Set(opts.hiddenCategories || []);
         showSnippets = !!opts.showSnippets;
         document.getElementById("snippets").checked = showSnippets;
+        document.getElementById("depthSel").value = String(opts.expandDepth || 1);
         buildKindsMenu();
       }
       truncated = !!opts.truncated;
@@ -68,6 +69,25 @@
       parent.pending = false;
       if (m.payload.truncated) truncated = true;
       render();
+    } else if (m.type === "overrides") {
+      const parent = rowsById.get(m.payload.nodeId);
+      if (!parent) return;
+      // Dedupe against alternatives that are already showing.
+      const existing = new Set((parent.altIds || []).map((id) => rowsById.get(id)?.calleeId));
+      const fresh = (m.payload.rows || []).filter((r) => !existing.has(r.calleeId));
+      const ids = adoptRows(fresh);
+      parent.altIds = [...(parent.altIds || []), ...ids];
+      parent.injectedAltIds = ids;
+      render();
+    } else if (m.type === "defaultsSaved") {
+      const btn = document.getElementById("saveDefaults");
+      const original = btn.textContent;
+      btn.textContent = "Saved ✓";
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.disabled = false;
+      }, 1200);
     }
   });
 
@@ -143,6 +163,7 @@
     div.addEventListener("click", () => {
       vscode.postMessage({ type: "setRoot", payload: { symbolId: root.symbolId } });
     });
+    div.addEventListener("contextmenu", (ev) => showContextMenu(ev, rootMenuItems()));
     return div;
   }
 
@@ -253,6 +274,7 @@
     line.addEventListener("click", () => {
       vscode.postMessage({ type: "openCallSite", payload: { nodeId: row.nodeId } });
     });
+    line.addEventListener("contextmenu", (ev) => showContextMenu(ev, rowMenuItems(row)));
     li.appendChild(line);
 
     // "May run" alternatives sit directly under the call row, always visible
@@ -290,6 +312,148 @@
     render();
   }
 
+  // ── Context menu ───────────────────────────────────────────────────────────
+  function hideContextMenu() {
+    document.getElementById("ctxMenu").hidden = true;
+  }
+
+  /** items: array of {label, run} or "—" separators. */
+  function showContextMenu(ev, items) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const menu = document.getElementById("ctxMenu");
+    menu.textContent = "";
+    for (const item of items) {
+      if (item === "—") {
+        const sep = document.createElement("div");
+        sep.className = "sep";
+        menu.appendChild(sep);
+        continue;
+      }
+      const btn = document.createElement("button");
+      btn.textContent = item.label;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hideContextMenu();
+        item.run();
+      });
+      menu.appendChild(btn);
+    }
+    // Unhide off-screen to measure, then clamp to the viewport.
+    menu.style.left = "-9999px";
+    menu.style.top = "0px";
+    menu.hidden = false;
+    const r = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(0, Math.min(ev.clientX, window.innerWidth - r.width - 4))}px`;
+    menu.style.top = `${Math.max(0, Math.min(ev.clientY, window.innerHeight - r.height - 4))}px`;
+  }
+
+  function sameSymbolRows(calleeId) {
+    return [...rowsById.values()].filter((r) => r.calleeId === calleeId);
+  }
+
+  function expandAllSame(calleeId) {
+    for (const r of sameSymbolRows(calleeId)) {
+      if (r.recursive || r.childCount === 0) continue;
+      if (r.childIds === null) {
+        if (!r.pending) {
+          r.pending = true;
+          vscode.postMessage({ type: "expand", payload: { nodeId: r.nodeId } });
+        }
+      } else {
+        r.expanded = true;
+      }
+    }
+    render();
+  }
+
+  function collapseAllSame(calleeId) {
+    for (const r of sameSymbolRows(calleeId)) r.expanded = false;
+    render();
+  }
+
+  function hideOverrides(row) {
+    const injected = new Set(row.injectedAltIds || []);
+    row.altIds = (row.altIds || []).filter((id) => !injected.has(id));
+    row.injectedAltIds = undefined;
+    render();
+  }
+
+  function rowMenuItems(row) {
+    const items = [];
+    if (row.injectedAltIds && row.injectedAltIds.length) {
+      items.push({ label: "Hide overrides", run: () => hideOverrides(row) });
+    } else if (row.overrideCount) {
+      items.push({
+        label: `Show ${row.overrideCount} override${row.overrideCount === 1 ? "" : "s"}`,
+        run: () => vscode.postMessage({ type: "showOverrides", payload: { nodeId: row.nodeId } })
+      });
+    }
+    const same = sameSymbolRows(row.calleeId);
+    if (same.length > 1) {
+      const display = row.ownerClass ? `${row.ownerClass}.${row.name}` : row.name;
+      items.push({ label: `Expand all ${display} calls (${same.length})`, run: () => expandAllSame(row.calleeId) });
+      items.push({ label: `Collapse all ${display} calls`, run: () => collapseAllSame(row.calleeId) });
+    }
+    if (items.length) items.push("—");
+    items.push({
+      label: "Trace from here",
+      run: () => vscode.postMessage({ type: "setRoot", payload: { symbolId: row.calleeId } })
+    });
+    items.push({
+      label: "Show in Butterfly graph",
+      run: () => vscode.postMessage({ type: "showInGraph", payload: { symbolId: row.calleeId } })
+    });
+    items.push({
+      label: "Open definition",
+      run: () => vscode.postMessage({ type: "openDefinition", payload: { nodeId: row.nodeId } })
+    });
+    items.push({
+      label: "Open call site",
+      run: () => vscode.postMessage({ type: "openCallSite", payload: { nodeId: row.nodeId } })
+    });
+    items.push("—");
+    const cat = categoryOf(row);
+    if (cat) {
+      items.push({
+        label: `Hide ${(CATEGORY_LABELS[cat] || cat).toLowerCase()}`,
+        run: () => {
+          hidden.add(cat);
+          buildKindsMenu();
+          render();
+        }
+      });
+    }
+    items.push({ label: "Copy name", run: () => vscode.postMessage({ type: "copy", payload: { text: row.name } }) });
+    if (row.ownerClass) {
+      items.push({
+        label: "Copy qualified name",
+        run: () => vscode.postMessage({ type: "copy", payload: { text: `${row.ownerClass}.${row.name}` } })
+      });
+    }
+    return items;
+  }
+
+  function rootMenuItems() {
+    const qualified = root.ownerClass ? `${root.ownerClass}.${root.name}` : root.name;
+    const items = [
+      {
+        label: "Show in Butterfly graph",
+        run: () => vscode.postMessage({ type: "showInGraph", payload: { symbolId: root.symbolId } })
+      },
+      {
+        label: "Open definition",
+        run: () => vscode.postMessage({ type: "openSymbolById", payload: { symbolId: root.symbolId } })
+      },
+      "—",
+      { label: "Copy name", run: () => vscode.postMessage({ type: "copy", payload: { text: root.name } }) }
+    ];
+    if (root.ownerClass) {
+      items.push({ label: "Copy qualified name", run: () => vscode.postMessage({ type: "copy", payload: { text: qualified } }) });
+    }
+    return items;
+  }
+
   // ── Toolbar ────────────────────────────────────────────────────────────────
   function buildKindsMenu() {
     const menu = document.getElementById("kindsMenu");
@@ -318,7 +482,20 @@
   document.addEventListener("click", (ev) => {
     const menu = document.getElementById("kindsMenu");
     if (!menu.hidden && !menu.contains(ev.target)) menu.hidden = true;
+    hideContextMenu();
   });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") hideContextMenu();
+  });
+  document.addEventListener("contextmenu", (ev) => {
+    // Right-click anywhere outside a row dismisses an open menu (row
+    // handlers stopPropagation, so this never fires for them).
+    if (!document.getElementById("ctxMenu").hidden) {
+      ev.preventDefault();
+      hideContextMenu();
+    }
+  });
+  window.addEventListener("scroll", hideContextMenu, true);
 
   document.getElementById("filter").addEventListener("input", (e) => {
     nameQuery = e.target.value.toLowerCase();
@@ -331,6 +508,16 @@
   document.getElementById("expandBtn").addEventListener("click", () => {
     const depth = Number(document.getElementById("depthSel").value);
     vscode.postMessage({ type: "expandToDepth", payload: { depth } });
+  });
+  document.getElementById("saveDefaults").addEventListener("click", () => {
+    vscode.postMessage({
+      type: "saveDefaults",
+      payload: {
+        hiddenKinds: [...hidden],
+        showSnippets,
+        expandDepth: Number(document.getElementById("depthSel").value)
+      }
+    });
   });
 
   vscode.postMessage({ type: "ready" });

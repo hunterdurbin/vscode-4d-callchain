@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { CallGraph, SymbolKind, CallKind, INDEX_VERSION } from "../../packages/core/dist";
 import type { SymbolIndex, SymbolRecord, CallEdge } from "../../packages/core/dist";
-import { buildTraceChildren } from "../../packages/vscode-client/src/views/traceView/traceData";
+import { buildOverrideRows, buildTraceChildren, normalizeTraceOptions } from "../../packages/vscode-client/src/views/traceView/traceData";
+import type { TraceRow } from "../../packages/vscode-client/src/views/traceView/traceData";
 
 function sym(id: string, name: string, kind: SymbolKind = SymbolKind.ProjectMethod): SymbolRecord {
   return { id, name, kind, location: { uri: `file:///${name}`, line: 0 } };
@@ -498,5 +499,113 @@ describe("buildTraceChildren — polymorphic dispatch", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].alternatives).toHaveLength(2);
     expect(budget.left).toBe(0);
+  });
+});
+
+describe("normalizeTraceOptions", () => {
+  const SEED = { hiddenKinds: ["builtins", "constants"], showSnippets: true };
+
+  it("round-trips a valid object", () => {
+    const o = { hiddenKinds: ["methods", "forms"], showSnippets: false, expandDepth: 3 };
+    expect(normalizeTraceOptions(JSON.parse(JSON.stringify(o)), SEED)).toEqual(o);
+  });
+
+  it("drops unknown category ids", () => {
+    const n = normalizeTraceOptions({ hiddenKinds: ["methods", "bogus", 7], showSnippets: false, expandDepth: 2 }, SEED);
+    expect(n.hiddenKinds).toEqual(["methods"]);
+  });
+
+  it("clamps and rounds the expand depth", () => {
+    expect(normalizeTraceOptions({ expandDepth: 0 }, SEED).expandDepth).toBe(1);
+    expect(normalizeTraceOptions({ expandDepth: 99 }, SEED).expandDepth).toBe(6);
+    expect(normalizeTraceOptions({ expandDepth: "3.7" }, SEED).expandDepth).toBe(4);
+    expect(normalizeTraceOptions({ expandDepth: "huge" }, SEED).expandDepth).toBe(1);
+  });
+
+  it("falls back to the seed for missing input", () => {
+    expect(normalizeTraceOptions(undefined, SEED)).toEqual({
+      hiddenKinds: ["builtins", "constants"],
+      showSnippets: true,
+      expandDepth: 1
+    });
+  });
+});
+
+describe("buildOverrideRows", () => {
+  function baseRow(calleeId: string, extras: Partial<TraceRow> = {}): TraceRow {
+    return {
+      nodeId: "n0",
+      calleeId,
+      name: calleeId.split(".").pop() as string,
+      kind: SymbolKind.ClassFunction,
+      callKind: CallKind.Static,
+      resolved: true,
+      line: 7,
+      column: 2,
+      endColumn: 6,
+      fromId: "Caller",
+      raw: "This.hook()",
+      childCount: 0,
+      recursive: false,
+      ...extras
+    };
+  }
+
+  it("returns subclass overrides shaped like may-run alternatives", () => {
+    const g = dispatchGraph(HIERARCHY, [dEdge("ClassFunction:Dog.hook", "ClassFunction:Dog.run")]);
+    const rows = buildOverrideRows(g, baseRow("ClassFunction:Animal.hook"), new Set(["Caller"]), counter());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      calleeId: "ClassFunction:Dog.hook",
+      ownerClass: "Dog",
+      receiverClass: "Dog",
+      isAlternative: true,
+      recursive: false,
+      line: 7,
+      column: 2,
+      fromId: "Caller",
+      raw: "This.hook()",
+      childCount: 1
+    });
+  });
+
+  it("returns nothing for non-class targets or members without overrides", () => {
+    const g = dispatchGraph([...HIERARCHY, sym("util", "util")], []);
+    expect(buildOverrideRows(g, baseRow("util"), new Set(), counter())).toEqual([]);
+    expect(buildOverrideRows(g, baseRow("ClassFunction:Dog.hook"), new Set(), counter())).toEqual([]);
+  });
+
+  it("marks an override already in the ancestor chain as recursive", () => {
+    const g = dispatchGraph(HIERARCHY, []);
+    const rows = buildOverrideRows(
+      g,
+      baseRow("ClassFunction:Animal.hook"),
+      new Set(["ClassFunction:Dog.hook"]),
+      counter()
+    );
+    expect(rows[0].recursive).toBe(true);
+  });
+
+  it("respects the read/write slot for property-like members", () => {
+    const syms = [
+      ...HIERARCHY,
+      memberSym("Animal", "value", SymbolKind.ClassGetter),
+      memberSym("Dog", "value", SymbolKind.ClassGetter)
+    ];
+    const g = dispatchGraph(syms, []);
+    const read = buildOverrideRows(
+      g,
+      baseRow("ClassGetter:Animal.value", { kind: SymbolKind.ClassGetter, access: "read" }),
+      new Set(),
+      counter()
+    );
+    expect(read.map((r) => r.calleeId)).toEqual(["ClassGetter:Dog.value"]);
+    const write = buildOverrideRows(
+      g,
+      baseRow("ClassGetter:Animal.value", { kind: SymbolKind.ClassGetter, access: "write" }),
+      new Set(),
+      counter()
+    );
+    expect(write).toEqual([]);
   });
 });
