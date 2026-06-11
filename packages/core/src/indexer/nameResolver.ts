@@ -1181,7 +1181,7 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           const baseCls = classByName.get(hint.className.toLowerCase());
           if (baseCls) {
             const ctor = classFunctions.get(`${baseCls.name}.constructor`.toLowerCase());
-            pushEdge(ctor?.id ?? baseCls.id, CallKind.Static, true);
+            pushEdge(ctor?.id ?? baseCls.id, CallKind.Static, true, undefined, undefined, baseCls.name);
           }
           const fallbackLabel =
             `cs.${hint.className}.new` +
@@ -1197,7 +1197,13 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           if (currentType) {
             const hit = resolveMethodOrBuiltin(currentType, hint.method);
             if (hit) {
-              pushEdge(hit.id, CallKind.Static, true);
+              // The chain start is a bare class name (classFromVarType only
+              // handles cs./ds. type shapes), so fall back to a classByName
+              // probe for the receiver tag.
+              const recvClass =
+                classFromVarType(currentType) ??
+                classByName.get(currentType.toLowerCase())?.name;
+              pushEdge(hit.id, CallKind.Static, true, undefined, undefined, recvClass);
               break;
             }
           }
@@ -1292,19 +1298,20 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           // getters/aliases.
           const target = classFromVarType(rawType) ?? normalizeType(rawType);
           if (target) {
+            const recv = classFromVarType(rawType);
             const g = resolveGetterOnChain(target, hint.property);
             if (g) {
-              pushEdge(g.id, CallKind.Static, true, "read");
+              pushEdge(g.id, CallKind.Static, true, "read", undefined, recv);
               break;
             }
             const a = resolveAliasOnChain(target, hint.property);
             if (a) {
-              pushEdge(a.id, CallKind.Static, true, "read");
+              pushEdge(a.id, CallKind.Static, true, "read", undefined, recv);
               break;
             }
             const p = resolvePropertyOnChain(target, hint.property);
             if (p) {
-              pushEdge(p.id, CallKind.Static, true, "read");
+              pushEdge(p.id, CallKind.Static, true, "read", undefined, recv);
               break;
             }
           }
@@ -1321,30 +1328,31 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           const rawType = locals?.get(hint.variable);
           const target = classFromVarType(rawType) ?? normalizeType(rawType);
           if (!target) break;
+          const recv = classFromVarType(rawType);
           const s = resolveSetterOnChain(target, hint.property);
-          if (s) { pushEdge(s.id, CallKind.Static, true, "write"); break; }
+          if (s) { pushEdge(s.id, CallKind.Static, true, "write", undefined, recv); break; }
           const a = resolveAliasOnChain(target, hint.property);
-          if (a) { pushEdge(a.id, CallKind.Static, true, "write"); break; }
+          if (a) { pushEdge(a.id, CallKind.Static, true, "write", undefined, recv); break; }
           const p = resolvePropertyOnChain(target, hint.property);
-          if (p) pushEdge(p.id, CallKind.Static, true, "write");
+          if (p) pushEdge(p.id, CallKind.Static, true, "write", undefined, recv);
           break;
         }
         case "CsGet": {
           const g = resolveGetterOnChain(hint.className, hint.property);
-          if (g) { pushEdge(g.id, CallKind.Static, true, "read"); break; }
+          if (g) { pushEdge(g.id, CallKind.Static, true, "read", undefined, hint.className); break; }
           const a = resolveAliasOnChain(hint.className, hint.property);
-          if (a) { pushEdge(a.id, CallKind.Static, true, "read"); break; }
+          if (a) { pushEdge(a.id, CallKind.Static, true, "read", undefined, hint.className); break; }
           const p = resolvePropertyOnChain(hint.className, hint.property);
-          if (p) pushEdge(p.id, CallKind.Static, true, "read");
+          if (p) pushEdge(p.id, CallKind.Static, true, "read", undefined, hint.className);
           break;
         }
         case "CsSet": {
           const s = resolveSetterOnChain(hint.className, hint.property);
-          if (s) { pushEdge(s.id, CallKind.Static, true, "write"); break; }
+          if (s) { pushEdge(s.id, CallKind.Static, true, "write", undefined, hint.className); break; }
           const a = resolveAliasOnChain(hint.className, hint.property);
-          if (a) { pushEdge(a.id, CallKind.Static, true, "write"); break; }
+          if (a) { pushEdge(a.id, CallKind.Static, true, "write", undefined, hint.className); break; }
           const p = resolvePropertyOnChain(hint.className, hint.property);
-          if (p) pushEdge(p.id, CallKind.Static, true, "write");
+          if (p) pushEdge(p.id, CallKind.Static, true, "write", undefined, hint.className);
           break;
         }
         case "DsBracketNew": {

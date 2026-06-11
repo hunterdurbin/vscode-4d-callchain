@@ -198,6 +198,50 @@ describe("resolver receiver tagging", () => {
     expect(fn?.receiverClass).toBe("Dog");
   });
 
+  it("tags receiverClass on cs.Dog.new().run() chains (construction + terminal)", () => {
+    const edges = resolveClassFile({
+      className: "Dog",
+      extendsClass: "Animal",
+      symbols: HIERARCHY,
+      rawCalls: [
+        call("ClassFunction:Dog.run", { kind: "CsChainCall", className: "Dog", path: [], method: "template" })
+      ]
+    });
+    // Construction edge: no Dog constructor → falls back to the Class symbol.
+    const ctor = edges.find((x) => x.toId === "Class:Dog");
+    expect(ctor?.receiverClass).toBe("Dog");
+    // Terminal method: template is inherited from Animal — still tagged Dog.
+    const fn = edges.find((x) => x.toId === "ClassFunction:Animal.template");
+    expect(fn).toBeTruthy();
+    expect(fn!.receiverClass).toBe("Dog");
+  });
+
+  it("tags receiverClass on $var property reads/writes with the variable's class", () => {
+    const parsed = {
+      file: {
+        absolutePath: "/p/Project/Sources/Classes/Dog.4dm",
+        relativePath: "Project/Sources/Classes/Dog.4dm",
+        category: "class"
+      },
+      symbols: HIERARCHY.filter((s) => s.location.uri.includes("/Dog.4dm")),
+      rawCalls: [
+        call("ClassFunction:Dog.run", { kind: "VarGet", variable: "dog", property: "label" }, 1),
+        call("ClassFunction:Dog.run", { kind: "VarSet", variable: "dog", property: "label" }, 2)
+      ],
+      localTypes: new Map([["ClassFunction:Dog.run", new Map([["dog", "cs.Dog"]])]]),
+      localStrings: new Map(),
+      classInfo: { name: "Dog", extends: "Animal", flavor: ClassFlavor.Generic }
+    };
+    const out = nameResolver.resolve(
+      { files: [parsed], plugins: [], catalogTables: new Set() },
+      HIERARCHY
+    );
+    const read = out.edges.find((x: CallEdge) => x.toId === "ClassGetter:Animal.label");
+    const write = out.edges.find((x: CallEdge) => x.toId === "ClassSetter:Animal.label");
+    expect(read?.receiverClass).toBe("Dog");
+    expect(write?.receiverClass).toBe("Dog");
+  });
+
   it("does NOT tag the flavored-builtin fallback (This.save on an Entity class)", () => {
     const entityClass: SymbolRecord = {
       ...classSym("OrderEntity"),
