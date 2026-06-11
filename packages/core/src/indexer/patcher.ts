@@ -219,8 +219,26 @@ function appendEdgeDeduped(state: PatchState, e: CallEdge): boolean {
  * table and add the resulting edges. Returns the file's published
  * public-name keys (a superset of what the caller will diff against the
  * pre-removal set for cross-file invalidation).
+ *
+ * Composition of {@link addFileSymbols} + {@link addFileCalls}. Multi-file
+ * batches must run ALL files' addFileSymbols before ANY addFileCalls
+ * (symbols-before-resolve, like the cold build) — otherwise a file resolved
+ * early in the batch binds against the pre-change symbols of a file changed
+ * later in the same batch, and the fan-out never repairs it (it deliberately
+ * skips changedPaths).
  */
 export function addFileContribution(state: PatchState, parsed: ParsedFile): Set<string> {
+  const added = addFileSymbols(state, parsed);
+  addFileCalls(state, parsed);
+  return added;
+}
+
+/**
+ * Symbols half of {@link addFileContribution}: insert the file's symbols
+ * into the live graph/scratch, register the per-file maps, and refresh the
+ * class chain-walk overlays. Returns the file's published public-name keys.
+ */
+export function addFileSymbols(state: PatchState, parsed: ParsedFile): Set<string> {
   const added = new Set<string>();
 
   const fp = parsed.file.absolutePath;
@@ -250,6 +268,18 @@ export function addFileContribution(state: PatchState, parsed: ParsedFile): Set<
       state.resolverInput.projectClassMethodReturnsByName?.set(key, new Map(parsed.classMethodReturnsByName));
     }
   }
+
+  return added;
+}
+
+/**
+ * Calls half of {@link addFileContribution}: resolve the file's rawCalls
+ * against the current global symbol table and add the resulting edges,
+ * synth symbols, and reverse-name index entries. Requires the file's
+ * {@link addFileSymbols} to have run (parsedByPath must hold this parse).
+ */
+export function addFileCalls(state: PatchState, parsed: ParsedFile): void {
+  const fp = parsed.file.absolutePath;
 
   // Resolve just this file's calls against the persistent scratch. The
   // session reset clears synth state so `scratch.unresolved` only collects
@@ -308,8 +338,6 @@ export function addFileContribution(state: PatchState, parsed: ParsedFile): Set<
       pushNameKeyEntry(state, k, { fromPath: fp, rawCallIdx: i, edge, nameKey: k });
     }
   }
-
-  return added;
 }
 
 /**
@@ -320,14 +348,22 @@ export function addFileContribution(state: PatchState, parsed: ParsedFile): Set<
  * number of cross-file references — not the project size.
  *
  * Calls inside the patched files themselves are NOT re-resolved here:
- * `addFileContribution` already resolves the changed file's own rawCalls
- * fresh against the post-patch symbol table.
+ * `addFileCalls` already resolves each changed file's own rawCalls fresh —
+ * and the caller runs every changed file's `addFileSymbols` before any
+ * `addFileCalls`, so those resolutions see the complete post-change symbol
+ * table even when the batch's files reference each other.
+ *
+ * Async: yields to the event loop every {@link FANOUT_YIELD_EVERY} call
+ * sites so an agent-scale batch (hundreds of changed files → thousands of
+ * dependent call sites) doesn't hold the extension-host thread.
  */
-export function reresolveAffectedDependents(
+const FANOUT_YIELD_EVERY = 200;
+
+export async function reresolveAffectedDependents(
   state: PatchState,
   affectedNameKeys: Set<string>,
   changedPaths: Set<string>
-): number {
+): Promise<number> {
   if (affectedNameKeys.size === 0) return 0;
 
   // Collect unique (fromPath, rawCallIdx) pairs from all affected name
@@ -360,10 +396,14 @@ export function reresolveAffectedDependents(
     list.push({ rawCallIdx });
   }
 
+  let processedSites = 0;
   for (const [fromPath, items] of byFile) {
     const parsed = state.parsedByPath.get(fromPath);
     if (!parsed) continue;
     for (const { rawCallIdx } of items) {
+      if (++processedSites % FANOUT_YIELD_EVERY === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
       const call = parsed.rawCalls[rawCallIdx];
       if (!call?.hint) continue;
       const keys = nameKeysForHint(call.hint);

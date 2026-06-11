@@ -1638,10 +1638,57 @@ export function buildSymbolIndex(
     });
   }
 
-  // The resolver consults componentMethodIdByName AFTER project methods
-  // but BEFORE plugin/builtin — bare `MyComponentMethod()` attributes to
-  // the specific ComponentMethod (not the bundle).
-  const componentByMethod = componentMethodIdByName;
+  const resolverInput = buildResolverInput(parsedFiles, plugins, catalogTables, components);
+  const { edges, unresolvedSymbols, synthOwnersByPath } = resolve(resolverInput, allSymbols);
+
+  for (const u of unresolvedSymbols) allSymbols.push(u);
+
+  const index: SymbolIndex = {
+    version: INDEX_VERSION,
+    builtAt: Date.now(),
+    projectRoot,
+    symbols: allSymbols,
+    edges,
+    fileMtimes: {}
+  };
+  return { index, resolverInput, synthOwnersByPath };
+}
+
+/**
+ * Assemble the `ResolverInput` lookup context from project parses + aux
+ * discovery output. Split out of {@link buildSymbolIndex} so the warm pass
+ * (`Indexer.warm()`) can rebuild incremental-patch state against a
+ * cache-loaded index without re-running `resolve()`. Plugin/component
+ * symbol ids are deterministic (`symbolIdFor`), so the ids produced here
+ * always match the ones embedded in a previously-persisted index.
+ */
+export function buildResolverInput(
+  parsedFiles: ParsedFile[],
+  plugins: { name: string; commands?: string[] }[],
+  catalogTables: Set<string>,
+  components: {
+    name: string;
+    classStoreName?: string;
+    methods: string[];
+    classes?: {
+      name: string;
+      functions: string[];
+      hasConstructor: boolean;
+      properties?: Record<string, { className: string; componentName: string }>;
+    }[];
+  }[]
+): ResolverInput {
+  // The resolver consults componentByMethod AFTER project methods but
+  // BEFORE plugin/builtin — bare `MyComponentMethod()` attributes to the
+  // specific ComponentMethod (not the bundle). First-seen method wins,
+  // matching the symbol-creation dedup in buildSymbolIndex.
+  const componentByMethod = new Map<string, string>();
+  for (const c of components) {
+    for (const m of c.methods) {
+      if (componentByMethod.has(m)) continue;
+      componentByMethod.set(m, symbolIdFor(SymbolKind.ComponentMethod, m));
+    }
+  }
 
   // Component class property → type map, keyed by `cs.<ns>.<class>` (lowercase).
   // Each value maps a property name to its declared `cs.<ns>.<class>` type.
@@ -1686,12 +1733,12 @@ export function buildSymbolIndex(
     }
   }
 
-  const resolverInput: ResolverInput = {
+  return {
     files: parsedFiles,
-    plugins: pluginSyms.map((s, i) => ({
-      name: s.name,
-      symbolId: s.id,
-      commands: plugins[i]?.commands
+    plugins: plugins.map((p) => ({
+      name: p.name,
+      symbolId: symbolIdFor(SymbolKind.Plugin, p.name),
+      commands: p.commands
     })),
     catalogTables,
     componentByMethod,
@@ -1699,17 +1746,4 @@ export function buildSymbolIndex(
     projectClassPropsByName,
     projectClassMethodReturnsByName
   };
-  const { edges, unresolvedSymbols, synthOwnersByPath } = resolve(resolverInput, allSymbols);
-
-  for (const u of unresolvedSymbols) allSymbols.push(u);
-
-  const index: SymbolIndex = {
-    version: INDEX_VERSION,
-    builtAt: Date.now(),
-    projectRoot,
-    symbols: allSymbols,
-    edges,
-    fileMtimes: {}
-  };
-  return { index, resolverInput, synthOwnersByPath };
 }

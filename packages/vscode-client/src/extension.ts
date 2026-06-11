@@ -106,7 +106,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   if (config.autoIndexOnStartup()) {
-    indexer.load().catch((err) => output.appendLine(`[Indexer] failed: ${err}`));
+    indexer.load()
+      // Background warm pass: a cache-load leaves the incremental-patch
+      // state empty, which used to make the FIRST save after startup pay a
+      // full rebuild. Fire-and-forget; no-ops when load() rebuilt anyway.
+      .then(() => { void indexer.warm(); })
+      .catch((err) => output.appendLine(`[Indexer] failed: ${err}`));
   }
 
   // Spawn the call-chain LSP server. One process serving the standard LSP

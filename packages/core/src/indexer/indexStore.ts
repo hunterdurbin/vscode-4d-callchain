@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { unpack } from "msgpackr";
-import { CallEdge, INDEX_VERSION, SymbolIndex } from "../model/symbol";
+import { CallEdge, INDEX_VERSION, SymbolIndex, SymbolKind } from "../model/symbol";
 import { CallGraph } from "../model/callGraph";
 import { Logger } from "../util/logger";
 import { TypedEmitter } from "../util/emitter";
@@ -11,13 +11,14 @@ import { discoverVariables } from "./variableScanner";
 import { discoverCompilerMethodTypes, CompilerMethodTypes } from "./compilerMethodScanner";
 import { discoverComponents } from "./componentScanner";
 import { ParsedFile, parseFile } from "./fileParser";
-import { buildResolverScratch, buildSymbolIndex, ResolverInput } from "./nameResolver";
+import { buildResolverInput, buildResolverScratch, buildSymbolIndex, ResolverInput } from "./nameResolver";
 import { classifyFile } from "./projectScanner";
 import { IndexPersistence } from "./persistence";
 import {
   NameKeyEntry,
   PatchState,
-  addFileContribution,
+  addFileCalls,
+  addFileSymbols,
   assertSynthRefcountInvariant,
   augmentVariadicParams,
   compilerMethodTypesEqual,
@@ -118,6 +119,9 @@ export class Indexer {
   // subsequent saves arriving during that rebuild each trigger another,
   // causing N concurrent ~25s rebuilds scribbling over the same state.
   private rebuildInFlight: Promise<CallGraph> | undefined;
+  // Tracks an in-progress background warm pass (see `warm()`). Patches
+  // arriving mid-warm await this instead of bailing to a full rebuild.
+  private warmInFlight: Promise<void> | undefined;
 
   private lastPatchStats: PatchStats | undefined;
 
@@ -197,10 +201,104 @@ export class Indexer {
     return this.rebuildInFlight;
   }
 
-  private async doRebuild(): Promise<CallGraph> {
-    const start = Date.now();
-    this.opts.logger.info(`[Indexer] Scanning ${this.opts.projectRoot}`);
-    const tDiscover = Date.now();
+  /**
+   * Build the incremental-patch state (`PatchState`) for an index that
+   * `load()` restored from the msgpack cache, WITHOUT a full rebuild.
+   *
+   * The cache-load path leaves `this.patch` undefined (the warm caches need
+   * every file's `rawCalls[].hint` for the reverse-name index, and parse data
+   * isn't persisted), so historically the FIRST file change after every
+   * cache-load startup bailed to a full rebuild. This pass pays only the
+   * parse + aux-discovery cost — resolve and persist are skipped because the
+   * loaded index already has the answers — and runs cooperatively in the
+   * background. Hosts call it fire-and-forget right after `load()`.
+   *
+   * Does NOT fire `onDidUpdate`: the graph object is unchanged.
+   *
+   * Loses gracefully to a concurrent rebuild: aborts at the next yield point
+   * and never overwrites a `PatchState` someone else populated. A patch batch
+   * arriving mid-warm awaits `warmInFlight` instead of triggering a rebuild
+   * (see `doPatchFiles`).
+   */
+  async warm(): Promise<void> {
+    if (this.patch || this.rebuildInFlight || !this.currentIndex || !this.graph) return;
+    if (this.warmInFlight) return this.warmInFlight;
+    this.warmInFlight = this.doWarm().finally(() => {
+      this.warmInFlight = undefined;
+    });
+    return this.warmInFlight;
+  }
+
+  private async doWarm(): Promise<void> {
+    const idx = this.currentIndex!;
+    const aborted = () => this.rebuildInFlight !== undefined || this.patch !== undefined;
+
+    const tAux = Date.now();
+    const { files, constantsSet, compilerMethodTypes } = this.discoverResolverContext();
+    // The patch path's Compiler_*.4dm signature comparison and per-patch
+    // augmentVariadicParams consume this — must be set before the first
+    // patch can run post-warm.
+    this.compilerMethodTypes = compilerMethodTypes;
+    const plugins = discoverPlugins(this.opts.projectRoot);
+    const catalogTables = discoverCatalogTables(this.opts.projectRoot);
+    const components = discoverComponents(this.opts.projectRoot);
+    const auxMs = Date.now() - tAux;
+
+    const tParse = Date.now();
+    const parsed = await this.parseAllFiles(files, constantsSet, compilerMethodTypes, undefined, aborted);
+    const parseMs = Date.now() - tParse;
+    if (!parsed || aborted()) {
+      this.opts.logger.info(`[Indexer] Warm pass aborted (rebuild started)`);
+      return;
+    }
+
+    // Reconstruct per-file synth ownership by inverting `fileOrigins` on the
+    // cached synth symbols. recordSynthOwner maintains fileOrigins and
+    // synthOwnersByPath in lock-step, so the inversion satisfies
+    // assertSynthRefcountInvariant by construction.
+    const synthOwnersByPath = new Map<string, Set<string>>();
+    for (const s of idx.symbols) {
+      if (s.kind !== SymbolKind.Builtin && s.kind !== SymbolKind.TableBuiltin && s.kind !== SymbolKind.Unresolved) {
+        continue;
+      }
+      for (const origin of s.fileOrigins ?? []) {
+        let owners = synthOwnersByPath.get(origin);
+        if (!owners) { owners = new Set(); synthOwnersByPath.set(origin, owners); }
+        owners.add(s.id);
+      }
+    }
+
+    const resolverInput = buildResolverInput(parsed, plugins, catalogTables, components);
+
+    // Final commit guard — never clobber a PatchState a rebuild populated
+    // while we were parsing.
+    if (aborted()) {
+      this.opts.logger.info(`[Indexer] Warm pass aborted (rebuild started)`);
+      return;
+    }
+    this.populateWarmCaches(parsed, resolverInput, synthOwnersByPath, idx, constantsSet);
+    // A file edited on disk mid-parse can leave parsedByPath newer than the
+    // cached graph's symbols for that file; the watcher delivers that change
+    // and the patch path re-removes/re-adds it, so the drift self-heals.
+    this.opts.logger.info(
+      `[Indexer] Warm pass: parsed ${parsed.length} files in ${parseMs}ms (aux ${auxMs}ms) — incremental patching enabled`
+    );
+  }
+
+  /**
+   * Discover everything the parser needs before reading any `.4dm` source:
+   * the file list, constants/variables (the bare-identifier lookup set), and
+   * Compiler_*.4dm method-type declarations. Shared by `doRebuild()` and
+   * `warm()`. Does NOT assign `this.compilerMethodTypes` — callers do.
+   */
+  private discoverResolverContext(): {
+    files: ReturnType<typeof discoverFiles>;
+    constants: ReturnType<typeof discoverConstants>;
+    builtinConstants: ReturnType<typeof discoverBuiltinConstants>;
+    variables: ReturnType<typeof discoverVariables>;
+    constantsSet: Set<string>;
+    compilerMethodTypes: Map<string, CompilerMethodTypes>;
+  } {
     const files = discoverFiles(this.opts.projectRoot, { exclusions: this.opts.exclusions });
     this.opts.logger.info(`[Indexer] Discovered ${files.length} .4dm files`);
 
@@ -216,7 +314,6 @@ export class Indexer {
     this.opts.logger.info(`[Indexer] Discovered ${builtinConstants.length} built-in constants`);
     const variables = discoverVariables(this.opts.projectRoot);
     this.opts.logger.info(`[Indexer] Discovered ${variables.length} process/interprocess variables`);
-    const discoverMs = Date.now() - tDiscover;
     // Bare-identifier lookup set: constants + process variables. Interprocess
     // variables are matched via the `<>name` regex, not the bare path. 4D is
     // case-insensitive for identifiers so the set holds lowercase entries and
@@ -228,18 +325,47 @@ export class Indexer {
     ]);
 
     // Compiler_*.4dm parameter-type declarations for project methods. The
-    // augmentation pass below uses this to materialize variadic params
-    // (e.g. `C_LONGINT(Math_Minimum; ${1})` → `params[0] = {…, variadic: true}`).
+    // augmentation pass in parseAllFiles uses this to materialize variadic
+    // params (e.g. `C_LONGINT(Math_Minimum; ${1})` → `params[0] = {…, variadic: true}`).
     const compilerMethodTypes = discoverCompilerMethodTypes(this.opts.projectRoot);
-    this.compilerMethodTypes = compilerMethodTypes;
     if (compilerMethodTypes.size > 0) {
       this.opts.logger.info(
         `[Indexer] Discovered ${compilerMethodTypes.size} method-type declarations from Compiler_*.4dm`,
       );
     }
 
-    const tParse = Date.now();
-    const parsed = [];
+    return { files, constants, builtinConstants, variables, constantsSet, compilerMethodTypes };
+  }
+
+  /**
+   * Read + parse every discovered `.4dm` file, cooperatively. Shared by
+   * `doRebuild()` and `warm()`.
+   *
+   * A cold rebuild parses tens of thousands of files. Doing it as one
+   * synchronous burst pinned the extension-host thread for 20-30s — the UI
+   * and every other extension froze for the duration. Two changes keep the
+   * thread cooperative: read each file's source asynchronously (so the disk
+   * wait — which balloons when another extension is hammering the disk with
+   * git activity — doesn't block the thread), and yield to the event loop
+   * every YIELD_EVERY files so queued UI/RPC/watcher work can interleave.
+   * The tree-sitter parse itself is CPU-bound and stays synchronous, but no
+   * single uninterrupted span now exceeds one chunk's worth of parsing.
+   *
+   * @param mtimes  When provided (rebuild path), sample ~120 file mtimes into
+   *                it for `isFresh()`. The warm path passes undefined — the
+   *                cached index's mtimes are the source of truth there.
+   * @param shouldAbort  Checked at every yield point; returning true makes
+   *                the parse stop and the function return null (warm passes
+   *                this so an overlapping rebuild wins).
+   */
+  private async parseAllFiles(
+    files: ReturnType<typeof discoverFiles>,
+    constantsSet: Set<string>,
+    compilerMethodTypes: Map<string, CompilerMethodTypes>,
+    mtimes?: Record<string, number>,
+    shouldAbort?: () => boolean
+  ): Promise<ParsedFile[] | null> {
+    const parsed: ParsedFile[] = [];
     // `isFresh` only inspects the first ~100 entries of `fileMtimes` (see
     // `isFresh` for the sample cap), so capturing an mtime per file
     // (25k statSync calls on a large project) is wasted I/O in the parse loop.
@@ -248,16 +374,6 @@ export class Indexer {
     // edited files always stay current.
     const SAMPLE_TARGET = 120; // a little slack above isFresh's 100 cap
     const mtimeStride = Math.max(1, Math.floor(files.length / SAMPLE_TARGET));
-    const mtimes: Record<string, number> = {};
-    // A cold rebuild parses tens of thousands of files. Doing it as one
-    // synchronous burst pinned the extension-host thread for 20-30s — the UI
-    // and every other extension froze for the duration. Two changes keep the
-    // thread cooperative: read each file's source asynchronously (so the disk
-    // wait — which balloons when another extension is hammering the disk with
-    // git activity — doesn't block the thread), and yield to the event loop
-    // every YIELD_EVERY files so queued UI/RPC/watcher work can interleave.
-    // The tree-sitter parse itself is CPU-bound and stays synchronous, but no
-    // single uninterrupted span now exceeds one chunk's worth of parsing.
     const YIELD_EVERY = 200;
     // Sliding read-ahead window: keep the next few file reads in flight so
     // disk latency overlaps the (synchronous, CPU-bound) parse of the current
@@ -278,7 +394,7 @@ export class Indexer {
       const file = parseFile(f, this.opts.projectRoot, constantsSet, source);
       augmentVariadicParams(file, compilerMethodTypes);
       parsed.push(file);
-      if (i % mtimeStride === 0) {
+      if (mtimes && i % mtimeStride === 0) {
         try {
           mtimes[f.absolutePath] = (await fs.promises.stat(f.absolutePath)).mtimeMs;
         } catch {/* skip */}
@@ -288,8 +404,25 @@ export class Indexer {
       }
       if (i % YIELD_EVERY === YIELD_EVERY - 1) {
         await new Promise<void>((resolve) => setImmediate(resolve));
+        if (shouldAbort?.()) return null;
       }
     }
+    return parsed;
+  }
+
+  private async doRebuild(): Promise<CallGraph> {
+    const start = Date.now();
+    this.opts.logger.info(`[Indexer] Scanning ${this.opts.projectRoot}`);
+    const tDiscover = Date.now();
+    const { files, constants, builtinConstants, variables, constantsSet, compilerMethodTypes } =
+      this.discoverResolverContext();
+    this.compilerMethodTypes = compilerMethodTypes;
+    const discoverMs = Date.now() - tDiscover;
+
+    const tParse = Date.now();
+    const mtimes: Record<string, number> = {};
+    // No abort callback — a rebuild always runs to completion.
+    const parsed = (await this.parseAllFiles(files, constantsSet, compilerMethodTypes, mtimes))!;
     const parseMs = Date.now() - tParse;
     const tAux = Date.now();
     const plugins = discoverPlugins(this.opts.projectRoot);
@@ -459,6 +592,13 @@ export class Indexer {
     await this.patchFiles([{ path: absolutePath, kind }]);
   }
 
+  // Serializes patch batches. `doPatchFiles` yields to the event loop
+  // mid-batch (async file reads, PATCH_YIELD_EVERY, fan-out yields), so a
+  // second watcher flush arriving during a long batch must queue behind it —
+  // two batches interleaving on the shared resolver scratch would mix their
+  // synth sessions and corrupt the refcount bookkeeping.
+  private patchQueue: Promise<void> = Promise.resolve();
+
   /**
    * Apply a batch of single-file changes. Each `.4dm` change re-parses just
    * the affected file, swaps its contribution into the live index, then
@@ -468,6 +608,12 @@ export class Indexer {
    */
   async patchFiles(changes: { path: string; kind: "change" | "delete" | "create" }[]): Promise<void> {
     if (changes.length === 0) return;
+    const run = this.patchQueue.then(() => this.doPatchFiles(changes));
+    this.patchQueue = run.catch(() => { /* error surfaces to this batch's caller */ });
+    return run;
+  }
+
+  private async doPatchFiles(changes: { path: string; kind: "change" | "delete" | "create" }[]): Promise<void> {
 
     // If a rebuild is already in flight, that rebuild will produce a fresh
     // index that already reflects the current disk state of every file —
@@ -486,16 +632,18 @@ export class Indexer {
     // 1) Cache cold (load() path hasn't been warmed) — populate caches by rebuilding.
     // 2) Any non-`.4dm` path — catalog / plugin / constants changes mutate the
     //    resolver context globally and aren't worth handling incrementally yet.
-    // 3) Very large bursts (checkout / rebase) — a full rebuild is cheaper.
-    const PATCH_BATCH_LIMIT = 50;
-    const state = this.patch;
+    // 3) Bursts touching a large fraction of the project (divergent-branch
+    //    checkout) — see the size check after classification below.
+    let state = this.patch;
+    if (!state && this.warmInFlight) {
+      // A background warm pass is building PatchState right now — wait for
+      // it (bounded by parse time, far cheaper than the rebuild this batch
+      // would otherwise trigger) instead of racing it.
+      await this.warmInFlight;
+      state = this.patch;
+    }
     if (!state) {
       this.opts.logger.info(`[Indexer] Warm caches cold — falling back to full rebuild`);
-      await this.rebuild();
-      return;
-    }
-    if (changes.length > PATCH_BATCH_LIMIT) {
-      this.opts.logger.info(`[Indexer] ${changes.length} files changed (>${PATCH_BATCH_LIMIT}) — full rebuild`);
       await this.rebuild();
       return;
     }
@@ -546,6 +694,24 @@ export class Indexer {
       return;
     }
 
+    // Size bail, relative to project size. A full rebuild re-parses and
+    // re-resolves EVERY file (tens of seconds on large projects) while the
+    // patch path scales with the batch — so only bail when the batch
+    // approaches a meaningful fraction of the project (e.g. a checkout of a
+    // long-divergent branch), not on a sustained agent write burst that
+    // accumulated past the watcher's debounce window. parsedByPath holds
+    // every indexed file once warm (fileMtimes is mtime-SAMPLED, don't use
+    // it for a count).
+    const indexedFileCount = state.parsedByPath.size;
+    const patchLimit = Math.max(200, Math.ceil(indexedFileCount * 0.2));
+    if (codeChanges.length > patchLimit) {
+      this.opts.logger.info(
+        `[Indexer] ${codeChanges.length} files changed (>${patchLimit}, ~20% of ${indexedFileCount} indexed) — full rebuild`
+      );
+      await this.rebuild();
+      return;
+    }
+
     const start = Date.now();
     const affectedNameKeys = new Set<string>();
     const changedPaths = new Set(codeChanges.map((c) => c.path));
@@ -555,10 +721,24 @@ export class Indexer {
     let tRemove = 0, tParse = 0, tAdd = 0;
     let nAffectedEdges = 0;
 
-    // Yield to the event loop every PATCH_YIELD_EVERY files so a near-limit
-    // batch (up to PATCH_BATCH_LIMIT) doesn't hold the thread for one long
-    // span; single-file saves (the common case) take exactly one iteration.
+    // The batch is applied in phases mirroring the cold build's
+    // symbols-before-resolve order: (R) remove every changed file's old
+    // contribution and parse the new content, (S) insert ALL files' symbols,
+    // (C) resolve ALL files' calls, (F) fan-out to cross-file dependents.
+    // Interleaving add-symbols + resolve per file (the old loop) let a file
+    // early in the batch resolve against the PRE-change symbols of a file
+    // later in the same batch — and the fan-out deliberately skips
+    // changedPaths, so the stale edge was never repaired.
+    //
+    // Yield to the event loop every PATCH_YIELD_EVERY files so a large batch
+    // doesn't hold the thread for one long span; single-file saves (the
+    // common case) take exactly one iteration.
     const PATCH_YIELD_EVERY = 25;
+    const PATCH_PROGRESS_EVERY = 100;
+    const yieldToLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+    // Phase R: remove old contributions + parse new content.
+    const parsedFiles: ParsedFile[] = [];
     let processed = 0;
     for (const change of codeChanges) {
       const exists = fs.existsSync(change.path);
@@ -568,6 +748,10 @@ export class Indexer {
       const oldKeys = removeFileContribution(state, change.path);
       tRemove += Date.now() - t0;
       for (const k of oldKeys) affectedNameKeys.add(k);
+
+      if (++processed % PATCH_PROGRESS_EVERY === 0) {
+        this.opts.logger.info(`[Indexer]   patched ${processed}/${codeChanges.length} files…`);
+      }
 
       if (effective === "delete") {
         delete this.currentIndex.fileMtimes[change.path];
@@ -603,19 +787,36 @@ export class Indexer {
         augmentVariadicParams(parsed, this.compilerMethodTypes);
       }
       try { this.currentIndex.fileMtimes[change.path] = fs.statSync(change.path).mtimeMs; } catch {/* skip */}
+      parsedFiles.push(parsed);
 
-      const t2 = Date.now();
-      const newKeys = addFileContribution(state, parsed);
-      tAdd += Date.now() - t2;
-      for (const k of newKeys) affectedNameKeys.add(k);
-
-      if (++processed % PATCH_YIELD_EVERY === 0) {
-        await new Promise<void>((resolve) => setImmediate(resolve));
+      if (processed % PATCH_YIELD_EVERY === 0) {
+        await yieldToLoop();
       }
     }
 
+    // Phase S: insert every file's symbols before resolving any calls, so
+    // intra-batch references bind against the complete post-change table.
+    const tSymbolsStart = Date.now();
+    for (const parsed of parsedFiles) {
+      const newKeys = addFileSymbols(state, parsed);
+      for (const k of newKeys) affectedNameKeys.add(k);
+    }
+    tAdd += Date.now() - tSymbolsStart;
+
+    // Phase C: resolve every file's calls.
+    processed = 0;
+    for (const parsed of parsedFiles) {
+      const t2 = Date.now();
+      addFileCalls(state, parsed);
+      tAdd += Date.now() - t2;
+      if (++processed % PATCH_YIELD_EVERY === 0) {
+        await yieldToLoop();
+      }
+    }
+
+    // Phase F: re-resolve cross-file dependents of names this batch touched.
     const tFanoutStart = Date.now();
-    nAffectedEdges = reresolveAffectedDependents(state, affectedNameKeys, changedPaths);
+    nAffectedEdges = await reresolveAffectedDependents(state, affectedNameKeys, changedPaths);
     const tFanout = Date.now() - tFanoutStart;
 
     const tAssertStart = Date.now();

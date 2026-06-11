@@ -144,6 +144,10 @@ export function startServer(): void {
 
     try {
       await state.indexer.load();
+      // Background warm pass so the first didChangeWatchedFiles batch after
+      // a cache-load startup patches incrementally instead of paying a full
+      // rebuild. Fire-and-forget; no-ops when load() rebuilt anyway.
+      void state.indexer.warm();
       // Pull the initial lint config and any future change. The
       // didChangeConfiguration registration is best-effort — clients that
       // don't advertise the capability simply never push updates and the
