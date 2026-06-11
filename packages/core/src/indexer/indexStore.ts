@@ -1,19 +1,30 @@
 import * as fs from "fs";
 import * as path from "path";
-import { createHash } from "crypto";
-import { pack, unpack } from "msgpackr";
-import { CallEdge, INDEX_VERSION, RawCallSite, SymbolIndex, SymbolKind, SymbolRecord } from "../model/symbol";
+import { unpack } from "msgpackr";
+import { CallEdge, INDEX_VERSION, SymbolIndex } from "../model/symbol";
 import { CallGraph } from "../model/callGraph";
 import { Logger } from "../util/logger";
 import { TypedEmitter } from "../util/emitter";
 import { discoverCatalogTableIdMap, discoverCatalogTables, discoverFiles, discoverPlugins } from "./projectScanner";
 import { DEFAULT_BUILTIN_CONSTANTS_PROBES, discoverBuiltinConstants, discoverConstants } from "./constantsScanner";
 import { discoverVariables } from "./variableScanner";
-import { discoverCompilerMethodTypes, mergeCompilerParamsWithDeclare, CompilerMethodTypes } from "./compilerMethodScanner";
-import { discoverComponents, findBundledComponentRoots } from "./componentScanner";
+import { discoverCompilerMethodTypes, CompilerMethodTypes } from "./compilerMethodScanner";
+import { discoverComponents } from "./componentScanner";
 import { ParsedFile, parseFile } from "./fileParser";
-import { buildResolverScratch, buildSymbolIndex, resolveCallsForFile, ResolverInput } from "./nameResolver";
+import { buildSymbolIndex, ResolverInput } from "./nameResolver";
 import { classifyFile } from "./projectScanner";
+import { IndexPersistence } from "./persistence";
+import {
+  NameKeyEntry,
+  PatchState,
+  addFileContribution,
+  assertSynthRefcountInvariant,
+  augmentVariadicParams,
+  compilerMethodTypesEqual,
+  nameKeysForHint,
+  removeFileContribution,
+  reresolveAffectedDependents
+} from "./patcher";
 
 /**
  * The category of source change for dispatch in `patchFiles`. Drives whether
@@ -68,53 +79,21 @@ export interface IndexerOptions {
   persistDebounceMs?: number;
 }
 
-// Binary msgpack file — 3–5× faster to encode and ~2× smaller than the old
-// JSON cache. Pre-v29 caches used `callchain-index.json`; those are simply
-// ignored (load() falls through to `rebuild()` when neither file is fresh).
-// The filename is suffixed with a short hash of the absolute project root
-// so two projects sharing the same `.vscode/` directory (multi-root
-// workspaces, sibling project subfolders) don't trample each other's caches.
-const INDEX_FILENAME_PREFIX = "callchain-index";
-const INDEX_FILENAME_SUFFIX = ".msgpack";
-
-function cacheFileNameFor(projectRoot: string): string {
-  const canonical = path.resolve(projectRoot);
-  const hash = createHash("sha256").update(canonical).digest("hex").slice(0, 12);
-  return `${INDEX_FILENAME_PREFIX}-${hash}${INDEX_FILENAME_SUFFIX}`;
-}
-
-/**
- * Reverse-name index entry for cross-file invalidation. Each entry remembers
- * the source file + the index into that file's rawCalls so the patch path can
- * re-resolve the exact call site when a referenced name changes.
- */
-interface NameKeyEntry {
-  fromPath: string;
-  rawCallIdx: number;
-  edge: CallEdge;
-  nameKey: string;
-}
-
 export class Indexer {
   private currentIndex: SymbolIndex | undefined;
   private graph: CallGraph | undefined;
   private readonly emitter = new TypedEmitter<CallGraph>();
   readonly onDidUpdate = this.emitter.event;
 
-  // ── Incremental-index warm caches (populated by rebuild() / lazy on load()) ──
-  private parsedByPath: Map<string, ParsedFile> | undefined;
-  private symbolIdsByPath: Map<string, Set<string>> | undefined;
-  private synthOwnersByPath: Map<string, Set<string>> | undefined;
-  private edgesByFromId: Map<string, CallEdge[]> | undefined;
-  private edgesByNameKey: Map<string, NameKeyEntry[]> | undefined;
-  private resolverInput: ResolverInput | undefined;
-  private constantsSet: Set<string> | undefined;
+  // Incremental-patch state (warm caches + live graph/index references).
+  // Populated by rebuild(); left undefined by the cache-only load() path so
+  // the first patch falls back to a full rebuild (which then populates it).
+  private patch: PatchState | undefined;
   // Cached per-method parameter-type info from Compiler_*.4dm. Refreshed on
   // full rebuild only — Compiler_* edits route through `patchFile` →
   // full-rebuild bail (see patchFiles).
   private compilerMethodTypes: Map<string, CompilerMethodTypes> | undefined;
-  private pendingPersist: ReturnType<typeof setTimeout> | undefined;
-  private inFlightPersist: Promise<void> | undefined;
+  private readonly persistence: IndexPersistence;
   // Tracks an in-progress full rebuild so concurrent patch calls (or other
   // rebuild requests) await the same work instead of starting their own.
   // Without this, the first save after `load()` triggers a rebuild AND
@@ -122,7 +101,14 @@ export class Indexer {
   // causing N concurrent ~25s rebuilds scribbling over the same state.
   private rebuildInFlight: Promise<CallGraph> | undefined;
 
-  constructor(private readonly opts: IndexerOptions) {}
+  constructor(private readonly opts: IndexerOptions) {
+    this.persistence = new IndexPersistence({
+      projectRoot: opts.projectRoot,
+      cacheDir: opts.cacheDir,
+      persistDebounceMs: opts.persistDebounceMs,
+      logger: opts.logger
+    });
+  }
 
   getGraph(): CallGraph | undefined {
     return this.graph;
@@ -139,18 +125,18 @@ export class Indexer {
    * localDeclMode / bodySpan without re-invoking the parser.
    */
   getParsedFile(absolutePath: string): ParsedFile | undefined {
-    return this.parsedByPath?.get(absolutePath);
+    return this.patch?.parsedByPath.get(absolutePath);
   }
 
   async load(): Promise<CallGraph> {
-    const cachePath = this.indexPath();
+    const cachePath = this.persistence.indexPath();
     if (fs.existsSync(cachePath)) {
       try {
         const tRead = Date.now();
         const buf = fs.readFileSync(cachePath);
         const raw = unpack(buf) as SymbolIndex;
         const readMs = Date.now() - tRead;
-        if (raw.version === INDEX_VERSION && (await this.isFresh(raw))) {
+        if (raw.version === INDEX_VERSION && (await this.persistence.isFresh(raw))) {
           this.opts.logger.info(
             `[Indexer] Loaded cached index (${raw.symbols.length} symbols, ${raw.edges.length} edges, ${Math.round(buf.length / 1024)}KB, ${readMs}ms)`
           );
@@ -330,11 +316,11 @@ export class Indexer {
     this.populateWarmCaches(parsed, built.resolverInput, built.synthOwnersByPath, idx, constantsSet);
     const warmMs = Date.now() - tWarm;
     const tPersist = Date.now();
-    this.persist(idx);
+    this.persistence.persist(idx);
     // For rebuild (cold path), wait for the cache write to land before
     // returning — callers can assume the on-disk cache reflects the rebuild.
     // Patches don't await; they let the async write finish in the background.
-    if (this.inFlightPersist) await this.inFlightPersist;
+    await this.persistence.whenWriteSettles();
     const persistMs = Date.now() - tPersist;
     const totalMs = Date.now() - start;
     const elapsed = (totalMs / 1000).toFixed(1);
@@ -353,10 +339,10 @@ export class Indexer {
   }
 
   /**
-   * Populate the per-file warm caches that `patchFile()` uses to do its
+   * Populate the incremental-patch state that the patcher uses to do its
    * surgical work. Called at the tail of every `rebuild()`; the `load()` path
-   * leaves them empty so the first patch falls back to a full rebuild (which
-   * then populates these).
+   * leaves it empty so the first patch falls back to a full rebuild (which
+   * then populates it).
    */
   private populateWarmCaches(
     parsed: ParsedFile[],
@@ -406,13 +392,17 @@ export class Indexer {
       }
     }
 
-    this.parsedByPath = parsedByPath;
-    this.symbolIdsByPath = symbolIdsByPath;
-    this.synthOwnersByPath = synthOwnersByPath;
-    this.edgesByFromId = edgesByFromId;
-    this.edgesByNameKey = edgesByNameKey;
-    this.resolverInput = resolverInput;
-    this.constantsSet = constantsSet;
+    this.patch = {
+      graph: this.graph!,
+      index: idx,
+      parsedByPath,
+      symbolIdsByPath,
+      synthOwnersByPath,
+      edgesByFromId,
+      edgesByNameKey,
+      resolverInput,
+      constantsSet
+    };
   }
 
   async patchFile(absolutePath: string, kind: "change" | "delete" = "change"): Promise<void> {
@@ -448,8 +438,8 @@ export class Indexer {
     //    resolver context globally and aren't worth handling incrementally yet.
     // 3) Very large bursts (checkout / rebase) — a full rebuild is cheaper.
     const PATCH_BATCH_LIMIT = 50;
-    if (!this.parsedByPath || !this.symbolIdsByPath || !this.synthOwnersByPath || !this.edgesByFromId
-        || !this.edgesByNameKey || !this.resolverInput || !this.constantsSet) {
+    const state = this.patch;
+    if (!state) {
       this.opts.logger.info(`[Indexer] Warm caches cold — falling back to full rebuild`);
       await this.rebuild();
       return;
@@ -525,7 +515,7 @@ export class Indexer {
       const effective: "change" | "delete" = !exists ? "delete" : (change.kind === "delete" ? "delete" : "change");
 
       const t0 = Date.now();
-      const oldKeys = this.removeFileContribution(change.path);
+      const oldKeys = removeFileContribution(state, change.path);
       tRemove += Date.now() - t0;
       for (const k of oldKeys) affectedNameKeys.add(k);
 
@@ -553,7 +543,7 @@ export class Indexer {
       } catch {
         source = undefined;
       }
-      const parsed = parseFile(discovered, this.opts.projectRoot, this.constantsSet, source);
+      const parsed = parseFile(discovered, this.opts.projectRoot, state.constantsSet, source);
       tParse += Date.now() - t1;
       // Re-apply variadic-param augmentation (Compiler_*.4dm types). The
       // map is per-project and cached on the indexer; a Compiler_* edit
@@ -565,7 +555,7 @@ export class Indexer {
       try { this.currentIndex.fileMtimes[change.path] = fs.statSync(change.path).mtimeMs; } catch {/* skip */}
 
       const t2 = Date.now();
-      const newKeys = this.addFileContribution(parsed);
+      const newKeys = addFileContribution(state, parsed);
       tAdd += Date.now() - t2;
       for (const k of newKeys) affectedNameKeys.add(k);
 
@@ -575,11 +565,11 @@ export class Indexer {
     }
 
     const tFanoutStart = Date.now();
-    nAffectedEdges = this.reresolveAffectedDependents(affectedNameKeys, changedPaths);
+    nAffectedEdges = reresolveAffectedDependents(state, affectedNameKeys, changedPaths);
     const tFanout = Date.now() - tFanoutStart;
 
     const tAssertStart = Date.now();
-    const driftOk = this.assertSynthRefcountInvariant();
+    const driftOk = assertSynthRefcountInvariant(state);
     const tAssert = Date.now() - tAssertStart;
     if (!driftOk) {
       this.opts.logger.warn(`[Indexer] Synth refcount drift detected — falling back to full rebuild`);
@@ -588,7 +578,7 @@ export class Indexer {
     }
 
     const tPersistStart = Date.now();
-    this.schedulePersist(this.currentIndex);
+    this.persistence.schedulePersist(this.currentIndex);
     const tPersist = Date.now() - tPersistStart;
     const elapsed = Date.now() - start;
     this.opts.logger.info(
@@ -596,428 +586,9 @@ export class Indexer {
       `(remove ${tRemove}ms, parse ${tParse}ms, add ${tAdd}ms, fanout ${tFanout}ms [${nAffectedEdges} edges], ` +
       `assert ${tAssert}ms, persist-schedule ${tPersist}ms, ` +
       `symbols=${this.currentIndex.symbols.length}, edges=${this.currentIndex.edges.length}, ` +
-      `nameKeys=${this.edgesByNameKey.size})`
+      `nameKeys=${state.edgesByNameKey.size})`
     );
     this.emitter.fire(this.graph);
-  }
-
-  /**
-   * Drop everything a single `.4dm` file contributed to the live index:
-   * its file-owned symbols, the edges originating from them, and any
-   * synth-symbol refcount it held. Returns the set of public-name keys
-   * that file previously published (so the patch path can decide which
-   * cross-file edges might now need re-resolution).
-   */
-  private removeFileContribution(absolutePath: string): Set<string> {
-    const removedNameKeys = new Set<string>();
-    if (!this.parsedByPath || !this.symbolIdsByPath || !this.synthOwnersByPath
-        || !this.edgesByFromId || !this.edgesByNameKey || !this.graph || !this.currentIndex) {
-      return removedNameKeys;
-    }
-    const oldParsed = this.parsedByPath.get(absolutePath);
-    const oldSyms = this.symbolIdsByPath.get(absolutePath) ?? new Set<string>();
-    const oldSynths = this.synthOwnersByPath.get(absolutePath) ?? new Set<string>();
-
-    // Track public names this file previously published — caller may need
-    // them to decide whether cross-file edges need re-resolution.
-    if (oldParsed) {
-      for (const s of oldParsed.symbols) {
-        removedNameKeys.add(s.name.toLowerCase());
-        if (s.ownerClass) removedNameKeys.add(`${s.ownerClass}.${s.name}`.toLowerCase());
-      }
-    }
-
-    // Drop the file's symbols + outgoing edges via the graph's batched op.
-    // We only remove outgoing edges by default — incoming edges (from other
-    // files calling into this one) stay in place so the fan-out path can
-    // re-resolve them precisely. Because every edge removed here originates
-    // from a symbol owned by THIS file, the corresponding name-key entries
-    // are already covered by `dropNameKeyEntriesForFile(absolutePath)` —
-    // no per-edge bucket scan needed.
-    if (oldSyms.size > 0) {
-      this.graph.removeSymbolsByIds(oldSyms);
-      for (const id of oldSyms) this.edgesByFromId.delete(id);
-    }
-    this.dropNameKeyEntriesForFile(absolutePath);
-
-    // Synth refcount: decrement each synth this file owned. If a synth's
-    // refcount drops to zero, remove the symbol entirely.
-    for (const synthId of oldSynths) {
-      const sym = this.graph.symbol(synthId);
-      if (!sym?.fileOrigins) continue;
-      const next = sym.fileOrigins.filter((p) => p !== absolutePath);
-      if (next.length === 0) {
-        this.graph.removeSymbolsByIds([synthId]);
-        this.edgesByFromId.delete(synthId);
-      } else {
-        sym.fileOrigins = next;
-      }
-    }
-    this.synthOwnersByPath.delete(absolutePath);
-
-    this.parsedByPath.delete(absolutePath);
-    this.symbolIdsByPath.delete(absolutePath);
-
-    return removedNameKeys;
-  }
-
-  /**
-   * Drop every `edgesByNameKey` entry whose `fromPath` matches the given
-   * file. Used during `removeFileContribution` so name-key lookups don't
-   * surface stale entries pointing at a removed rawCall.
-   */
-  private dropNameKeyEntriesForFile(absolutePath: string): void {
-    if (!this.edgesByNameKey) return;
-    for (const [key, entries] of this.edgesByNameKey) {
-      const filtered = entries.filter((e) => e.fromPath !== absolutePath);
-      if (filtered.length === 0) this.edgesByNameKey.delete(key);
-      else this.edgesByNameKey.set(key, filtered);
-    }
-  }
-
-  /**
-   * Add a freshly-parsed file's contribution to the live index: insert its
-   * symbols, then re-resolve its rawCalls against the current global symbol
-   * table and add the resulting edges. Returns the file's published
-   * public-name keys (a superset of what the caller will diff against the
-   * pre-removal set for cross-file invalidation).
-   */
-  /**
-   * Append an edge to the live graph + `edgesByFromId`, skipping it if an
-   * identical edge (same target, line, callKind, column) is already present
-   * for this source symbol. Returns true if the edge was newly added.
-   *
-   * The cold-rebuild path dedups edges in `resolve()`, but the incremental
-   * patch path appended unconditionally — so if a file's `addFileContribution`
-   * ran without a preceding `removeFileContribution` purge (e.g. a create
-   * event, or an add replayed across patch batches) every call site's edge
-   * doubled in the persisted index. Deduping on append makes the patch path
-   * idempotent and keeps the in-memory graph consistent with a cold rebuild.
-   */
-  private appendEdgeDeduped(e: CallEdge): boolean {
-    if (!this.edgesByFromId || !this.graph) return false;
-    let list = this.edgesByFromId.get(e.fromId);
-    if (!list) { list = []; this.edgesByFromId.set(e.fromId, list); }
-    if (
-      list.some(
-        (x) =>
-          x.toId === e.toId &&
-          x.line === e.line &&
-          x.callKind === e.callKind &&
-          x.column === e.column &&
-          x.access === e.access
-      )
-    ) {
-      return false;
-    }
-    this.graph.addEdge(e);
-    list.push(e);
-    return true;
-  }
-
-  private addFileContribution(parsed: ParsedFile): Set<string> {
-    const added = new Set<string>();
-    if (!this.parsedByPath || !this.symbolIdsByPath || !this.synthOwnersByPath
-        || !this.edgesByFromId || !this.edgesByNameKey || !this.graph
-        || !this.currentIndex || !this.resolverInput) return added;
-
-    const fp = parsed.file.absolutePath;
-    const newIds = new Set<string>();
-    for (const s of parsed.symbols) {
-      this.graph.addSymbol(s);
-      newIds.add(s.id);
-      added.add(s.name.toLowerCase());
-      if (s.ownerClass) added.add(`${s.ownerClass}.${s.name}`.toLowerCase());
-    }
-    this.symbolIdsByPath.set(fp, newIds);
-    this.parsedByPath.set(fp, parsed);
-
-    // Update resolverInput's per-file overlays for project classes. The
-    // resolver consults `projectClassPropsByName` / `projectClassMethodReturnsByName`
-    // when walking $x.foo.bar chains, so they must reflect the current file
-    // before we re-resolve any calls.
-    if (parsed.classInfo) {
-      const key = parsed.classInfo.name.toLowerCase();
-      if (parsed.classPropertyTypes) {
-        let map = this.resolverInput.projectClassPropsByName?.get(key);
-        if (!map) { map = new Map(); this.resolverInput.projectClassPropsByName?.set(key, map); }
-        for (const [p, t] of parsed.classPropertyTypes) map.set(p, t);
-      }
-      if (parsed.classMethodReturnsByName) {
-        let map = this.resolverInput.projectClassMethodReturnsByName?.get(key);
-        if (!map) { map = new Map(); this.resolverInput.projectClassMethodReturnsByName?.set(key, map); }
-        for (const [m, t] of parsed.classMethodReturnsByName) map.set(m, t);
-      }
-    }
-
-    // Build a fresh ResolverScratch over the current global symbol set, then
-    // resolve just this file's calls. The scratch's setCurrentFileOrigin
-    // attributes any new synth symbols to this file.
-    const scratch = buildResolverScratch(this.resolverInput, this.currentIndex.symbols);
-    const newEdges = resolveCallsForFile(parsed, scratch);
-
-    // Merge any synth symbols the resolver created during this patch into
-    // the live index. (buildResolverScratch starts with an empty `unresolved`,
-    // so this list only contains synths the current file created — or that
-    // existed before but got re-created because the scratch was fresh. We
-    // dedup against the graph's existing symbols by id.)
-    for (const u of scratch.unresolved) {
-      const existing = this.graph.symbol(u.id);
-      if (existing) {
-        // Carry over the new fileOrigins entries (recordSynthOwner already set
-        // u.fileOrigins to [fp]).
-        const next = existing.fileOrigins ?? [];
-        if (!next.includes(fp)) next.push(fp);
-        existing.fileOrigins = next;
-      } else {
-        this.graph.addSymbol(u);
-      }
-    }
-    // Merge synthOwnersByPath: for incremental builds, the scratch tracks just
-    // this patch's synths under `fp`.
-    const synths = scratch.synthOwnersByPath.get(fp);
-    if (synths) {
-      let existing = this.synthOwnersByPath.get(fp);
-      if (!existing) { existing = new Set(); this.synthOwnersByPath.set(fp, existing); }
-      for (const id of synths) existing.add(id);
-    }
-
-    // Append edges to the live index + maintain edgesByFromId and edgesByNameKey.
-    // Dedup on append so a replayed add can't double a call site's edge.
-    const addedEdges = new Set<CallEdge>();
-    for (const e of newEdges) {
-      if (this.appendEdgeDeduped(e)) addedEdges.add(e);
-    }
-    // Reverse-name index for the new edges (only those actually added — a
-    // skipped duplicate's name-key entry already exists from the first add).
-    for (let i = 0; i < parsed.rawCalls.length; i++) {
-      const call = parsed.rawCalls[i];
-      if (!call.hint) continue;
-      const keys = nameKeysForHint(call.hint);
-      if (keys.length === 0) continue;
-      const edge = newEdges.find(
-        (e) => e.fromId === call.fromSymbolId && e.line === call.line && e.raw === call.expression && e.column === call.column
-      );
-      if (!edge || !addedEdges.has(edge)) continue;
-      for (const k of keys) {
-        let list = this.edgesByNameKey.get(k);
-        if (!list) { list = []; this.edgesByNameKey.set(k, list); }
-        list.push({ fromPath: fp, rawCallIdx: i, edge, nameKey: k });
-      }
-    }
-
-    return added;
-  }
-
-  /**
-   * After per-file changes have been applied, re-resolve every call site in
-   * OTHER files whose `nameKey` matches a name this batch added or removed.
-   * The reverse-name index (`edgesByNameKey`) tells us exactly which
-   * rawCalls reference any given name, so the fan-out is bounded by the
-   * number of cross-file references — not the project size.
-   *
-   * Calls inside the patched files themselves are NOT re-resolved here:
-   * `addFileContribution` already resolves the changed file's own rawCalls
-   * fresh against the post-patch symbol table.
-   */
-  private reresolveAffectedDependents(affectedNameKeys: Set<string>, changedPaths: Set<string>): number {
-    if (affectedNameKeys.size === 0) return 0;
-    if (!this.parsedByPath || !this.symbolIdsByPath || !this.synthOwnersByPath
-        || !this.edgesByFromId || !this.edgesByNameKey || !this.graph
-        || !this.currentIndex || !this.resolverInput) return 0;
-
-    // Collect unique (fromPath, rawCallIdx) pairs from all affected name
-    // keys. The same rawCall is indexed under multiple keys (e.g. CsCall
-    // by both className AND method) so we dedup to re-resolve once per
-    // call site.
-    const toResolve = new Map<string, { fromPath: string; rawCallIdx: number }>();
-    for (const key of affectedNameKeys) {
-      const entries = this.edgesByNameKey.get(key);
-      if (!entries) continue;
-      for (const entry of entries) {
-        if (changedPaths.has(entry.fromPath)) continue;
-        const dedupKey = `${entry.fromPath}|${entry.rawCallIdx}`;
-        if (!toResolve.has(dedupKey)) toResolve.set(dedupKey, { fromPath: entry.fromPath, rawCallIdx: entry.rawCallIdx });
-      }
-    }
-    if (toResolve.size === 0) return 0;
-
-    // Build one scratch over the current global symbol set; reuse for every
-    // affected call site (the scratch is O(symbols) to build, so we want
-    // to amortize even for a handful of call sites).
-    const scratch = buildResolverScratch(this.resolverInput, this.currentIndex.symbols);
-
-    // Group the affected calls by file so we can build mini-ParsedFile
-    // clones (each with one rawCall) and call resolveCallsForFile.
-    const byFile = new Map<string, Array<{ rawCallIdx: number }>>();
-    for (const { fromPath, rawCallIdx } of toResolve.values()) {
-      let list = byFile.get(fromPath);
-      if (!list) { list = []; byFile.set(fromPath, list); }
-      list.push({ rawCallIdx });
-    }
-
-    for (const [fromPath, items] of byFile) {
-      const parsed = this.parsedByPath.get(fromPath);
-      if (!parsed) continue;
-      for (const { rawCallIdx } of items) {
-        const call = parsed.rawCalls[rawCallIdx];
-        if (!call?.hint) continue;
-        const keys = nameKeysForHint(call.hint);
-
-        // Find and remove the existing edge for this rawCall.
-        const candidates = this.edgesByFromId.get(call.fromSymbolId) ?? [];
-        const oldEdge = candidates.find(
-          (e) => e.line === call.line && e.raw === call.expression && e.column === call.column
-        );
-        if (oldEdge) {
-          this.graph.removeEdge(oldEdge);
-          // Remove from edgesByFromId
-          const list = this.edgesByFromId.get(call.fromSymbolId);
-          if (list) {
-            const i = list.indexOf(oldEdge);
-            if (i >= 0) list.splice(i, 1);
-            if (list.length === 0) this.edgesByFromId.delete(call.fromSymbolId);
-          }
-          // Drop the edge's entries from edgesByNameKey, but only in the
-          // buckets this rawCall actually published — `keys` is small (1–2
-          // names from `nameKeysForHint`). The general `dropEdgeFromNameKeyIndex`
-          // would scan all ~30k buckets per edge and dominate the fan-out cost.
-          for (const k of keys) {
-            const bucket = this.edgesByNameKey.get(k);
-            if (!bucket) continue;
-            const filtered = bucket.filter((entry) => entry.edge !== oldEdge);
-            if (filtered.length === 0) this.edgesByNameKey.delete(k);
-            else if (filtered.length !== bucket.length) this.edgesByNameKey.set(k, filtered);
-          }
-          // The old edge may have targeted a synth — decrement the synth's
-          // refcount via the calling file. If we owned the only reference,
-          // the synth is now orphaned; let the graph drop it.
-          this.decrementSynthRef(oldEdge.toId, fromPath);
-        }
-
-        // Re-resolve this single rawCall against the fresh scratch.
-        const miniParsed = { ...parsed, rawCalls: [call] };
-        const newEdges = resolveCallsForFile(miniParsed, scratch);
-        for (const e of newEdges) {
-          if (!this.appendEdgeDeduped(e)) continue;
-          for (const k of keys) {
-            let bucket = this.edgesByNameKey.get(k);
-            if (!bucket) { bucket = []; this.edgesByNameKey.set(k, bucket); }
-            bucket.push({ fromPath, rawCallIdx, edge: e, nameKey: k });
-          }
-        }
-      }
-    }
-
-    // Merge any new synth symbols the re-resolution produced.
-    for (const u of scratch.unresolved) {
-      const existing = this.graph.symbol(u.id);
-      if (existing) {
-        // Carry over any new fileOrigins entries the scratch recorded.
-        const next = existing.fileOrigins ?? [];
-        for (const origin of u.fileOrigins ?? []) {
-          if (!next.includes(origin)) next.push(origin);
-        }
-        existing.fileOrigins = next;
-      } else {
-        this.graph.addSymbol(u);
-      }
-    }
-    // Merge synthOwnersByPath: scratch tracked synths per file during this
-    // fan-out; fold those into the live map.
-    for (const [origin, ids] of scratch.synthOwnersByPath) {
-      let existing = this.synthOwnersByPath.get(origin);
-      if (!existing) { existing = new Set(); this.synthOwnersByPath.set(origin, existing); }
-      for (const id of ids) existing.add(id);
-    }
-    return toResolve.size;
-  }
-
-  /**
-   * Decrement a synthetic symbol's refcount for a specific source file. If
-   * the symbol is no longer referenced by any file, remove it from the
-   * graph entirely. Used when a cross-file edge is being rebound to a new
-   * target during fan-out.
-   */
-  private decrementSynthRef(synthId: string, fromPath: string): void {
-    if (!this.graph || !this.synthOwnersByPath) return;
-    const sym = this.graph.symbol(synthId);
-    if (!sym?.fileOrigins) return; // not a synth (or no tracking)
-    const next = sym.fileOrigins.filter((p) => p !== fromPath);
-    const owners = this.synthOwnersByPath.get(fromPath);
-    if (owners) owners.delete(synthId);
-    if (next.length === 0) {
-      this.graph.removeSymbolsByIds([synthId]);
-      this.edgesByFromId?.delete(synthId);
-    } else {
-      sym.fileOrigins = next;
-    }
-  }
-
-  /**
-   * Verify that synthetic-symbol refcounts match the per-file ownership map.
-   * Sum of `synthOwnersByPath[*].size` must equal sum over synth symbols of
-   * `fileOrigins.length`. Drift indicates a bug in the patch path — returns
-   * `false` so the caller can fall back to a full rebuild rather than serve
-   * a corrupted graph. Cheap: O(synth count).
-   */
-  private assertSynthRefcountInvariant(): boolean {
-    if (!this.graph || !this.synthOwnersByPath) return true;
-    let ownersTotal = 0;
-    for (const owners of this.synthOwnersByPath.values()) ownersTotal += owners.size;
-    let originsTotal = 0;
-    for (const s of this.graph.allSymbols()) {
-      if (s.kind === SymbolKind.Builtin || s.kind === SymbolKind.TableBuiltin || s.kind === SymbolKind.Unresolved) {
-        originsTotal += s.fileOrigins?.length ?? 0;
-      }
-    }
-    return ownersTotal === originsTotal;
-  }
-
-  private async isFresh(raw: SymbolIndex): Promise<boolean> {
-    if (raw.projectRoot !== this.opts.projectRoot) return false;
-
-    // .4dm files: sample up to 100 mtimes (large projects have thousands;
-    // a sample is much cheaper than statting every file).
-    let checked = 0;
-    for (const [p, mtime] of Object.entries(raw.fileMtimes)) {
-      try {
-        const stat = fs.statSync(p);
-        if (Math.abs(stat.mtimeMs - mtime) > 1) return false;
-      } catch {
-        return false;
-      }
-      checked++;
-      if (checked > 100) break;
-    }
-
-    // catalog.4DCatalog: a single file. Check unconditionally.
-    if (raw.catalogMtime !== undefined) {
-      const catalogPath = path.join(this.opts.projectRoot, "Project", "Sources", "catalog.4DCatalog");
-      try {
-        const stat = fs.statSync(catalogPath);
-        if (Math.abs(stat.mtimeMs - raw.catalogMtime) > 1) return false;
-      } catch {
-        // Catalog was removed since cache was written.
-        return false;
-      }
-    }
-
-    // Constants and component files: bounded small (tens). Check all entries.
-    if (!checkAllMtimesFresh(raw.constantsMtimes)) return false;
-    if (!checkAllMtimesFresh(raw.componentMtimes)) return false;
-
-    // File-set membership change: if the on-disk set of Constants_*.xlf or
-    // component .4DZ files differs from the cached keys, treat as stale.
-    if (!checkFileSetUnchanged(raw.constantsMtimes, () => listConstantsFiles(this.opts.projectRoot))) return false;
-    if (!checkFileSetUnchanged(raw.componentMtimes, () => listComponentArchives(this.opts.projectRoot))) return false;
-
-    return true;
-  }
-
-  private indexPath(): string {
-    const dir = this.opts.cacheDir ?? path.join(this.opts.projectRoot, ".vscode");
-    return path.join(dir, cacheFileNameFor(this.opts.projectRoot));
   }
 
   /**
@@ -1026,58 +597,7 @@ export class Indexer {
    * cache without duplicating the hash-suffix logic.
    */
   getCachePath(): string {
-    return this.indexPath();
-  }
-
-  private persist(idx: SymbolIndex): void {
-    // Persist is fire-and-forget. The on-disk cache is only consulted at the
-    // next process start; correctness during the running session relies on
-    // the in-memory index. We use msgpack instead of JSON so the encode is
-    // 3–5× faster and the resulting buffer is roughly half the size — both
-    // matter because the previous JSON path blocked the event loop for
-    // 1–2 seconds while stringifying a 150 MB index. The actual disk write
-    // still goes through `fs.promises.writeFile` so the I/O doesn't block.
-    try {
-      const dir = path.dirname(this.indexPath());
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      const tEncode = Date.now();
-      const buf = pack(idx);
-      const encodeMs = Date.now() - tEncode;
-      const sizeKb = Math.round(buf.length / 1024);
-      const tWrite = Date.now();
-      this.inFlightPersist = fs.promises
-        .writeFile(this.indexPath(), buf)
-        .then(() => {
-          const writeMs = Date.now() - tWrite;
-          this.opts.logger.info(
-            `[Indexer] Persisted cache (${sizeKb}KB, encode ${encodeMs}ms, write ${writeMs}ms async)`
-          );
-        })
-        .catch((err) => this.opts.logger.warn(`[Indexer] Persist write failed: ${err}`))
-        .finally(() => { this.inFlightPersist = undefined; });
-    } catch (err) {
-      this.opts.logger.warn(`[Indexer] Persist failed: ${err}`);
-    }
-  }
-
-  /**
-   * Persist the index to disk. If `persistDebounceMs > 0`, coalesce
-   * back-to-back saves onto one timer so a burst of patches only writes the
-   * cache once. Default is synchronous so test snapshots see fresh state.
-   */
-  private schedulePersist(idx: SymbolIndex): void {
-    const delay = this.opts.persistDebounceMs ?? 0;
-    if (delay <= 0) {
-      this.persist(idx);
-      return;
-    }
-    if (this.pendingPersist) clearTimeout(this.pendingPersist);
-    this.pendingPersist = setTimeout(() => {
-      this.pendingPersist = undefined;
-      this.persist(idx);
-    }, delay);
-    // Don't keep the process alive solely for the debounce timer.
-    (this.pendingPersist as any).unref?.();
+    return this.persistence.indexPath();
   }
 
   /**
@@ -1086,208 +606,6 @@ export class Indexer {
    * the cache file in tests to make sure on-disk state matches in-memory.
    */
   async flushPersist(): Promise<void> {
-    if (this.pendingPersist) {
-      clearTimeout(this.pendingPersist);
-      this.pendingPersist = undefined;
-      if (this.currentIndex) this.persist(this.currentIndex);
-    }
-    if (this.inFlightPersist) await this.inFlightPersist;
+    await this.persistence.flushPersist(this.currentIndex);
   }
-}
-
-/**
- * For each `CallHint` shape, return the lowercase names that the resolver
- * keys on to pick an edge target. The patch path uses these as the keys of
- * `edgesByNameKey` so adding/removing a public name only requires looking
- * up the calls that mention it.
- *
- * Local-only references (e.g. `$variable` in VarCall) are NOT included —
- * a file's local variable can't be referenced from another file.
- */
-function nameKeysForHint(hint: NonNullable<RawCallSite["hint"]>): string[] {
-  const lc = (s: string) => s.toLowerCase();
-  switch (hint.kind) {
-    case "BareName":
-    case "BuiltinChain":
-    case "ConstantRef":
-    case "InterprocessRef":
-    case "ProjectMethodBare":
-      return [lc(hint.name)];
-    case "CsNew":
-      return [lc(hint.className)];
-    case "CsCall":
-      return [lc(hint.className), lc(hint.method)];
-    case "CsNewNs":
-      return [lc(`cs.${hint.namespace}.${hint.className}`)];
-    case "CsCallNs":
-      return [lc(`cs.${hint.namespace}.${hint.className}`), lc(hint.method)];
-    case "CsGetNs":
-    case "CsSetNs":
-      return [lc(`cs.${hint.namespace}.${hint.className}`), lc(hint.property)];
-    case "DsCall":
-      return [lc(hint.className), lc(hint.method)];
-    case "DsAccess":
-      return [lc(hint.className)];
-    case "ThisCall":
-    case "VarCall":
-    case "VarChainCall":
-    case "ThisChainCall":
-      return [lc(hint.method)];
-    case "CsChainCall":
-      return [lc(hint.className), lc(hint.method)];
-    case "SuperCall":
-      return hint.method ? [lc(hint.method)] : ["constructor"];
-    case "ThisGet":
-    case "ThisSet":
-    case "VarGet":
-    case "VarSet":
-      return [lc(hint.property)];
-    case "CsGet":
-    case "CsSet":
-      return [lc(hint.className), lc(hint.property)];
-    case "DsBracketNew":
-      return [lc(hint.ident)];
-    case "DsBracketCall":
-      return [lc(hint.ident), lc(hint.method)];
-    case "FormRef":
-      return [lc(hint.formName)];
-    case "CallWorker":
-    case "NewProcess":
-    case "ExecuteMethodLiteral":
-      return [lc(hint.methodName)];
-    case "ExecuteMethodInSubform":
-      return [lc(hint.formName), lc(hint.methodName)];
-    case "ExecuteMethodDynamic":
-    case "Formula":
-      return [];
-  }
-}
-
-/**
- * Verify every cached mtime matches the file's current mtime on disk. Returns
- * false if any file is missing or differs by more than 1 ms. Bounded small
- * (tens of files at most), so check every entry — unlike the .4dm sampling.
- */
-function checkAllMtimesFresh(mtimes: Record<string, number> | undefined): boolean {
-  if (!mtimes) return true;
-  for (const [p, cached] of Object.entries(mtimes)) {
-    try {
-      const stat = fs.statSync(p);
-      if (Math.abs(stat.mtimeMs - cached) > 1) return false;
-    } catch {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * Detect file-set membership changes: a new Constants_*.xlf or .4DZ that
- * appeared (or disappeared) since the cache was written invalidates the
- * cache even if all stored mtimes still match.
- */
-function checkFileSetUnchanged(mtimes: Record<string, number> | undefined, listFn: () => string[]): boolean {
-  const cached = new Set(Object.keys(mtimes ?? {}));
-  const onDisk = new Set(listFn());
-  if (cached.size !== onDisk.size) return false;
-  for (const p of cached) if (!onDisk.has(p)) return false;
-  return true;
-}
-
-/** Mirror of `discoverConstants()`'s glob, used by `isFresh()` for set-membership checks. */
-function listConstantsFiles(projectRoot: string): string[] {
-  const resourcesDir = path.join(projectRoot, "Resources");
-  if (!fs.existsSync(resourcesDir)) return [];
-  const out: string[] = [];
-  try {
-    for (const entry of fs.readdirSync(resourcesDir)) {
-      if (entry.startsWith("Constants_") && entry.endsWith(".xlf")) {
-        out.push(path.join(resourcesDir, entry));
-      }
-    }
-  } catch {/* ignore */}
-  return out;
-}
-
-/** Mirror of `discoverComponents()`'s archive enumeration. Walks both the
- *  project-local `Components/` directory and any 4D-bundled Components/
- *  directories so cache-freshness checks see the same archive set the
- *  scanner does. Project-local wins on collision (matches discoverComponents). */
-function listComponentArchives(projectRoot: string): string[] {
-  const out: string[] = [];
-  const seenComponents = new Set<string>();
-  const harvest = (componentsRoot: string) => {
-    if (!fs.existsSync(componentsRoot)) return;
-    try {
-      for (const entry of fs.readdirSync(componentsRoot)) {
-        if (!entry.endsWith(".4dbase")) continue;
-        const name = entry.replace(/\.4dbase$/, "");
-        if (seenComponents.has(name)) continue;
-        seenComponents.add(name);
-        const bundle = path.join(componentsRoot, entry);
-        try {
-          for (const inner of fs.readdirSync(bundle)) {
-            if (inner.endsWith(".4DZ") || inner.endsWith(".4dz")) {
-              out.push(path.join(bundle, inner));
-            }
-          }
-        } catch {/* skip */}
-      }
-    } catch {/* ignore */}
-  };
-  harvest(path.join(projectRoot, "Components"));
-  for (const root of findBundledComponentRoots()) harvest(root);
-  return out;
-}
-
-/**
- * Augment a `ParsedFile`'s ProjectMethod symbols with parameter-type info
- * from the project's Compiler_*.4dm declarations. Mutates `params[]` on
- * each ProjectMethod / CompilerMethod symbol when a matching declaration
- * exists, appending a variadic sentinel when the Compiler_* file uses
- * `${N}` notation.
- */
-function augmentVariadicParams(
-  file: ParsedFile,
-  compilerMethodTypes: Map<string, CompilerMethodTypes>,
-): void {
-  if (compilerMethodTypes.size === 0) return;
-  for (const sym of file.symbols) {
-    if (sym.kind !== SymbolKind.ProjectMethod && sym.kind !== SymbolKind.CompilerMethod) {
-      continue;
-    }
-    const info = compilerMethodTypes.get(sym.name);
-    if (!info) continue;
-    const merged = mergeCompilerParamsWithDeclare(sym.params, info);
-    if (merged) sym.params = merged;
-    // Pick up the return type too, if the symbol didn't already know it
-    // (e.g. method file has no `#DECLARE … -> …` arrow form).
-    if (info.returnType && !sym.returnType) sym.returnType = info.returnType;
-  }
-}
-
-/**
- * Compare two `Map<string, CompilerMethodTypes>` for semantic equality.
- * Used by `patchFiles` to decide whether a `Compiler_*.4dm` edit actually
- * changed any declared signature (vs. a comment / whitespace / `#DECLARE`
- * edit, where the variadic-params map is unaffected and we can skip the
- * full rebuild).
- */
-function compilerMethodTypesEqual(
-  a: Map<string, CompilerMethodTypes>,
-  b: Map<string, CompilerMethodTypes>,
-): boolean {
-  if (a.size !== b.size) return false;
-  for (const [k, va] of a) {
-    const vb = b.get(k);
-    if (!vb) return false;
-    if (va.returnType !== vb.returnType) return false;
-    if (va.variadicFrom !== vb.variadicFrom) return false;
-    if (va.variadicType !== vb.variadicType) return false;
-    if (va.paramTypes.size !== vb.paramTypes.size) return false;
-    for (const [pos, t] of va.paramTypes) {
-      if (vb.paramTypes.get(pos) !== t) return false;
-    }
-  }
-  return true;
 }
