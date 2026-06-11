@@ -1,4 +1,5 @@
 import type { SymbolIndex } from "../../packages/core/dist";
+import { builtinConstantsProbesFor } from "./fixture";
 
 const projectScanner = require("../../packages/core/dist/indexer/projectScanner");
 const fileParser = require("../../packages/core/dist/indexer/fileParser");
@@ -24,7 +25,7 @@ async function buildIndex(projectRoot: string): Promise<SymbolIndex> {
 
   const constants = constantsScanner.discoverConstants(projectRoot);
   const builtinConstants = constantsScanner.discoverBuiltinConstants(
-    constantsScanner.DEFAULT_BUILTIN_CONSTANTS_PROBES
+    builtinConstantsProbesFor(projectRoot, constantsScanner.DEFAULT_BUILTIN_CONSTANTS_PROBES)
   );
   const variables = variableScanner.discoverVariables(projectRoot);
 

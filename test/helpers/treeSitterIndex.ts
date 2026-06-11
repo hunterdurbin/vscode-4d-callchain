@@ -1,4 +1,5 @@
 import type { SymbolIndex } from "../../packages/core/dist";
+import { builtinConstantsProbesFor } from "./fixture";
 
 // Builds a SymbolIndex for a fixture forcing the tree-sitter parser (the
 // default in the real extension). The shared-index helper falls back to the
@@ -32,7 +33,7 @@ export function buildTreeSitterIndex(projectRoot: string): SymbolIndex {
   });
   const constants = constantsScanner.discoverConstants(projectRoot);
   const builtinConstants = constantsScanner.discoverBuiltinConstants(
-    constantsScanner.DEFAULT_BUILTIN_CONSTANTS_PROBES
+    builtinConstantsProbesFor(projectRoot, constantsScanner.DEFAULT_BUILTIN_CONSTANTS_PROBES)
   );
   const variables = variableScanner.discoverVariables(projectRoot);
   const constantsSet = new Set<string>([

@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 44 after MethodMetric_* was dropped from the builtins stop-list", () => {
-    expect(INDEX_VERSION).toBe(44);
+  it("INDEX_VERSION is 45 after the case_label_arm `_if_tail` edge fix", () => {
+    expect(INDEX_VERSION).toBe(45);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {

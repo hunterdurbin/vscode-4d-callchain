@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hermetic stand-in for 4D's bundled 4D_ConstantsEN.xlf so builtin-constant
+  tests pass without a local 4D installation. Contains exactly the constants
+  the mini-4d fixture references (see BuiltinConst_*.4dm). The test helpers
+  probe this file ahead of the /Applications/4D*.app paths when indexing the
+  mini fixture, so results are identical on dev machines and CI.
+-->
+<xliff version="1.0">
+  <file source-language="en" datatype="x-4DConstants">
+    <body>
+      <group d4:groupID="1" d4:groupName="ConstTheme_1">
+        <trans-unit id="1_1" d4:value="2">
+          <source>Is text</source>
+        </trans-unit>
+        <trans-unit id="1_2" d4:value="1">
+          <source>Is real</source>
+        </trans-unit>
+      </group>
+      <group d4:groupID="2" d4:groupName="ConstTheme_2">
+        <trans-unit id="2_1" d4:value="1">
+          <source>On Load</source>
+        </trans-unit>
+        <trans-unit id="2_2" d4:value="24">
+          <source>On Unload</source>
+        </trans-unit>
+      </group>
+      <group d4:groupID="3" d4:groupName="ConstTheme_3">
+        <trans-unit id="3_1" d4:value="39">
+          <source>Char Quote</source>
+        </trans-unit>
+        <trans-unit id="3_2" d4:value="4">
+          <source>April</source>
+        </trans-unit>
+      </group>
+    </body>
+  </file>
+</xliff>
