@@ -8,6 +8,8 @@ html, body { margin: 0; padding: 0; height: 100%; width: 100%; font-family: var(
 
 .dropdown { position: relative; }
 .menu { position: absolute; top: 100%; left: 0; z-index: 3; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; background: var(--vscode-dropdown-background, var(--vscode-sideBar-background)); border: 1px solid var(--vscode-panel-border); white-space: nowrap; }
+/* display:flex above beats the UA [hidden]{display:none} rule — restore it. */
+.menu[hidden] { display: none; }
 
 #tree { padding: 6px 10px; overflow: auto; height: calc(100% - 40px); box-sizing: border-box; }
 #tree ul { list-style: none; margin: 0; padding-left: 18px; border-left: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(128,128,128,0.25)); }
