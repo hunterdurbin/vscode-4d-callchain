@@ -30,9 +30,13 @@ chain from a starting method as an expandable tree. One row per call **site**,
 in source order, with the call's code snippet and line number; click a row to
 jump to the call site, hover for a "⤷ def" button that opens the callee's
 definition. Recursive calls get an ↻ badge instead of expanding forever.
-A "Kinds" menu filters rows by symbol category — built-ins, constants, and
-variables are hidden by default (`callchain.trace.hiddenKinds`) — plus a name
-filter, snippet toggle, and expand-to-depth control.
+A "Kinds" menu filters rows by symbol category — including fine-grained class
+categories (constructors, class functions, getters, setters, property reads,
+property writes); built-ins, constants, and variables are hidden by default
+(`callchain.trace.hiddenKinds`) — plus a name filter, snippet toggle, and
+expand-to-depth control. The trace and butterfly panels lock their editor
+group on open, so navigating from them opens files in the other group instead
+of covering the panel.
 
 ### Added — polymorphic dispatch in the Method Trace
 The trace now resolves which class function actually runs. It pins the
@@ -41,11 +45,13 @@ base-class skeleton calling an overridden (or abstract) hook traces into the
 subclass override — marked with a "via <Class>" badge whose tooltip names the
 static target. `Super.fn()` correctly executes the parent implementation
 while keeping the receiver pinned inside it, and overridden getters/setters
-re-resolve the same way. When the concrete class can't be known (tracing the
-base class itself, or entering through a base-typed reference), descendant
-overrides appear as ghosted "↪ may run" rows — each expandable as its own
-branch with that subclass pinned. Recursion detection works on the
-re-resolved target. Under the hood, `CallEdge` gained an optional
+re-resolve the same way. The pinned class is treated as the exact runtime
+type: whenever an implementation can be determined on its chain, the trace
+shows that single row. Only an undeterminable reference (an abstract hook
+with no implementation anywhere on the chain) lists ghosted "↪ may run"
+rows — one per descendant implementation, each expandable as its own branch
+with that subclass pinned. Recursion detection works on the re-resolved
+target. Under the hood, `CallEdge` gained an optional
 `receiver: "this" | "super"` tag set at index time (INDEX_VERSION 46 — one
 automatic reindex after upgrading).
 

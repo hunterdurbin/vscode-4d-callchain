@@ -1,7 +1,13 @@
 import * as vscode from "vscode";
 import { CallGraph } from "@4d/core";
 import { showCallSiteSnippets, traceHiddenKinds } from "../../config";
-import { buildTraceChildren, createTraceCaches, KIND_CATEGORIES, TraceRow } from "./traceData";
+import {
+  buildTraceChildren,
+  createTraceCaches,
+  LEGACY_CLASSES_CATEGORIES,
+  TRACE_CATEGORIES,
+  TraceRow
+} from "./traceData";
 import { resolveWebviewAssets } from "../webviewAssets";
 
 const EXPAND_BUDGET = 1000; // rows per single lazy expand
@@ -41,6 +47,10 @@ export class TracePanel {
       }
     );
     this.current = new TracePanel(panel, context, graph, rootId);
+    // Lock the panel's editor group so row clicks open files in the other
+    // group instead of replacing the trace. The panel was just created
+    // active, so the command targets its group.
+    void vscode.commands.executeCommand("workbench.action.lockEditorGroup");
     return this.current;
   }
 
@@ -123,10 +133,14 @@ export class TracePanel {
   }
 
   private options(truncated: boolean) {
+    // Expand the pre-split "classes" umbrella value to the fine-grained ids.
+    const hidden = traceHiddenKinds().flatMap((id) =>
+      id === "classes" ? LEGACY_CLASSES_CATEGORIES : [id]
+    );
     return {
-      hiddenCategories: traceHiddenKinds(),
+      hiddenCategories: hidden,
       showSnippets: showCallSiteSnippets(),
-      categories: KIND_CATEGORIES,
+      categories: TRACE_CATEGORIES,
       truncated
     };
   }

@@ -2,7 +2,6 @@ import {
   CallGraph,
   CallKind,
   SymbolKind,
-  FUNCTION_KINDS,
   resolveMemberForClass,
   overrideCandidates,
   overridesForClass
@@ -16,13 +15,14 @@ import type { MemberSlot, SymbolRecord } from "@4d/core";
 // the execution order of the method body (minus control flow).
 //
 // Polymorphic dispatch: the builder carries a "pinned receiver class" — the
-// concrete class of the instance the trace is currently inside. Edges tagged
-// `receiver: "this"` re-resolve their member against the pinned class's
-// inheritance chain (nearest override wins), so a base-class skeleton calling
-// `This.hook()` traces into the override that actually runs. When the receiver
-// can't be pinned (trace rooted at the base, entry through a base-typed edge,
-// or an abstract hook with no impl), descendant overrides are attached as
-// "may run" alternative rows, each expandable with its own class pinned.
+// concrete class of the instance the trace is currently inside, treated as
+// the EXACT runtime type. Edges tagged `receiver: "this"` re-resolve their
+// member against the pinned class's inheritance chain (nearest override
+// wins), so a base-class skeleton calling `This.hook()` traces into the
+// override that actually runs. Only when no implementation can be determined
+// at all (an abstract hook with no impl anywhere on the pinned chain) are
+// descendant overrides attached as "may run" alternative rows, each
+// expandable with its own class pinned.
 
 export interface TraceRow {
   nodeId: string;
@@ -81,14 +81,6 @@ function cachedOverrides(graph: CallGraph, caches: TraceCaches, className: strin
   }
   return map;
 }
-
-/** Kinds whose calls can dispatch to subclass overrides. */
-const DISPATCHABLE_KINDS: ReadonlySet<SymbolKind> = new Set([
-  ...FUNCTION_KINDS,
-  SymbolKind.ClassProperty,
-  SymbolKind.Alias,
-  SymbolKind.Unresolved
-]);
 
 /** Member name behind an edge: a class member's own name, or the `x` of `Unresolved:This.x`. */
 function memberNameOf(staticSym: SymbolRecord | undefined): string | undefined {
@@ -186,18 +178,20 @@ export function buildTraceChildren(
       row.staticLabel = labelOf(staticSym);
     }
 
-    // ── "May run" alternatives when the receiver isn't proven exact ──
-    // A pin is a static type bound, not a proof of exact type, so even a
-    // resolved row can dispatch lower — but a successful re-resolution
-    // (dispatched) already answered the question for the pinned class.
+    // ── "May run" alternatives only when nothing could be determined ──
+    // A pinned receiver is treated as the EXACT runtime type: when chain
+    // resolution finds an implementation (the static target or an override),
+    // that is the function that runs — no alternatives. May-run rows appear
+    // only for an unresolved member reference (an abstract hook with no
+    // implementation anywhere on the pinned chain), listing the pinned
+    // class's descendant implementations.
     const effKind = effSym ? effSym.kind : SymbolKind.Unresolved;
     if (
       childReceiver &&
       memberName &&
       !recursive &&
-      !dispatched &&
       e.receiver !== "super" &&
-      DISPATCHABLE_KINDS.has(effKind)
+      effKind === SymbolKind.Unresolved
     ) {
       const alts = overrideCandidates(
         graph,
@@ -250,30 +244,49 @@ export function buildTraceChildren(
   return rows;
 }
 
-/** Category ids used by the kind filter (webview + settings). */
-export const KIND_CATEGORIES: Record<string, SymbolKind[]> = {
-  methods: [SymbolKind.ProjectMethod, SymbolKind.CompilerMethod, SymbolKind.DatabaseMethod],
-  classes: [
-    SymbolKind.Class,
-    SymbolKind.ClassFunction,
-    SymbolKind.ClassConstructor,
-    SymbolKind.ClassGetter,
-    SymbolKind.ClassSetter,
-    SymbolKind.ClassProperty,
-    SymbolKind.Alias
-  ],
-  forms: [
-    SymbolKind.Form,
-    SymbolKind.FormMethod,
-    SymbolKind.FormObjectMethod,
-    SymbolKind.TableForm,
-    SymbolKind.TableFormMethod,
-    SymbolKind.TableObjectMethod
-  ],
-  builtins: [SymbolKind.Builtin, SymbolKind.TableBuiltin],
-  constants: [SymbolKind.Constant, SymbolKind.BuiltinConstant],
-  variables: [SymbolKind.ProcessVariable, SymbolKind.InterprocessVariable],
-  plugins: [SymbolKind.Plugin, SymbolKind.PluginCommand],
-  components: [SymbolKind.Component, SymbolKind.ComponentMethod],
-  unresolved: [SymbolKind.Unresolved]
+/**
+ * One filterable category in the trace's Kinds menu. `access` narrows a
+ * category to read or write references — the property categories share the
+ * ClassProperty/Alias kinds and are distinguished only by the edge's access.
+ */
+export interface TraceCategory {
+  kinds: SymbolKind[];
+  access?: "read" | "write";
+}
+
+/** Category descriptors used by the kind filter (webview + settings). */
+export const TRACE_CATEGORIES: Record<string, TraceCategory> = {
+  methods: { kinds: [SymbolKind.ProjectMethod, SymbolKind.CompilerMethod, SymbolKind.DatabaseMethod] },
+  classConstructors: { kinds: [SymbolKind.ClassConstructor, SymbolKind.Class] },
+  classFunctions: { kinds: [SymbolKind.ClassFunction] },
+  classGetters: { kinds: [SymbolKind.ClassGetter] },
+  classSetters: { kinds: [SymbolKind.ClassSetter] },
+  propertyReads: { kinds: [SymbolKind.ClassProperty, SymbolKind.Alias], access: "read" },
+  propertyWrites: { kinds: [SymbolKind.ClassProperty, SymbolKind.Alias], access: "write" },
+  forms: {
+    kinds: [
+      SymbolKind.Form,
+      SymbolKind.FormMethod,
+      SymbolKind.FormObjectMethod,
+      SymbolKind.TableForm,
+      SymbolKind.TableFormMethod,
+      SymbolKind.TableObjectMethod
+    ]
+  },
+  builtins: { kinds: [SymbolKind.Builtin, SymbolKind.TableBuiltin] },
+  constants: { kinds: [SymbolKind.Constant, SymbolKind.BuiltinConstant] },
+  variables: { kinds: [SymbolKind.ProcessVariable, SymbolKind.InterprocessVariable] },
+  plugins: { kinds: [SymbolKind.Plugin, SymbolKind.PluginCommand] },
+  components: { kinds: [SymbolKind.Component, SymbolKind.ComponentMethod] },
+  unresolved: { kinds: [SymbolKind.Unresolved] }
 };
+
+/** Setting value migration: the old "classes" umbrella → the six fine-grained ids. */
+export const LEGACY_CLASSES_CATEGORIES = [
+  "classConstructors",
+  "classFunctions",
+  "classGetters",
+  "classSetters",
+  "propertyReads",
+  "propertyWrites"
+];

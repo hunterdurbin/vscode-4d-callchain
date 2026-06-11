@@ -512,7 +512,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": ["methods", "classes", "forms", "builtins", "constants", "variables", "plugins", "components", "unresolved"]
+              "enum": ["methods", "classConstructors", "classFunctions", "classGetters", "classSetters", "propertyReads", "propertyWrites", "forms", "builtins", "constants", "variables", "plugins", "components", "unresolved"]
             },
             "default": ["builtins", "constants", "variables"],
             "description": "Symbol-kind categories hidden by default in the Method Trace view (toggleable in the view's Kinds menu).",

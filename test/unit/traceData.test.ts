@@ -199,7 +199,9 @@ describe("buildTraceChildren — polymorphic dispatch", () => {
     expect(hook.alternatives).toBeUndefined();
   });
 
-  it("rooted at the base class: static row plus may-run alternatives", () => {
+  it("rooted at the base class with a base impl: determined — no may-run rows", () => {
+    // The pinned class IS the runtime type: tracing Animal.template as an
+    // Animal runs Animal.hook, full stop — subclass overrides don't apply.
     const g = dispatchGraph(HIERARCHY, [
       dEdge("ClassFunction:Animal.template", "ClassFunction:Animal.hook", {
         receiver: "this", line: 2, raw: "This.hook()"
@@ -211,14 +213,47 @@ describe("buildTraceChildren — polymorphic dispatch", () => {
     const hook = rows[0];
     expect(hook.calleeId).toBe("ClassFunction:Animal.hook");
     expect(hook.dispatched).toBeUndefined();
-    expect(hook.alternatives).toHaveLength(1);
-    const alt = hook.alternatives![0];
-    expect(alt.calleeId).toBe("ClassFunction:Dog.hook");
-    expect(alt.isAlternative).toBe(true);
-    expect(alt.receiverClass).toBe("Dog");
-    expect(alt.fromId).toBe("ClassFunction:Animal.template");
-    expect(alt.line).toBe(2);
-    expect(alt.raw).toBe("This.hook()");
+    expect(hook.alternatives).toBeUndefined();
+  });
+
+  it("pinned class with a sub-subclass override: still determined — no may-run", () => {
+    // Running an actual Dog: Puppy's override is irrelevant even though
+    // Puppy extends Dog.
+    const syms = [...HIERARCHY, classSym("Puppy", "Dog"), memberSym("Puppy", "hook")];
+    const g = dispatchGraph(syms, [
+      dEdge("ClassFunction:Dog.run", "ClassFunction:Animal.template", {
+        callKind: CallKind.Inherited, receiver: "this", line: 1
+      }),
+      dEdge("ClassFunction:Animal.template", "ClassFunction:Animal.hook", {
+        receiver: "this", line: 2
+      })
+    ]);
+    const rows = buildTraceChildren(
+      g, "ClassFunction:Dog.run", new Set(["ClassFunction:Dog.run"]), 2, counter(), { left: 100 }, "Dog"
+    );
+    const hook = rows[0].children![0];
+    expect(hook.calleeId).toBe("ClassFunction:Dog.hook"); // Dog's own override
+    expect(hook.alternatives).toBeUndefined();
+  });
+
+  it("pinned class without its own override: inherited impl is determined — no may-run", () => {
+    // Cat extends Animal but does NOT override hook → Animal.hook runs.
+    const syms = [...HIERARCHY, classSym("Cat", "Animal"), memberSym("Cat", "meow")];
+    const g = dispatchGraph(syms, [
+      dEdge("ClassFunction:Cat.meow", "ClassFunction:Animal.template", {
+        callKind: CallKind.Inherited, receiver: "this", line: 1
+      }),
+      dEdge("ClassFunction:Animal.template", "ClassFunction:Animal.hook", {
+        receiver: "this", line: 2
+      })
+    ]);
+    const rows = buildTraceChildren(
+      g, "ClassFunction:Cat.meow", new Set(["ClassFunction:Cat.meow"]), 2, counter(), { left: 100 }, "Cat"
+    );
+    const hook = rows[0].children![0];
+    expect(hook.calleeId).toBe("ClassFunction:Animal.hook");
+    expect(hook.dispatched).toBeUndefined(); // chain resolution = static target
+    expect(hook.alternatives).toBeUndefined(); // Dog.hook must NOT appear
   });
 
   it("abstract hook (unresolved): pinned subclass dispatches; pinned base shows alternatives", () => {
@@ -363,17 +398,19 @@ describe("buildTraceChildren — polymorphic dispatch", () => {
   });
 
   it("alternatives consume budget and stop when exhausted", () => {
+    // Abstract hook (no Animal.hook impl) — the only case that still
+    // produces may-run alternatives under exact-pin semantics.
     const subclasses = Array.from({ length: 5 }, (_, i) => `Sub${i}`);
     const syms = [
       classSym("Animal"),
       ...subclasses.map((s) => classSym(s, "Animal")),
       memberSym("Animal", "template"),
-      memberSym("Animal", "hook"),
+      unresolvedSym("This.hook"),
       ...subclasses.map((s) => memberSym(s, "hook"))
     ];
     const g = dispatchGraph(syms, [
-      dEdge("ClassFunction:Animal.template", "ClassFunction:Animal.hook", {
-        receiver: "this", line: 1
+      dEdge("ClassFunction:Animal.template", "Unresolved:This.hook", {
+        callKind: CallKind.Dynamic, receiver: "this", resolved: false, line: 1
       })
     ]);
     const budget = { left: 3 }; // 1 main row + 2 alternatives

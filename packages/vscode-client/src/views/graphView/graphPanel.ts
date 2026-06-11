@@ -34,6 +34,10 @@ export class GraphPanel {
       }
     );
     this.current = new GraphPanel(panel, context, graph, rootId);
+    // Lock the panel's editor group so double-click-to-open lands in the
+    // other group instead of replacing the graph. The panel was just created
+    // active, so the command targets its group.
+    void vscode.commands.executeCommand("workbench.action.lockEditorGroup");
     return this.current;
   }
 

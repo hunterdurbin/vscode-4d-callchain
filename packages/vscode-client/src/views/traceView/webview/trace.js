@@ -6,8 +6,7 @@
   let root = null; // {symbolId, name, kind, ownerClass, childCount}
   const rowsById = new Map(); // nodeId -> row (+ childIds, expanded, pending)
   let rootChildIds = [];
-  let categories = {}; // category -> [SymbolKind...]
-  let kindToCategory = {};
+  let categories = {}; // category -> {kinds: [SymbolKind...], access?: "read"|"write"}
   let hidden = new Set(); // hidden category ids
   let showSnippets = true;
   let nameQuery = "";
@@ -15,7 +14,12 @@
 
   const CATEGORY_LABELS = {
     methods: "Project methods",
-    classes: "Classes",
+    classConstructors: "Constructors",
+    classFunctions: "Class functions",
+    classGetters: "Getters",
+    classSetters: "Setters",
+    propertyReads: "Property reads",
+    propertyWrites: "Property writes",
     forms: "Forms",
     builtins: "Built-ins",
     constants: "Constants",
@@ -47,10 +51,6 @@
       root = m.payload.root;
       const opts = m.payload.options;
       categories = opts.categories || {};
-      kindToCategory = {};
-      for (const [cat, kinds] of Object.entries(categories)) {
-        for (const k of kinds) kindToCategory[k] = cat;
-      }
       if (!document.getElementById("kindsMenu").childElementCount) {
         hidden = new Set(opts.hiddenCategories || []);
         showSnippets = !!opts.showSnippets;
@@ -72,8 +72,19 @@
   });
 
   // ── Filtering ──────────────────────────────────────────────────────────────
+  /** The category a row belongs to: kind match first, then the access
+   *  dimension for read/write-split categories (default read when untagged). */
+  function categoryOf(row) {
+    for (const [cat, def] of Object.entries(categories)) {
+      if (!def.kinds.includes(row.kind)) continue;
+      if (def.access && (row.access || "read") !== def.access) continue;
+      return cat;
+    }
+    return undefined;
+  }
+
   function isKindHidden(row) {
-    const cat = kindToCategory[row.kind];
+    const cat = categoryOf(row);
     return cat ? hidden.has(cat) : false;
   }
 
