@@ -371,12 +371,7 @@
         "callchain.languageServer.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Run the 4D language server (go-to-definition, find references, workspace symbols, document outline, native call hierarchy, semantic tokens, diagnostics/linter). Off by default in the lean Call-Chain-only build; it runs in a separate process that re-indexes the whole project. Note: the packaged .vsix does not bundle this server, so enabling it there has no effect — run the extension from source to use it."
-        },
-        "callchain.ideServer.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Run the 4D IDE server (hover, completion, signature help). Off by default in the lean Call-Chain-only build; it runs in a separate process that re-indexes the whole project. Note: the packaged .vsix does not bundle this server, so enabling it there has no effect — run the extension from source to use it."
+          "description": "Run the 4D language server (go-to-definition, find references, workspace symbols, document outline, native call hierarchy, semantic tokens, diagnostics/linter, hover, completion, signature help). Off by default in the lean Call-Chain-only build; it runs in a separate process that re-indexes the whole project. Note: the packaged .vsix does not bundle this server, so enabling it there has no effect — run the extension from source to use it."
         },
         "callchain.testIntegration.enabled": {
           "type": "boolean",
@@ -560,7 +555,6 @@
   },
   "dependencies": {
     "@4d/core": "*",
-    "@4d/ide-server": "*",
     "@4d/language-server": "*",
     "@4d/mcp-server": "*",
     "cytoscape": "^3.33.3",

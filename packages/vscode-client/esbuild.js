@@ -11,8 +11,8 @@
 //   - @4d/parser-4d: only used for its wasmPath, which we supply directly from
 //     the copied tree-sitter-fourd.wasm; its require is lazy and never executed
 //     in the bundle (see @4d/core initTreeSitterParser).
-//   - @4d/ide-server / @4d/language-server: spawned only behind opt-in config
-//     flags that default off and are intentionally not shipped in the lean
+//   - @4d/language-server: spawned only behind an opt-in config flag that
+//     defaults off and is intentionally not shipped in the lean
 //     Call-Chain-only .vsix.
 
 const esbuild = require("esbuild");
@@ -60,7 +60,6 @@ async function main() {
     external: [
       "vscode",
       "@4d/parser-4d",
-      "@4d/ide-server",
       "@4d/language-server",
       "@4d/mcp-server",
     ],

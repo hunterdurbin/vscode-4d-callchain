@@ -2,8 +2,8 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { describeWithFixture } from "../helpers/fixture";
 import {
   initialize,
-  spawnIdeServer,
-  waitForIdeReady,
+  spawnLanguageServer,
+  waitForIndex,
   type LspClient
 } from "../helpers/lspClient";
 
@@ -13,9 +13,9 @@ describeWithFixture("ide/signatureHelp — scratch document", (root) => {
   const scratchText = "Foo:=4DRequestLog_Parse(";
 
   beforeAll(async () => {
-    ide = spawnIdeServer();
+    ide = spawnLanguageServer();
     await initialize(ide, root);
-    await waitForIdeReady(ide);
+    await waitForIndex(ide, "ConfigRepo");
     ide.notify("textDocument/didOpen", {
       textDocument: { uri: scratchUri, languageId: "4d", version: 1, text: scratchText }
     });

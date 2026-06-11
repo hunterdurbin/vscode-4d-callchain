@@ -2,7 +2,7 @@
 // Smoke test for the seven new IDE LSP features:
 //   foldingRange, selectionRange, documentHighlight, semantic tokens,
 //   diagnostics (push), signatureHelp, completion ($var.)
-// Spawns language-server + ide-server and probes a small set of known files.
+// Spawns the merged language server and probes a small set of known files.
 // Usage: node scripts/ide-features-smoke.js [projectRoot]
 
 const { spawn } = require("child_process");
@@ -68,9 +68,11 @@ const TARGET_FILE = "Project/Sources/Classes/ConfigRepo.4dm";
 
 (async () => {
   const lang = makeServer("packages/server/dist/bin.js");
-  const ide  = makeServer("packages/ide-server/dist/bin.js");
+  // The IDE features (hover/completion/signatureHelp) merged into the same
+  // server process; keep the alias so the probes below read naturally.
+  const ide = lang;
 
-  for (const s of [lang, ide]) {
+  for (const s of [lang]) {
     await s.request("initialize", {
       processId: process.pid,
       rootUri,
@@ -89,7 +91,7 @@ const TARGET_FILE = "Project/Sources/Classes/ConfigRepo.4dm";
       if (out && out.length > 0) ready = true;
     } catch {}
   }
-  if (!ready) { console.error("✗ index never loaded"); lang.kill(); ide.kill(); process.exit(1); }
+  if (!ready) { console.error("✗ index never loaded"); lang.kill(); process.exit(1); }
 
   const fileAbs = path.join(projectRoot, TARGET_FILE);
   const fileUri = "file://" + fileAbs;
@@ -101,7 +103,7 @@ const TARGET_FILE = "Project/Sources/Classes/ConfigRepo.4dm";
     diagsSeen.set(p.uri, p.diagnostics);
   });
 
-  for (const s of [lang, ide]) {
+  for (const s of [lang]) {
     s.notify("textDocument/didOpen", {
       textDocument: { uri: fileUri, languageId: "4d", version: 1, text }
     });
@@ -201,7 +203,6 @@ const TARGET_FILE = "Project/Sources/Classes/ConfigRepo.4dm";
   }
 
   await lang.request("shutdown", null); lang.notify("exit", null);
-  await ide.request("shutdown", null);  ide.notify("exit", null);
   setTimeout(() => process.exit(0), 200);
 })().catch((err) => {
   console.error("✗ smoke failed:", err);

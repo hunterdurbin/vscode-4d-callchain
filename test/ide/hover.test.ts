@@ -4,8 +4,8 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { describeWithFixture } from "../helpers/fixture";
 import {
   initialize,
-  spawnIdeServer,
-  waitForIdeReady,
+  spawnLanguageServer,
+  waitForIndex,
   type LspClient
 } from "../helpers/lspClient";
 
@@ -16,9 +16,9 @@ describeWithFixture("ide/hover — ConfigRepo.4dm", (root) => {
   let text: string;
 
   beforeAll(async () => {
-    client = spawnIdeServer();
+    client = spawnLanguageServer();
     await initialize(client, root);
-    await waitForIdeReady(client);
+    await waitForIndex(client, "ConfigRepo");
     if (!fs.existsSync(fileAbs)) return;
     text = fs.readFileSync(fileAbs, "utf8");
     client.notify("textDocument/didOpen", {

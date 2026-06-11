@@ -46,10 +46,13 @@ export function wordAt(text: string, character: number): string | undefined {
 
 /**
  * Lookup all symbols matching a name (case-insensitive).
- * Filters out Builtin and Unresolved unless they're the only matches.
+ * Filters out synthetic symbols (Builtin / TableBuiltin / Unresolved — none
+ * of which carry a real source location) unless they're the only matches.
  */
 export function lookupByName(graph: CallGraph, name: string): SymbolRecord[] {
   const matches = graph.byName(name);
-  const real = matches.filter((s) => s.kind !== "Builtin" && s.kind !== "Unresolved");
+  const real = matches.filter(
+    (s) => s.kind !== "Builtin" && s.kind !== "Unresolved" && s.kind !== "TableBuiltin"
+  );
   return real.length > 0 ? real : matches;
 }

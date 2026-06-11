@@ -4,8 +4,8 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { describeWithFixture } from "../helpers/fixture";
 import {
   initialize,
-  spawnIdeServer,
-  waitForIdeReady,
+  spawnLanguageServer,
+  waitForIndex,
   type LspClient
 } from "../helpers/lspClient";
 
@@ -17,9 +17,9 @@ describeWithFixture("ide/completion", (root) => {
   let version = 1;
 
   beforeAll(async () => {
-    ide = spawnIdeServer();
+    ide = spawnLanguageServer();
     await initialize(ide, root);
-    await waitForIdeReady(ide);
+    await waitForIndex(ide, "ConfigRepo");
     if (!fs.existsSync(fileAbs)) return;
     orig = fs.readFileSync(fileAbs, "utf8");
     ide.notify("textDocument/didOpen", {

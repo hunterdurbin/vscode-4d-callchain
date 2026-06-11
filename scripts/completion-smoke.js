@@ -7,7 +7,7 @@ const path = require("path");
 
 const projectRoot = process.argv[2] || "/path/to/4d-project";
 const rootUri = "file://" + projectRoot;
-const server = spawn("node", [path.join(__dirname, "..", "packages", "ide-server", "dist", "bin.js"), "--stdio"], {
+const server = spawn("node", [path.join(__dirname, "..", "packages", "server", "dist", "bin.js"), "--stdio"], {
   stdio: ["pipe", "pipe", "inherit"]
 });
 

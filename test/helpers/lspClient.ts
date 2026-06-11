@@ -20,10 +20,6 @@ export function spawnLanguageServer(): LspClient {
   return makeServer(path.join(REPO_ROOT, "packages/server/dist/bin.js"));
 }
 
-export function spawnIdeServer(): LspClient {
-  return makeServer(path.join(REPO_ROOT, "packages/ide-server/dist/bin.js"));
-}
-
 function makeServer(binPath: string): LspClient {
   const proc: ChildProcess = spawn("node", [binPath, "--stdio"], {
     stdio: ["pipe", "pipe", "pipe"]
@@ -196,37 +192,3 @@ export async function waitForIndex(
   throw new Error(`timed out waiting for index (query="${probeQuery}")`);
 }
 
-/**
- * @4d/ide-server doesn't implement workspace/symbol — poll a hover on a
- * synthesized scratch document until the server responds (matching what
- * `scripts/completion-smoke.js` does to wait for the IDE index to load).
- */
-export async function waitForIdeReady(
-  client: LspClient,
-  timeoutMs = 60_000
-): Promise<void> {
-  // Open a scratch document that references a fixture-known method so the
-  // poll has something to anchor on. `MyLength` is a stable mini-4d
-  // ProjectMethod — once the indexer has loaded it, the hover handler
-  // returns a non-null Hover. Treating null as "ready" (as the old code
-  // did) is racy: hover returns null both when graph is missing AND when
-  // the word doesn't match anything, so we can't distinguish.
-  const scratchUri = `file:///tmp/_4d_ide_ready_${process.pid}.4dm`;
-  const scratchText = "x:=MyLength(\"hi\")\n";
-  client.notify("textDocument/didOpen", {
-    textDocument: { uri: scratchUri, languageId: "4d", version: 1, text: scratchText }
-  });
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const out: any = await client.request("textDocument/hover", {
-        textDocument: { uri: scratchUri },
-        // Character 4 = 'M' of MyLength.
-        position: { line: 0, character: 4 }
-      });
-      if (out && out.contents) return;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error("timed out waiting for ide-server to become ready");
-}

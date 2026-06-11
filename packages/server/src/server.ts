@@ -26,6 +26,9 @@ import { registerSelectionRangeHandler } from "./handlers/selectionRange";
 import { registerDocumentHighlightHandler } from "./handlers/documentHighlight";
 import { registerDiagnostics } from "./handlers/diagnostics";
 import { registerSemanticTokensHandler, SEMANTIC_TOKENS_LEGEND } from "./handlers/semanticTokens";
+import { registerHoverHandler } from "./handlers/hover";
+import { registerCompletionHandler } from "./handlers/completion";
+import { registerSignatureHelpHandler } from "./handlers/signatureHelp";
 
 interface InitOptions {
   exclusions?: string[];
@@ -67,6 +70,17 @@ export function startServer(): void {
           legend: SEMANTIC_TOKENS_LEGEND,
           full: { delta: false },
           range: true
+        },
+        // IDE features, formerly served by the separate @4d/ide-server
+        // process. Merged so one process indexes and watches the workspace.
+        hoverProvider: true,
+        completionProvider: {
+          triggerCharacters: ["."],
+          resolveProvider: true
+        },
+        signatureHelpProvider: {
+          triggerCharacters: ["(", ";", ","],
+          retriggerCharacters: [";", ","]
         }
       }
     };
@@ -209,6 +223,9 @@ export function startServer(): void {
   registerSelectionRangeHandler(connection, documents);
   registerDocumentHighlightHandler(state, connection, documents);
   registerSemanticTokensHandler(state, connection, documents);
+  registerHoverHandler(state, connection, documents);
+  registerCompletionHandler(state, connection, documents);
+  registerSignatureHelpHandler(state, connection, documents);
 
   documents.listen(connection);
   connection.listen();

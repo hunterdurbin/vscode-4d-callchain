@@ -19,7 +19,6 @@ import { registerMcpSetup } from "./mcp/setupMcp";
 import { DirtyLineTracker } from "./codelens/dirtyLineTracker";
 import { debounce } from "./util/debounce";
 
-let ideClient: LanguageClient | undefined;
 let lspClient: LanguageClient | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -677,11 +676,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     indexer.load().catch((err) => output.appendLine(`[Indexer] failed: ${err}`));
   }
 
-  // Spawn the call-chain LSP server. Provides go-to-def, find-references,
-  // workspace symbol, document symbol, and call hierarchy via standard LSP
-  // methods — VSCode's native UIs (F12, Shift+F12, Peek Call Hierarchy) will
-  // pick these up automatically once the document selector matches. Gated:
-  // off by default, and a separate process that re-indexes independently.
+  // Spawn the call-chain LSP server. One process serving the standard LSP
+  // methods — definition / references / workspace + document symbols / call
+  // hierarchy / semantic tokens / diagnostics, plus the IDE features (hover,
+  // completion, signature help) that used to live in a second server
+  // process. VSCode's native UIs (F12, Shift+F12, Peek Call Hierarchy) pick
+  // these up automatically once the document selector matches. Gated: off by
+  // default, and a separate process that re-indexes independently.
   if (cfg.get<boolean>("languageServer.enabled", false)) {
     try {
       lspClient = startLanguageServer(context, output, exclusions, builtinConstantsPaths);
@@ -692,29 +693,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   } else {
     output.appendLine("[Activate] language-server disabled (callchain.languageServer.enabled = false).");
   }
-
-  // Spawn the IDE-features LSP server (hover today; completion / diagnostics
-  // / semanticTokens later). Runs in its own process and indexes the same
-  // workspace independently, sharing the on-disk cache file written by the
-  // in-process call-chain indexer above. Gated: off by default.
-  if (cfg.get<boolean>("ideServer.enabled", false)) {
-    try {
-      ideClient = startIdeServer(context, output, exclusions, builtinConstantsPaths);
-      context.subscriptions.push({ dispose: () => { void ideClient?.stop(); } });
-    } catch (err) {
-      output.appendLine(`[IDE] Failed to start ide-server: ${err}`);
-    }
-  } else {
-    output.appendLine("[Activate] ide-server disabled (callchain.ideServer.enabled = false).");
-  }
 }
 
 export async function deactivate(): Promise<void> {
-  await Promise.all([
-    ideClient?.stop(),
-    lspClient?.stop()
-  ]);
-  ideClient = undefined;
+  await lspClient?.stop();
   lspClient = undefined;
 }
 
@@ -755,53 +737,6 @@ function startLanguageServer(
   const client = new LanguageClient(
     "4dLanguageServer",
     "4D Language Server",
-    serverOptions,
-    clientOptions
-  );
-  void client.start();
-  return client;
-}
-
-/**
- * Bootstrap the @4d/ide-server LSP client. The server bin resolves through
- * the workspace symlink — `require.resolve('@4d/ide-server/dist/bin.js')`
- * gives us the absolute path regardless of how the extension was packaged.
- */
-function startIdeServer(
-  context: vscode.ExtensionContext,
-  output: vscode.OutputChannel,
-  exclusions: string[],
-  builtinConstantsPaths: string[]
-): LanguageClient {
-  const serverModule = require.resolve("@4d/ide-server/dist/bin.js");
-  output.appendLine(`[IDE] Spawning ide-server at ${serverModule}`);
-
-  const serverOptions: ServerOptions = {
-    run: { module: serverModule, transport: TransportKind.ipc },
-    debug: {
-      module: serverModule,
-      transport: TransportKind.ipc,
-      options: { execArgv: ["--nolazy", "--inspect=6010"] }
-    }
-  };
-
-  const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ language: "4d" }, { pattern: "**/*.4dm" }],
-    initializationOptions: { exclusions, builtinConstantsPaths },
-    synchronize: {
-      fileEvents: [
-        vscode.workspace.createFileSystemWatcher("**/*.4dm"),
-        vscode.workspace.createFileSystemWatcher("**/Project/Sources/catalog.4DCatalog"),
-        vscode.workspace.createFileSystemWatcher("**/Resources/Constants_*.xlf"),
-        vscode.workspace.createFileSystemWatcher("**/Components/**/*.{4DZ,4dz}")
-      ]
-    },
-    outputChannel: output
-  };
-
-  const client = new LanguageClient(
-    "4dIdeServer",
-    "4D IDE Server",
     serverOptions,
     clientOptions
   );
