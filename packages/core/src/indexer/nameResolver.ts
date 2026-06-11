@@ -99,6 +99,16 @@ export interface ResolverScratch {
   unresolved: SymbolRecord[];
   unresolvedSeen: Set<string>;
   synthOwnersByPath: Map<string, Set<string>>;
+  /**
+   * Clear the per-session synth state (`unresolved`, `unresolvedSeen`, the
+   * internal id map, `synthOwnersByPath`) while keeping the lookup tables.
+   * A long-lived scratch maintained via `addSymbolToScratch` /
+   * `removeSymbolFromScratch` calls this at the start of each patch scope so
+   * `unresolved` only ever holds the current scope's synths — reproducing the
+   * semantics of building a fresh scratch per patch without the O(symbols)
+   * table rebuild. Clears in place so closures over the arrays/maps stay valid.
+   */
+  resetSession: () => void;
   // Synth creators. The currently-resolving file's absolute path is
   // configured via `setCurrentFileOrigin` so call sites don't have to
   // thread the path through. The creators read it at invocation time and
@@ -665,6 +675,14 @@ export function buildResolverScratch(input: ResolverInput, projectSymbols: Symbo
     return undefined;
   };
 
+  const resetSession = (): void => {
+    unresolved.length = 0;
+    unresolvedSeen.clear();
+    unresolvedById.clear();
+    synthOwnersByPath.clear();
+    currentFileOrigin = undefined;
+  };
+
   return {
     input,
     byName,
@@ -683,6 +701,7 @@ export function buildResolverScratch(input: ResolverInput, projectSymbols: Symbo
     unresolved,
     unresolvedSeen,
     synthOwnersByPath,
+    resetSession,
     setCurrentFileOrigin,
     findOrCreateBuiltin,
     findOrCreateTableBuiltin,
@@ -702,6 +721,158 @@ export function buildResolverScratch(input: ResolverInput, projectSymbols: Symbo
     resolveMethodOnType,
     resolveMethodOrBuiltin
   };
+}
+
+/**
+ * Incrementally register `s` in a scratch built by `buildResolverScratch`,
+ * mirroring its indexing rules exactly (same kind switch, same key shapes).
+ * Lets the patcher keep ONE scratch alive across patches — updated in
+ * lock-step with the graph — instead of rebuilding the O(symbols) lookup
+ * tables on every save.
+ *
+ * First-wins maps (`commandToPlugin` / `constantsByName` / `formsByName`)
+ * keep the existing entry on collision, matching the builder's `if (!has)`
+ * inserts. The builder's two-pass precedence (Constant before
+ * ProcessVariable, Form before TableForm) is not reproducible
+ * insert-by-insert; `.4dm` patches never add those kinds, and the synth
+ * refcount invariant's rebuild fallback covers any drift.
+ */
+export function addSymbolToScratch(scratch: ResolverScratch, s: SymbolRecord): void {
+  const key = s.name.toLowerCase();
+  const arr = scratch.byName.get(key) ?? [];
+  arr.push(s);
+  scratch.byName.set(key, arr);
+
+  if (s.kind === SymbolKind.Class) {
+    if (s.ownerComponent) {
+      scratch.componentClassByNs.set(s.id.replace(/^Class:/, "").toLowerCase(), s);
+    } else {
+      scratch.classByName.set(key, s);
+    }
+  }
+  if (s.ownerClass) {
+    const mkey = `${s.ownerClass}.${s.name}`.toLowerCase();
+    switch (s.kind) {
+      case SymbolKind.ClassFunction:
+      case SymbolKind.ClassConstructor:
+        scratch.classFunctions.set(mkey, s);
+        break;
+      case SymbolKind.ClassGetter:
+        scratch.classGetters.set(mkey, s);
+        break;
+      case SymbolKind.ClassSetter:
+        scratch.classSetters.set(mkey, s);
+        break;
+      case SymbolKind.Alias:
+        scratch.classAliases.set(mkey, s);
+        break;
+      case SymbolKind.ClassProperty:
+        scratch.classProperties.set(mkey, s);
+        break;
+    }
+  }
+  switch (s.kind) {
+    case SymbolKind.PluginCommand:
+      if (!scratch.commandToPlugin.has(s.name)) scratch.commandToPlugin.set(s.name, s.id);
+      break;
+    case SymbolKind.Constant:
+    case SymbolKind.BuiltinConstant:
+    case SymbolKind.ProcessVariable:
+      if (!scratch.constantsByName.has(key)) scratch.constantsByName.set(key, s.id);
+      break;
+    case SymbolKind.InterprocessVariable:
+      scratch.interprocessByName.set(key, s.id);
+      break;
+    case SymbolKind.Form:
+    case SymbolKind.TableForm:
+      if (!scratch.formsByName.has(s.name)) scratch.formsByName.set(s.name, s.id);
+      break;
+  }
+}
+
+/**
+ * Reverse of {@link addSymbolToScratch}. Kind-keyed singleton maps only drop
+ * their entry when it points at this exact symbol id, then re-pick a
+ * replacement from the surviving `byName` bucket (two same-named symbols in
+ * different files is legal 4D; the fresh-build behavior keeps one of them
+ * reachable, so the incremental path must too).
+ */
+export function removeSymbolFromScratch(scratch: ResolverScratch, s: SymbolRecord): void {
+  const key = s.name.toLowerCase();
+  const bucket = scratch.byName.get(key);
+  let survivors: SymbolRecord[] = [];
+  if (bucket) {
+    survivors = bucket.filter((x) => x.id !== s.id);
+    if (survivors.length === 0) scratch.byName.delete(key);
+    else scratch.byName.set(key, survivors);
+  }
+
+  if (s.kind === SymbolKind.Class) {
+    if (s.ownerComponent) {
+      const nsKey = s.id.replace(/^Class:/, "").toLowerCase();
+      if (scratch.componentClassByNs.get(nsKey)?.id === s.id) {
+        scratch.componentClassByNs.delete(nsKey);
+        const repl = survivors.find(
+          (x) => x.kind === SymbolKind.Class && x.ownerComponent && x.id.replace(/^Class:/, "").toLowerCase() === nsKey
+        );
+        if (repl) scratch.componentClassByNs.set(nsKey, repl);
+      }
+    } else if (scratch.classByName.get(key)?.id === s.id) {
+      scratch.classByName.delete(key);
+      const repl = survivors.find((x) => x.kind === SymbolKind.Class && !x.ownerComponent);
+      if (repl) scratch.classByName.set(key, repl);
+    }
+  }
+  if (s.ownerClass) {
+    const mkey = `${s.ownerClass}.${s.name}`.toLowerCase();
+    const memberMapFor = (kind: SymbolKind): Map<string, SymbolRecord> | undefined => {
+      switch (kind) {
+        case SymbolKind.ClassFunction:
+        case SymbolKind.ClassConstructor:
+          return scratch.classFunctions;
+        case SymbolKind.ClassGetter: return scratch.classGetters;
+        case SymbolKind.ClassSetter: return scratch.classSetters;
+        case SymbolKind.Alias: return scratch.classAliases;
+        case SymbolKind.ClassProperty: return scratch.classProperties;
+        default: return undefined;
+      }
+    };
+    const map = memberMapFor(s.kind);
+    if (map && map.get(mkey)?.id === s.id) {
+      map.delete(mkey);
+      const repl = survivors.find(
+        (x) => memberMapFor(x.kind) === map && x.ownerClass && `${x.ownerClass}.${x.name}`.toLowerCase() === mkey
+      );
+      if (repl) map.set(mkey, repl);
+    }
+  }
+  const repickId = (map: Map<string, string>, mapKey: string, match: (x: SymbolRecord) => boolean): void => {
+    if (map.get(mapKey) !== s.id) return;
+    map.delete(mapKey);
+    const repl = survivors.find(match);
+    if (repl) map.set(mapKey, repl.id);
+  };
+  switch (s.kind) {
+    case SymbolKind.PluginCommand:
+      repickId(scratch.commandToPlugin, s.name, (x) => x.kind === SymbolKind.PluginCommand && x.name === s.name);
+      break;
+    case SymbolKind.Constant:
+    case SymbolKind.BuiltinConstant:
+    case SymbolKind.ProcessVariable:
+      repickId(scratch.constantsByName, key, (x) =>
+        x.kind === SymbolKind.Constant || x.kind === SymbolKind.BuiltinConstant || x.kind === SymbolKind.ProcessVariable
+      );
+      break;
+    case SymbolKind.InterprocessVariable:
+      repickId(scratch.interprocessByName, key, (x) => x.kind === SymbolKind.InterprocessVariable);
+      break;
+    case SymbolKind.Form:
+    case SymbolKind.TableForm:
+      repickId(scratch.formsByName, s.name, (x) =>
+        (x.kind === SymbolKind.Form || x.kind === SymbolKind.TableForm) && x.name === s.name
+      );
+      break;
+  }
 }
 
 /**

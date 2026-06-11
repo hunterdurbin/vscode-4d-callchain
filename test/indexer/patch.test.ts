@@ -127,6 +127,27 @@ describe("incremental indexing (patchFile)", () => {
     expect(sortEdges(patched)).toEqual(sortEdges(fresh));
   });
 
+  it("removing a typed class property drops its chain-walk metadata (no stale overlay)", async () => {
+    const root = mkTmpFixture();
+    const target = path.join(root, "Project", "Sources", "Classes", "ConfigRepo.4dm");
+    const original = fs.readFileSync(target, "utf8");
+    expect(original).toContain("property cache : cs.Map");
+
+    // Remove the property declaration. `This.cache.get/set` chains inside the
+    // class previously kept resolving through the deleted property's type
+    // because addFileContribution merged class overlays without ever deleting
+    // stale entries. The patched index must match a fresh rebuild exactly.
+    const patched = await buildPatched(
+      root,
+      () => fs.writeFileSync(target, original.replace(/^property cache : cs\.Map\r?\n/m, "")),
+      [target]
+    );
+    const fresh = await freshIndex(root);
+
+    expect(sortSymbols(patched)).toEqual(sortSymbols(fresh));
+    expect(sortEdges(patched)).toEqual(sortEdges(fresh));
+  });
+
   it("adding a project method exposes a new ProjectMethod symbol identical to a rebuild", async () => {
     const root = mkTmpFixture();
     const newMethod = path.join(root, "Project", "Sources", "Methods", "NewlyAdded.4dm");

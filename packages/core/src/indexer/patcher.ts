@@ -1,7 +1,13 @@
-import { CallEdge, RawCallSite, SymbolIndex, SymbolKind } from "../model/symbol";
+import { CallEdge, RawCallSite, SymbolIndex, SymbolKind, SymbolRecord } from "../model/symbol";
 import { CallGraph } from "../model/callGraph";
 import { ParsedFile } from "./fileParser";
-import { buildResolverScratch, resolveCallsForFile, ResolverInput } from "./nameResolver";
+import {
+  ResolverInput,
+  ResolverScratch,
+  addSymbolToScratch,
+  removeSymbolFromScratch,
+  resolveCallsForFile
+} from "./nameResolver";
 import { CompilerMethodTypes, mergeCompilerParamsWithDeclare } from "./compilerMethodScanner";
 
 /**
@@ -33,6 +39,41 @@ export interface PatchState {
   edgesByNameKey: Map<string, NameKeyEntry[]>;
   resolverInput: ResolverInput;
   constantsSet: Set<string>;
+  /**
+   * Long-lived resolver scratch, built once per rebuild and maintained in
+   * lock-step with the graph by {@link patchAddSymbol} /
+   * {@link patchRemoveSymbols}. Replaces the previous behavior of building a
+   * fresh O(all-symbols) scratch once per patched file plus once per fan-out
+   * — the dominant cost of a save on large projects. Each patch scope calls
+   * `scratch.resetSession()` so per-session synth state matches what a fresh
+   * scratch would have seen.
+   */
+  scratch: ResolverScratch;
+}
+
+/**
+ * Insert a symbol into the live graph AND the persistent scratch, keeping the
+ * two in lock-step. Mirrors `CallGraph.addSymbol`'s no-op on an already-known
+ * id (two files can legally declare the same project-method name → same id;
+ * the graph keeps the first record, so the scratch must too).
+ *
+ * ALL symbol insertion in the patch path must go through here — updating one
+ * side and not the other is exactly the drift the synth-refcount invariant
+ * exists to catch.
+ */
+function patchAddSymbol(state: PatchState, s: SymbolRecord): void {
+  if (state.graph.symbol(s.id)) return;
+  state.graph.addSymbol(s);
+  addSymbolToScratch(state.scratch, s);
+}
+
+/** Remove symbols from the live graph AND the persistent scratch in lock-step. */
+function patchRemoveSymbols(state: PatchState, ids: Iterable<string>): void {
+  for (const id of ids) {
+    const sym = state.graph.symbol(id);
+    if (sym) removeSymbolFromScratch(state.scratch, sym);
+  }
+  state.graph.removeSymbolsByIds(ids);
 }
 
 /**
@@ -55,6 +96,15 @@ export function removeFileContribution(state: PatchState, absolutePath: string):
       removedNameKeys.add(s.name.toLowerCase());
       if (s.ownerClass) removedNameKeys.add(`${s.ownerClass}.${s.name}`.toLowerCase());
     }
+    // Drop the file's resolver-input overlays (a 4D class is one file, so its
+    // property/return-type maps come solely from here). Without this, deleted
+    // properties kept resolving through stale chain-walk metadata; a re-add
+    // sets fresh maps in addFileContribution.
+    if (oldParsed.classInfo) {
+      const key = oldParsed.classInfo.name.toLowerCase();
+      state.resolverInput.projectClassPropsByName?.delete(key);
+      state.resolverInput.projectClassMethodReturnsByName?.delete(key);
+    }
   }
 
   // Drop the file's symbols + outgoing edges via the graph's batched op.
@@ -65,7 +115,7 @@ export function removeFileContribution(state: PatchState, absolutePath: string):
   // are already covered by `dropNameKeyEntriesForFile(absolutePath)` —
   // no per-edge bucket scan needed.
   if (oldSyms.size > 0) {
-    state.graph.removeSymbolsByIds(oldSyms);
+    patchRemoveSymbols(state, oldSyms);
     for (const id of oldSyms) state.edgesByFromId.delete(id);
   }
   dropNameKeyEntriesForFile(state, absolutePath);
@@ -77,7 +127,7 @@ export function removeFileContribution(state: PatchState, absolutePath: string):
     if (!sym?.fileOrigins) continue;
     const next = sym.fileOrigins.filter((p) => p !== absolutePath);
     if (next.length === 0) {
-      state.graph.removeSymbolsByIds([synthId]);
+      patchRemoveSymbols(state, [synthId]);
       state.edgesByFromId.delete(synthId);
     } else {
       sym.fileOrigins = next;
@@ -149,7 +199,7 @@ export function addFileContribution(state: PatchState, parsed: ParsedFile): Set<
   const fp = parsed.file.absolutePath;
   const newIds = new Set<string>();
   for (const s of parsed.symbols) {
-    state.graph.addSymbol(s);
+    patchAddSymbol(state, s);
     newIds.add(s.id);
     added.add(s.name.toLowerCase());
     if (s.ownerClass) added.add(`${s.ownerClass}.${s.name}`.toLowerCase());
@@ -163,28 +213,31 @@ export function addFileContribution(state: PatchState, parsed: ParsedFile): Set<
   // before we re-resolve any calls.
   if (parsed.classInfo) {
     const key = parsed.classInfo.name.toLowerCase();
+    // Replace (not merge) the class's overlays: the class lives in this one
+    // file, so the fresh parse is the complete truth. Merging let removed
+    // properties/methods linger in the chain-walk metadata forever.
     if (parsed.classPropertyTypes) {
-      let map = state.resolverInput.projectClassPropsByName?.get(key);
-      if (!map) { map = new Map(); state.resolverInput.projectClassPropsByName?.set(key, map); }
-      for (const [p, t] of parsed.classPropertyTypes) map.set(p, t);
+      state.resolverInput.projectClassPropsByName?.set(key, new Map(parsed.classPropertyTypes));
     }
     if (parsed.classMethodReturnsByName) {
-      let map = state.resolverInput.projectClassMethodReturnsByName?.get(key);
-      if (!map) { map = new Map(); state.resolverInput.projectClassMethodReturnsByName?.set(key, map); }
-      for (const [m, t] of parsed.classMethodReturnsByName) map.set(m, t);
+      state.resolverInput.projectClassMethodReturnsByName?.set(key, new Map(parsed.classMethodReturnsByName));
     }
   }
 
-  // Build a fresh ResolverScratch over the current global symbol set, then
-  // resolve just this file's calls. The scratch's setCurrentFileOrigin
-  // attributes any new synth symbols to this file.
-  const scratch = buildResolverScratch(state.resolverInput, state.index.symbols);
+  // Resolve just this file's calls against the persistent scratch. The
+  // session reset clears synth state so `scratch.unresolved` only collects
+  // THIS scope's synths (the fileOrigins merge below depends on that); the
+  // lookup tables stay warm — they were maintained in lock-step as symbols
+  // were removed/added above. The scratch's setCurrentFileOrigin attributes
+  // any new synth symbols to this file.
+  const scratch = state.scratch;
+  scratch.resetSession();
   const newEdges = resolveCallsForFile(parsed, scratch);
 
   // Merge any synth symbols the resolver created during this patch into
-  // the live index. (buildResolverScratch starts with an empty `unresolved`,
+  // the live index. (The session reset starts with an empty `unresolved`,
   // so this list only contains synths the current file created — or that
-  // existed before but got re-created because the scratch was fresh. We
+  // existed before but got re-created because the session was fresh. We
   // dedup against the graph's existing symbols by id.)
   for (const u of scratch.unresolved) {
     const existing = state.graph.symbol(u.id);
@@ -195,7 +248,7 @@ export function addFileContribution(state: PatchState, parsed: ParsedFile): Set<
       if (!next.includes(fp)) next.push(fp);
       existing.fileOrigins = next;
     } else {
-      state.graph.addSymbol(u);
+      patchAddSymbol(state, u);
     }
   }
   // Merge synthOwnersByPath: for incremental builds, the scratch tracks just
@@ -268,10 +321,10 @@ export function reresolveAffectedDependents(
   }
   if (toResolve.size === 0) return 0;
 
-  // Build one scratch over the current global symbol set; reuse for every
-  // affected call site (the scratch is O(symbols) to build, so we want
-  // to amortize even for a handful of call sites).
-  const scratch = buildResolverScratch(state.resolverInput, state.index.symbols);
+  // Reuse the persistent scratch for every affected call site, with a fresh
+  // synth session so `scratch.unresolved` only collects this fan-out's synths.
+  const scratch = state.scratch;
+  scratch.resetSession();
 
   // Group the affected calls by file so we can build mini-ParsedFile
   // clones (each with one rawCall) and call resolveCallsForFile.
@@ -346,7 +399,7 @@ export function reresolveAffectedDependents(
       }
       existing.fileOrigins = next;
     } else {
-      state.graph.addSymbol(u);
+      patchAddSymbol(state, u);
     }
   }
   // Merge synthOwnersByPath: scratch tracked synths per file during this
@@ -372,7 +425,7 @@ function decrementSynthRef(state: PatchState, synthId: string, fromPath: string)
   const owners = state.synthOwnersByPath.get(fromPath);
   if (owners) owners.delete(synthId);
   if (next.length === 0) {
-    state.graph.removeSymbolsByIds([synthId]);
+    patchRemoveSymbols(state, [synthId]);
     state.edgesByFromId.delete(synthId);
   } else {
     sym.fileOrigins = next;

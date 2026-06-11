@@ -11,7 +11,7 @@ import { discoverVariables } from "./variableScanner";
 import { discoverCompilerMethodTypes, CompilerMethodTypes } from "./compilerMethodScanner";
 import { discoverComponents } from "./componentScanner";
 import { ParsedFile, parseFile } from "./fileParser";
-import { buildSymbolIndex, ResolverInput } from "./nameResolver";
+import { buildResolverScratch, buildSymbolIndex, ResolverInput } from "./nameResolver";
 import { classifyFile } from "./projectScanner";
 import { IndexPersistence } from "./persistence";
 import {
@@ -392,6 +392,11 @@ export class Indexer {
       }
     }
 
+    // One O(symbols) scratch build, here at the rebuild tail where the cost
+    // is already amortized. From now on the patcher maintains it in lock-step
+    // with the graph — saves never pay the O(symbols) table build again.
+    const scratch = buildResolverScratch(resolverInput, idx.symbols);
+
     this.patch = {
       graph: this.graph!,
       index: idx,
@@ -401,7 +406,8 @@ export class Indexer {
       edgesByFromId,
       edgesByNameKey,
       resolverInput,
-      constantsSet
+      constantsSet,
+      scratch
     };
   }
 
