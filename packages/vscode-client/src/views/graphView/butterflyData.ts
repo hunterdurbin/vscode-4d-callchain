@@ -220,14 +220,14 @@ interface Wing {
   side: "caller" | "callee";
   mode: WingMode;
   nodes: Map<string, WNode>;
-  edges: Map<string, WEdge>; // keyed `${from} ${to}`
+  edges: Map<string, WEdge>; // keyed `${from}\u0000${to}`
   truncated: boolean;
 }
 
-const PATH_SEP = ""; // can't occur in symbol ids built from 4D names
+const PATH_SEP = "\u001f"; // can't occur in symbol ids built from 4D names
 
 function edgeKey(from: string, to: string): string {
-  return `${from} ${to}`;
+  return `${from}\u0000${to}`;
 }
 
 function addSites(wing: Wing, from: string, to: string, sites: SiteRef[]): void {

@@ -11,7 +11,7 @@ import {
 } from "../../packages/vscode-client/src/views/graphView/butterflyData";
 import type { ButterflyOptions, ButterflyNode } from "../../packages/vscode-client/src/views/graphView/butterflyData";
 
-const SEP = ""; // tree-mode path separator inside element ids
+const SEP = "\u001f"; // tree-mode path separator inside element ids
 
 function sym(id: string, name: string, kind: SymbolKind = SymbolKind.ProjectMethod, extras: Partial<SymbolRecord> = {}): SymbolRecord {
   return { id, name, kind, location: { uri: `file:///${name}`, line: 0 }, ...extras };
