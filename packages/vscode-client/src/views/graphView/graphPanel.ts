@@ -1,8 +1,10 @@
 import * as vscode from "vscode";
 import { maxGraphDepth } from "../../config";
 import { CallGraph } from "@4d/core";
-import { buildButterfly } from "./butterflyData";
+import { buildButterfly, normalizeButterflyOptions, type ButterflyOptions } from "./butterflyData";
 import { resolveWebviewAssets } from "../webviewAssets";
+
+const OPTIONS_KEY = "callchain.graph.options";
 
 export class GraphPanel {
   private static current: GraphPanel | undefined;
@@ -13,7 +15,9 @@ export class GraphPanel {
   private readonly visited = new Set<string>();
   private history: string[] = [];
   private historyIndex = -1;
-  private depth = maxGraphDepth();
+  // View options persist per workspace; `callchain.graph.maxDepth` only seeds
+  // the per-side depths the first time (before anything is stored).
+  private options: ButterflyOptions;
 
   static show(context: vscode.ExtensionContext, graph: CallGraph, rootId: string): GraphPanel {
     if (this.current) {
@@ -66,6 +70,7 @@ export class GraphPanel {
     rootId: string
   ) {
     this.panel = panel;
+    this.options = normalizeButterflyOptions(context.workspaceState.get(OPTIONS_KEY), maxGraphDepth());
     this.history = [rootId];
     this.historyIndex = 0;
     this.visited.add(rootId);
@@ -89,12 +94,12 @@ export class GraphPanel {
   }
 
   private postData(): void {
-    const data = buildButterfly(this.graph, this.centerId(), this.depth, this.visited, {
+    const data = buildButterfly(this.graph, this.centerId(), this.options, this.visited, {
       back: this.historyIndex > 0,
       fwd: this.historyIndex < this.history.length - 1
     });
     this.panel.title = `4D Butterfly — ${data.centerLabel}`;
-    this.panel.webview.postMessage({ type: "data", payload: { ...data, depth: this.depth } });
+    this.panel.webview.postMessage({ type: "data", payload: { ...data, options: this.options } });
   }
 
   private handleMessage(msg: { type: string; payload?: any }): void {
@@ -108,12 +113,14 @@ export class GraphPanel {
       case "openSymbol":
         vscode.commands.executeCommand("callchain.openSymbol", msg.payload?.symbolId);
         break;
-      case "setDepth": {
-        const d = Number(msg.payload?.depth);
-        if (Number.isFinite(d) && d >= 1 && d <= 4) {
-          this.depth = d;
-          this.postData();
-        }
+      case "setOptions": {
+        const next = normalizeButterflyOptions(msg.payload?.options, maxGraphDepth());
+        const onlyCollapse =
+          JSON.stringify({ ...next, optionsBarCollapsed: false }) ===
+          JSON.stringify({ ...this.options, optionsBarCollapsed: false });
+        this.options = next;
+        void this.context.workspaceState.update(OPTIONS_KEY, next);
+        if (!onlyCollapse) this.postData(); // bar collapse toggles locally — just persist
         break;
       }
       case "back":
@@ -154,12 +161,72 @@ export class GraphPanel {
   <div id="toolbar">
     <button id="back" title="Back to previous center">◀</button>
     <button id="forward" title="Forward">▶</button>
-    <label>Depth per side <input id="depth" type="range" min="1" max="4" value="${this.depth}"><span id="depthVal">${this.depth}</span></label>
+    <button id="optionsToggle" title="Show or hide the view options">⚙ Options</button>
     <input id="filter" type="search" placeholder="Filter nodes by name…">
     <button id="fit">Fit</button>
     <button id="clearTrail" title="Forget which nodes were visited">Clear trail</button>
     <span id="truncated" title="Graph was capped; increase focus or lower depth" hidden>⚠ truncated</span>
     <span id="stats"></span>
+  </div>
+  <div id="options" hidden>
+    <span class="opt">
+      <label>Show unreachable calls:</label>
+      <span class="seg" data-opt="unreachable">
+        <button data-val="gray">Grayed out</button>
+        <button data-val="hide">Hide</button>
+      </span>
+    </span>
+    <span class="opt">
+      <label>Hide methods from:</label>
+      <span id="chips"></span>
+    </span>
+    <span class="opt">
+      <label>Compress trivial pass-through calls:</label>
+      <span class="seg" data-opt="compressPassThrough">
+        <button data-val="true">Yes</button>
+        <button data-val="false">No</button>
+      </span>
+    </span>
+    <span class="opt">
+      <label>Several calls between two functions:</label>
+      <span class="seg" data-opt="dupEdges">
+        <button data-val="collapse">Only show each distinct call once</button>
+        <button data-val="expand">Show every call, with line numbers</button>
+      </span>
+    </span>
+    <span class="opt">
+      <label>Vertical sort order:</label>
+      <span class="seg" data-opt="sort">
+        <button data-val="alpha">Alphabetical</button>
+        <button data-val="minCross">Minimize crossings</button>
+        <button data-val="callSite">Call site line number</button>
+      </span>
+    </span>
+    <span class="opt">
+      <label>In each function, show:</label>
+      <span class="seg" data-opt="label">
+        <button data-val="name">Name</button>
+        <button data-val="type">Type</button>
+      </span>
+    </span>
+    <span class="opt">
+      <label>Callers:</label>
+      <span class="seg" data-opt="callerMode">
+        <button data-val="tree">Tree</button>
+        <button data-val="graph">Graph</button>
+        <button data-val="treeLeft">Tree from the left</button>
+      </span>
+      <label><input id="callerDepth" type="number" min="1" max="6"> levels</label>
+    </span>
+    <span class="opt">
+      <label>Callees:</label>
+      <span class="seg" data-opt="calleeMode">
+        <button data-val="tree">Tree</button>
+        <button data-val="graph">Graph</button>
+        <button data-val="treeLeft">Tree from the left</button>
+      </span>
+      <label><input id="calleeDepth" type="number" min="1" max="6"> levels</label>
+    </span>
   </div>
   <div id="legend">
     <span class="dot k-ProjectMethod"></span>Method

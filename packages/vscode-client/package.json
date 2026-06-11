@@ -504,8 +504,8 @@
             "type": "number",
             "default": 1,
             "minimum": 1,
-            "maximum": 4,
-            "description": "Levels of callers (left) and callees (right) shown on each side of the butterfly graph.",
+            "maximum": 6,
+            "description": "Initial levels of callers (left) and callees (right) per side of the butterfly graph. Once changed in the view, the in-view level spinners (persisted per workspace) take precedence.",
             "scope": "window"
           },
           "callchain.trace.hiddenKinds": {

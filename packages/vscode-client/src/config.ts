@@ -49,6 +49,8 @@ export function showCallSiteSnippets(): boolean {
   return cfg().get<boolean>("views.showCallSiteSnippets", true);
 }
 
+/** First-run seed for the butterfly graph's per-side level spinners; once the
+ *  user touches the in-view options, the workspaceState copy wins. */
 export function maxGraphDepth(): number {
   return cfg().get<number>("graph.maxDepth", 1);
 }
