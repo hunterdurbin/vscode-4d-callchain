@@ -1,8 +1,20 @@
 import { CallEdge, SymbolIndex, SymbolRecord } from "./symbol";
 
+/**
+ * Canonical form of a symbol-location uri for by-file lookups. Mirrors the
+ * lens provider's historical `sameUri` comparison (decode percent-escapes,
+ * fall back to the raw string on malformed input) so `symbolsInFile` matches
+ * everywhere string equality used to be computed pairwise.
+ */
+function canonicalUri(uri: string): string {
+  try { return decodeURIComponent(uri); }
+  catch { return uri; }
+}
+
 export class CallGraph {
   private readonly symbolsById = new Map<string, SymbolRecord>();
   private readonly symbolsByName = new Map<string, SymbolRecord[]>();
+  private readonly symbolsByUri = new Map<string, SymbolRecord[]>();
   private readonly forward = new Map<string, CallEdge[]>();
   private readonly reverse = new Map<string, CallEdge[]>();
 
@@ -13,6 +25,7 @@ export class CallGraph {
       const list = this.symbolsByName.get(key) ?? [];
       list.push(s);
       this.symbolsByName.set(key, list);
+      this.addToUriBucket(s);
     }
     for (const e of index.edges) {
       const f = this.forward.get(e.fromId) ?? [];
@@ -22,6 +35,23 @@ export class CallGraph {
       r.push(e);
       this.reverse.set(e.toId, r);
     }
+  }
+
+  private addToUriBucket(s: SymbolRecord): void {
+    if (!s.location.uri) return; // synths carry no location
+    const key = canonicalUri(s.location.uri);
+    const list = this.symbolsByUri.get(key) ?? [];
+    list.push(s);
+    this.symbolsByUri.set(key, list);
+  }
+
+  /**
+   * All symbols whose location lives in the given document. O(file symbols)
+   * — consumers (code lenses, dirty-line tracking) previously scanned
+   * `allSymbols()` with a per-symbol decode on every invocation.
+   */
+  symbolsInFile(uri: string): SymbolRecord[] {
+    return this.symbolsByUri.get(canonicalUri(uri)) ?? [];
   }
 
   get root(): SymbolIndex {
@@ -196,6 +226,7 @@ export class CallGraph {
     const list = this.symbolsByName.get(key) ?? [];
     list.push(s);
     this.symbolsByName.set(key, list);
+    this.addToUriBucket(s);
   }
 
   /**
@@ -222,6 +253,15 @@ export class CallGraph {
         const next = list.filter((s) => s.id !== id);
         if (next.length === 0) this.symbolsByName.delete(key);
         else this.symbolsByName.set(key, next);
+      }
+      if (sym.location.uri) {
+        const uriKey = canonicalUri(sym.location.uri);
+        const uriList = this.symbolsByUri.get(uriKey);
+        if (uriList) {
+          const next = uriList.filter((s) => s.id !== id);
+          if (next.length === 0) this.symbolsByUri.delete(uriKey);
+          else this.symbolsByUri.set(uriKey, next);
+        }
       }
       this.symbolsById.delete(id);
     }

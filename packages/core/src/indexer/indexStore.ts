@@ -77,6 +77,24 @@ export interface IndexerOptions {
    * cache file reflects the latest state synchronously.
    */
   persistDebounceMs?: number;
+  /**
+   * "off" disables ALL cache writes from this process (reads still work).
+   * Set by the extension host when the language server is enabled — the
+   * server process becomes the sole cache writer, keeping the synchronous
+   * msgpack encode off the UI-shared thread entirely. Default: "debounced".
+   */
+  persistMode?: "debounced" | "off";
+}
+
+/** Per-phase timings of the most recent incremental patch (see `getLastPatchStats`). */
+export interface PatchStats {
+  files: number;
+  removeMs: number;
+  parseMs: number;
+  addMs: number;
+  fanoutMs: number;
+  affectedEdges: number;
+  totalMs: number;
 }
 
 export class Indexer {
@@ -101,13 +119,26 @@ export class Indexer {
   // causing N concurrent ~25s rebuilds scribbling over the same state.
   private rebuildInFlight: Promise<CallGraph> | undefined;
 
+  private lastPatchStats: PatchStats | undefined;
+
   constructor(private readonly opts: IndexerOptions) {
     this.persistence = new IndexPersistence({
       projectRoot: opts.projectRoot,
       cacheDir: opts.cacheDir,
       persistDebounceMs: opts.persistDebounceMs,
+      persistMode: opts.persistMode,
       logger: opts.logger
     });
+  }
+
+  /**
+   * Per-phase timings of the most recent `patchFiles` run, or undefined if
+   * no incremental patch has completed yet (or the last one bailed to a full
+   * rebuild). Consumed by perf tests so they can assert on phase budgets
+   * without scraping log lines.
+   */
+  getLastPatchStats(): PatchStats | undefined {
+    return this.lastPatchStats;
   }
 
   getGraph(): CallGraph | undefined {
@@ -228,15 +259,22 @@ export class Indexer {
     // The tree-sitter parse itself is CPU-bound and stays synchronous, but no
     // single uninterrupted span now exceeds one chunk's worth of parsing.
     const YIELD_EVERY = 200;
+    // Sliding read-ahead window: keep the next few file reads in flight so
+    // disk latency overlaps the (synchronous, CPU-bound) parse of the current
+    // file instead of serializing read → parse → read → parse. Window of 16
+    // bounds memory to ~16 source buffers; a deleted file resolves to
+    // undefined and parses to an empty ParsedFile, same as before.
+    const PREFETCH = 16;
+    const inFlight = new Map<number, Promise<string | undefined>>();
+    const readAt = (j: number): Promise<string | undefined> =>
+      fs.promises.readFile(files[j].absolutePath, "utf8").catch(() => undefined);
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      let source: string | undefined;
-      try {
-        source = await fs.promises.readFile(f.absolutePath, "utf8");
-      } catch {
-        // Deleted mid-scan — parseFile(...,undefined) returns an empty ParsedFile.
-        source = undefined;
+      for (let j = i; j < Math.min(i + PREFETCH, files.length); j++) {
+        if (!inFlight.has(j)) inFlight.set(j, readAt(j));
       }
+      const source = await inFlight.get(i)!;
+      inFlight.delete(i);
       const file = parseFile(f, this.opts.projectRoot, constantsSet, source);
       augmentVariadicParams(file, compilerMethodTypes);
       parsed.push(file);
@@ -373,6 +411,7 @@ export class Indexer {
     // The patch path looks up by nameKey when a file's public-name set
     // changes and re-resolves the affected rawCalls in place.
     const edgesByNameKey = new Map<string, NameKeyEntry[]>();
+    const nameKeysByPath = new Map<string, Set<string>>();
     for (const p of parsed) {
       for (let i = 0; i < p.rawCalls.length; i++) {
         const call = p.rawCalls[i];
@@ -384,10 +423,14 @@ export class Indexer {
           (e) => e.line === call.line && e.raw === call.expression && e.column === call.column
         );
         if (!edge) continue;
+        const fp = p.file.absolutePath;
+        let fileKeys = nameKeysByPath.get(fp);
+        if (!fileKeys) { fileKeys = new Set(); nameKeysByPath.set(fp, fileKeys); }
         for (const k of keys) {
           let list = edgesByNameKey.get(k);
           if (!list) { list = []; edgesByNameKey.set(k, list); }
-          list.push({ fromPath: p.file.absolutePath, rawCallIdx: i, edge, nameKey: k });
+          list.push({ fromPath: fp, rawCallIdx: i, edge, nameKey: k });
+          fileKeys.add(k);
         }
       }
     }
@@ -405,6 +448,7 @@ export class Indexer {
       synthOwnersByPath,
       edgesByFromId,
       edgesByNameKey,
+      nameKeysByPath,
       resolverInput,
       constantsSet,
       scratch
@@ -587,6 +631,15 @@ export class Indexer {
     this.persistence.schedulePersist(this.currentIndex);
     const tPersist = Date.now() - tPersistStart;
     const elapsed = Date.now() - start;
+    this.lastPatchStats = {
+      files: codeChanges.length,
+      removeMs: tRemove,
+      parseMs: tParse,
+      addMs: tAdd,
+      fanoutMs: tFanout,
+      affectedEdges: nAffectedEdges,
+      totalMs: elapsed
+    };
     this.opts.logger.info(
       `[Indexer] Patched ${codeChanges.length} file(s) in ${elapsed}ms ` +
       `(remove ${tRemove}ms, parse ${tParse}ms, add ${tAdd}ms, fanout ${tFanout}ms [${nAffectedEdges} edges], ` +

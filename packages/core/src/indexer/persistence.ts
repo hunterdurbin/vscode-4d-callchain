@@ -33,6 +33,14 @@ export interface PersistenceOptions {
    * cache file reflects the latest state synchronously.
    */
   persistDebounceMs?: number;
+  /**
+   * "off" disables ALL cache writes from this process (reads still work).
+   * Used by the extension-host indexer when the language server is enabled:
+   * the server process — where a few hundred ms of msgpack encode can't
+   * stall the editor UI — becomes the sole cache writer, which also removes
+   * the multi-process same-file write race. Default: "debounced".
+   */
+  persistMode?: "debounced" | "off";
 }
 
 /**
@@ -58,6 +66,7 @@ export class IndexPersistence {
   }
 
   persist(idx: SymbolIndex): void {
+    if (this.opts.persistMode === "off") return;
     // Persist is fire-and-forget. The on-disk cache is only consulted at the
     // next process start; correctness during the running session relies on
     // the in-memory index. We use msgpack instead of JSON so the encode is
@@ -94,6 +103,7 @@ export class IndexPersistence {
    * cache once. Default is synchronous so test snapshots see fresh state.
    */
   schedulePersist(idx: SymbolIndex): void {
+    if (this.opts.persistMode === "off") return;
     const delay = this.opts.persistDebounceMs ?? 0;
     if (delay <= 0) {
       this.persist(idx);

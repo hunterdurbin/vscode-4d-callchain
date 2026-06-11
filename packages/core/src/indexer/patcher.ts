@@ -37,6 +37,16 @@ export interface PatchState {
   synthOwnersByPath: Map<string, Set<string>>;
   edgesByFromId: Map<string, CallEdge[]>;
   edgesByNameKey: Map<string, NameKeyEntry[]>;
+  /**
+   * Reverse map of `edgesByNameKey`: for each source file, the set of name
+   * keys it has (or once had) entries under. Lets `dropNameKeyEntriesForFile`
+   * filter only that file's buckets instead of scanning every bucket in the
+   * project (~30k on large projects) on every save. Maintained as a superset
+   * — keys are added when entries are pushed and the whole set is dropped
+   * when the file's contribution is removed; an over-listed key just makes
+   * the per-bucket filter a no-op.
+   */
+  nameKeysByPath: Map<string, Set<string>>;
   resolverInput: ResolverInput;
   constantsSet: Set<string>;
   /**
@@ -144,14 +154,31 @@ export function removeFileContribution(state: PatchState, absolutePath: string):
 /**
  * Drop every `edgesByNameKey` entry whose `fromPath` matches the given
  * file. Used during `removeFileContribution` so name-key lookups don't
- * surface stale entries pointing at a removed rawCall.
+ * surface stale entries pointing at a removed rawCall. Touches only the
+ * buckets the reverse map says this file contributed to — previously this
+ * scanned every bucket in the project on each patched file.
  */
 function dropNameKeyEntriesForFile(state: PatchState, absolutePath: string): void {
-  for (const [key, entries] of state.edgesByNameKey) {
+  const keys = state.nameKeysByPath.get(absolutePath);
+  if (!keys) return;
+  for (const key of keys) {
+    const entries = state.edgesByNameKey.get(key);
+    if (!entries) continue;
     const filtered = entries.filter((e) => e.fromPath !== absolutePath);
     if (filtered.length === 0) state.edgesByNameKey.delete(key);
-    else state.edgesByNameKey.set(key, filtered);
+    else if (filtered.length !== entries.length) state.edgesByNameKey.set(key, filtered);
   }
+  state.nameKeysByPath.delete(absolutePath);
+}
+
+/** Register a name-key entry in both the bucket map and the per-file reverse map. */
+function pushNameKeyEntry(state: PatchState, key: string, entry: NameKeyEntry): void {
+  let list = state.edgesByNameKey.get(key);
+  if (!list) { list = []; state.edgesByNameKey.set(key, list); }
+  list.push(entry);
+  let keys = state.nameKeysByPath.get(entry.fromPath);
+  if (!keys) { keys = new Set(); state.nameKeysByPath.set(entry.fromPath, keys); }
+  keys.add(key);
 }
 
 /**
@@ -278,9 +305,7 @@ export function addFileContribution(state: PatchState, parsed: ParsedFile): Set<
     );
     if (!edge || !addedEdges.has(edge)) continue;
     for (const k of keys) {
-      let list = state.edgesByNameKey.get(k);
-      if (!list) { list = []; state.edgesByNameKey.set(k, list); }
-      list.push({ fromPath: fp, rawCallIdx: i, edge, nameKey: k });
+      pushNameKeyEntry(state, k, { fromPath: fp, rawCallIdx: i, edge, nameKey: k });
     }
   }
 
@@ -380,9 +405,7 @@ export function reresolveAffectedDependents(
       for (const e of newEdges) {
         if (!appendEdgeDeduped(state, e)) continue;
         for (const k of keys) {
-          let bucket = state.edgesByNameKey.get(k);
-          if (!bucket) { bucket = []; state.edgesByNameKey.set(k, bucket); }
-          bucket.push({ fromPath, rawCallIdx, edge: e, nameKey: k });
+          pushNameKeyEntry(state, k, { fromPath, rawCallIdx, edge: e, nameKey: k });
         }
       }
     }

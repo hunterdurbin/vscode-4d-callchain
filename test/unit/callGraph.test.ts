@@ -138,6 +138,42 @@ describe("CallGraph mutation API", () => {
   });
 });
 
+describe("CallGraph.symbolsInFile", () => {
+  it("returns symbols by document uri, maintained across add/remove", () => {
+    const idx = makeIndex();
+    const a = { ...sym("A", "A"), location: { uri: "file:///dir/Doc.4dm", line: 0 } };
+    const b = { ...sym("B", "B"), location: { uri: "file:///dir/Doc.4dm", line: 5 } };
+    const other = { ...sym("C", "C"), location: { uri: "file:///dir/Other.4dm", line: 0 } };
+    idx.symbols.push(a, other);
+    const g = new CallGraph(idx);
+
+    expect(g.symbolsInFile("file:///dir/Doc.4dm").map((s) => s.id)).toEqual(["A"]);
+    g.addSymbol(b);
+    expect(g.symbolsInFile("file:///dir/Doc.4dm").map((s) => s.id).sort()).toEqual(["A", "B"]);
+    g.removeSymbolsByIds(["A"]);
+    expect(g.symbolsInFile("file:///dir/Doc.4dm").map((s) => s.id)).toEqual(["B"]);
+    g.removeSymbolsByIds(["B"]);
+    expect(g.symbolsInFile("file:///dir/Doc.4dm")).toEqual([]);
+    expect(g.symbolsInFile("file:///dir/Other.4dm").map((s) => s.id)).toEqual(["C"]);
+  });
+
+  it("matches percent-encoded and decoded forms of the same uri", () => {
+    const idx = makeIndex();
+    const a = { ...sym("A", "A"), location: { uri: "file:///dir/My%20Method.4dm", line: 0 } };
+    idx.symbols.push(a);
+    const g = new CallGraph(idx);
+    expect(g.symbolsInFile("file:///dir/My Method.4dm").map((s) => s.id)).toEqual(["A"]);
+    expect(g.symbolsInFile("file:///dir/My%20Method.4dm").map((s) => s.id)).toEqual(["A"]);
+  });
+
+  it("synth symbols (empty uri) are not indexed by file", () => {
+    const idx = makeIndex();
+    idx.symbols.push({ id: "Builtin:ALERT", name: "ALERT", kind: SymbolKind.Builtin, location: { uri: "", line: 0 } });
+    const g = new CallGraph(idx);
+    expect(g.symbolsInFile("")).toEqual([]);
+  });
+});
+
 describe("CallGraph.shortestPath", () => {
   // A -> B -> C -> D chain, plus a shortcut A -> D' is absent so the only
   // path A..D is length 3.
