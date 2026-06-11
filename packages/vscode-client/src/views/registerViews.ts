@@ -108,7 +108,7 @@ export function registerViews(context: vscode.ExtensionContext): Views {
   // React to config changes that affect tree rendering.
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("callchain.showCallSiteSnippets")) {
+      if (e.affectsConfiguration("callchain.views.showCallSiteSnippets")) {
         callers.refresh();
         callees.refresh();
       }

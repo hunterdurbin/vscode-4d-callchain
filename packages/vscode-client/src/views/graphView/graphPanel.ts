@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
+import { maxGraphDepth } from "../../config";
 import { CallGraph, CallKind, SymbolKind } from "@4d/core";
 
 interface GraphData {
@@ -59,7 +60,7 @@ export class GraphPanel {
   }
 
   private postData(): void {
-    const depth = vscode.workspace.getConfiguration("callchain").get<number>("maxGraphDepth", 3);
+    const depth = maxGraphDepth();
     this.panel.webview.postMessage({ type: "data", payload: this.buildData(this.rootId, depth, "both") });
   }
 

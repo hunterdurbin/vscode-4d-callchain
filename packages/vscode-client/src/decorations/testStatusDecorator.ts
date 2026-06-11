@@ -1,11 +1,10 @@
 import * as vscode from "vscode";
-import { JUnitParseResult, TestResult, indexByClass, parseJUnitFile } from "../testing/junitParser";
+import { TestResult, indexByClass } from "../testing/results";
 import { JsonParseResult, parseJsonResultsFile } from "../testing/jsonParser";
 import { debounce } from "../util/debounce";
 
 interface DecoratorState {
   byClass: Map<string, Map<string, TestResult>>;
-  lastJunit?: JUnitParseResult;
   lastJson?: JsonParseResult;
 }
 
@@ -59,17 +58,6 @@ export class TestStatusDecorator implements vscode.Disposable {
     this.disposables.length = 0;
   }
 
-  /** Load from JUnit XML (legacy path). */
-  loadFromJunit(filePath: string): void {
-    const result = parseJUnitFile(filePath);
-    if (!result) {
-      this.state = { byClass: new Map() };
-    } else {
-      this.state = { lastJunit: result, byClass: indexByClass(result.results) };
-    }
-    this.refresh();
-  }
-
   /** Load from JSON results (4D testing component / ScottHarris format). */
   loadFromJson(filePath: string): void {
     const result = parseJsonResultsFile(filePath);
@@ -94,12 +82,6 @@ export class TestStatusDecorator implements vscode.Disposable {
     this.refresh();
   }
 
-  /** Back-compat shim. */
-  loadFrom(filePath: string): void {
-    if (filePath.endsWith(".xml")) this.loadFromJunit(filePath);
-    else if (filePath.endsWith(".json")) this.loadFromJson(filePath);
-  }
-
   private refresh(): void {
     for (const ed of vscode.window.visibleTextEditors) this.apply(ed);
     this.emitter.fire();
@@ -107,10 +89,6 @@ export class TestStatusDecorator implements vscode.Disposable {
 
   resultFor(className: string, testName: string): TestResult | undefined {
     return this.state.byClass.get(className)?.get(testName);
-  }
-
-  totals(): { tests: number; failures: number; errors: number; skipped: number } | undefined {
-    return this.state.lastJson?.totals ?? this.state.lastJunit?.totals;
   }
 
   apply(editor: vscode.TextEditor): void {

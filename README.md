@@ -58,12 +58,46 @@ Two `.vsix` variants:
 
 ## Settings
 
-- `callchain.projectRoot` — path to 4D project root (the folder containing `Project/`). Defaults to first workspace folder.
-- `callchain.testCommand` — command template (default: `make test class={class} format=junit`).
-- `callchain.junitResultsPath` — relative path to JUnit XML output.
-- `callchain.maxGraphDepth` — default graph BFS depth.
-- `callchain.showCoverageHints` — gutter markers for uncovered functions.
+Settings are grouped into titled sections in the Settings UI (search for
+"4D Call Chain"). The most useful keys:
+
+**Indexing**
+- `callchain.index.projectRoot` — path to 4D project root (the folder containing `Project/`). Defaults to first workspace folder.
+- `callchain.index.exclusions` — folder names skipped while indexing.
+- `callchain.index.autoOnStartup` — build/load the index on activation (default on).
+
+**Language Server**
+- `callchain.server.enabled` — run the 4D language server (definitions, references, call hierarchy, semantic tokens, diagnostics/linter, hover, completion, signature help) in its own process.
+
+**Code Lenses** — `callchain.codeLens.show*` toggles for each lens kind (callers, callees, via-base, graph, overrides, overriding, extended-by, property usage).
+
+**Views & Graph**
+- `callchain.views.showCallSiteSnippets` — code snippets on call-site rows.
+- `callchain.graph.maxDepth` — default graph BFS depth.
+
+**Coverage**
+- `callchain.coverage.showHints` — gutter markers for uncovered functions.
+- `callchain.coverage.testFunctionPattern` / `testClassPattern` / `testMethodPattern` — what counts as a test.
+
+**Testing**
+- `callchain.tests.enabled` — the optional test-integration subsystem (run commands, pass/fail gutter, results watcher).
+- `callchain.tests.command` — command template (default: `make test class={class} format=json outputPath={jsonOutputPath}`).
+- `callchain.tests.jsonResultsPath` — relative path to the JSON results file.
+
+**Lint**
 - `callchain.lint.rules` — per-rule severity + options for the built-in linter (eleven rules across `types/`, `decl/`, `unused/`, `style/` themes; all off by default). See [docs/lint-rules.md](docs/lint-rules.md).
+
+**MCP**
+- `callchain.mcp.binPath` — explicit path to the MCP server binary for packaged installs.
+
+> **Upgrading from ≤0.1.x:** settings were renamed in 0.2.0 with no aliases.
+> Old → new: `projectRoot`→`index.projectRoot`, `indexExclusions`→`index.exclusions`,
+> `builtinConstantsPaths`→`index.builtinConstantsPaths`, `autoIndexOnStartup`→`index.autoOnStartup`,
+> `languageServer.enabled`→`server.enabled` (`ideServer.enabled` removed — the two servers merged),
+> `showCallSiteSnippets`→`views.showCallSiteSnippets`, `maxGraphDepth`→`graph.maxDepth`,
+> `showCoverageHints`→`coverage.showHints`, `testIntegration.enabled`→`tests.enabled`,
+> `testCommand`→`tests.command`, `jsonResultsPath`→`tests.jsonResultsPath`
+> (`junitResultsPath` removed — JSON results only), `mcpServer.binPath`→`mcp.binPath`.
 
 ## MCP server (for AI agents)
 
@@ -81,7 +115,7 @@ global `~/.claude.json`), Cursor (`.cursor/mcp.json`), VS Code/Copilot
 (`.vscode/mcp.json`) — and either writes/merges the config (existing servers are
 preserved; a `.bak` is saved first) or copies the JSON to your clipboard. When
 running from a packaged `.vsix` (where the server isn't bundled), point
-`callchain.mcpServer.binPath` at the server's `dist/bin.js`.
+`callchain.mcp.binPath` at the server's `dist/bin.js`.
 
 To wire it up by hand instead, build the monorepo (`npm run build`) and register
 the server with your agent. For Claude Code, add to `.mcp.json`:

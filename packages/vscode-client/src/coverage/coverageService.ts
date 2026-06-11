@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CallGraph } from "@4d/core";
 import { CoverageHintsDecorator } from "../decorations/coverageHintsDecorator";
 import { TrailingScheduler } from "../util/trailingScheduler";
+import { coveragePatternSetting, showCoverageHints } from "../config";
 import {
   CoverageReport,
   computeCoverage,
@@ -40,7 +41,7 @@ export class CoverageService implements vscode.Disposable {
     private readonly output: vscode.OutputChannel,
     computeDelayMs = 1500
   ) {
-    this.hintsEnabled = vscode.workspace.getConfiguration("callchain").get<boolean>("showCoverageHints", false);
+    this.hintsEnabled = showCoverageHints();
     this.patterns = this.compilePatterns();
     this.scheduler = new TrailingScheduler(() => this.computeNow(), computeDelayMs);
   }
@@ -81,7 +82,7 @@ export class CoverageService implements vscode.Disposable {
    *  (config changes are rare and user-initiated — they expect to see the
    *  effect now, not after the idle delay). */
   refreshFromConfig(): void {
-    this.hintsEnabled = vscode.workspace.getConfiguration("callchain").get<boolean>("showCoverageHints", false);
+    this.hintsEnabled = showCoverageHints();
     this.patterns = this.compilePatterns();
     this.scheduler.cancel();
     this.computeNow();
@@ -104,21 +105,20 @@ export class CoverageService implements vscode.Disposable {
   }
 
   private compilePatterns(): TestPatterns {
-    const ccfg = vscode.workspace.getConfiguration("callchain");
-    const compile = (key: string, fallback: RegExp): RegExp => {
-      const raw = ccfg.get<string>(key, "");
+    const compile = (key: "testFunctionPattern" | "testClassPattern" | "testMethodPattern", fallback: RegExp): RegExp => {
+      const raw = coveragePatternSetting(key);
       if (!raw) return fallback;
       try {
         return new RegExp(raw);
       } catch (e) {
-        this.output.appendLine(`[Coverage] Invalid regex for callchain.${key} ("${raw}"): ${(e as Error).message}. Using default.`);
+        this.output.appendLine(`[Coverage] Invalid regex for callchain.coverage.${key} ("${raw}"): ${(e as Error).message}. Using default.`);
         return fallback;
       }
     };
     return {
-      testFunctionPattern: compile("coverage.testFunctionPattern", DEFAULT_TEST_FUNCTION_PATTERN),
-      testClassPattern: compile("coverage.testClassPattern", DEFAULT_TEST_CLASS_PATTERN),
-      testMethodPattern: compile("coverage.testMethodPattern", DEFAULT_TEST_METHOD_PATTERN)
+      testFunctionPattern: compile("testFunctionPattern", DEFAULT_TEST_FUNCTION_PATTERN),
+      testClassPattern: compile("testClassPattern", DEFAULT_TEST_CLASS_PATTERN),
+      testMethodPattern: compile("testMethodPattern", DEFAULT_TEST_METHOD_PATTERN)
     };
   }
 }

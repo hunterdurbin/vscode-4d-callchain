@@ -5,6 +5,7 @@ import { initTreeSitterParser } from "@4d/core";
 import { LanguageClient } from "vscode-languageclient/node";
 import { TestStatusDecorator } from "./decorations/testStatusDecorator";
 import { registerMcpSetup } from "./mcp/setupMcp";
+import * as config from "./config";
 import { resolveProjectRoot } from "./activation/projectRoot";
 import { createIndexer, registerIndexWatchers } from "./indexing/indexerService";
 import { registerViews } from "./views/registerViews";
@@ -32,16 +33,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   await initParser(output);
 
-  const cfg = vscode.workspace.getConfiguration("callchain");
-  const exclusions = cfg.get<string[]>("indexExclusions", []);
-  const builtinConstantsPaths = cfg.get<string[]>("builtinConstantsPaths", []);
+  const exclusions = config.indexExclusions();
+  const constantsPaths = config.builtinConstantsPaths();
   // Feature gates for the lean Call-Chain-only build. The LSP server and the
   // test-integration subsystem are not required by Call Chain — default off,
   // flip the matching callchain.* setting to re-enable.
-  const testEnabled = cfg.get<boolean>("testIntegration.enabled", false);
-  const serverEnabled = cfg.get<boolean>("languageServer.enabled", false);
+  const testEnabled = config.testsEnabled();
+  const serverEnabled = config.serverEnabled();
 
-  const indexer = createIndexer({ projectRoot, exclusions, builtinConstantsPaths, output, serverEnabled });
+  const indexer = createIndexer({ projectRoot, exclusions, builtinConstantsPaths: constantsPaths, output, serverEnabled });
   indexerRef = indexer;
 
   const views = registerViews(context);
@@ -65,10 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // consumers (gutter hints via the service, lenses + callers filter here).
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (
-        e.affectsConfiguration("callchain.showCoverageHints") ||
-        e.affectsConfiguration("callchain.coverage")
-      ) {
+      if (e.affectsConfiguration("callchain.coverage")) {
         coverage.refreshFromConfig();
         views.callers.setTestPatterns(coverage.getPatterns());
         lensProvider.refresh();
@@ -102,7 +99,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     registerTestIntegration(context, projectRoot, indexer, decorator, coverage, output, testOutput);
   }
 
-  if (vscode.workspace.getConfiguration("callchain").get<boolean>("autoIndexOnStartup", true)) {
+  if (config.autoIndexOnStartup()) {
     indexer.load().catch((err) => output.appendLine(`[Indexer] failed: ${err}`));
   }
 
@@ -112,15 +109,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // signature help. VSCode's native UIs (F12, Shift+F12, Peek Call Hierarchy)
   // pick these up automatically once the document selector matches. Gated:
   // off by default, and a separate process that re-indexes independently.
-  if (cfg.get<boolean>("languageServer.enabled", false)) {
+  if (serverEnabled) {
     try {
-      lspClient = startLanguageServer(output, exclusions, builtinConstantsPaths);
+      lspClient = startLanguageServer(output, exclusions, constantsPaths);
       context.subscriptions.push({ dispose: () => { void lspClient?.stop(); } });
     } catch (err) {
       output.appendLine(`[LSP] Failed to start language-server: ${err}`);
     }
   } else {
-    output.appendLine("[Activate] language-server disabled (callchain.languageServer.enabled = false).");
+    output.appendLine("[Activate] language-server disabled (callchain.server.enabled = false).");
   }
 }
 

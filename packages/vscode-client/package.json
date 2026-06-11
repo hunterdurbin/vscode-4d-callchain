@@ -204,11 +204,11 @@
       "commandPalette": [
         {
           "command": "callchain.runTestsForClass",
-          "when": "config.callchain.testIntegration.enabled"
+          "when": "config.callchain.tests.enabled"
         },
         {
           "command": "callchain.runAllTests",
-          "when": "config.callchain.testIntegration.enabled"
+          "when": "config.callchain.tests.enabled"
         },
         {
           "command": "callchain.jumpToTests",
@@ -365,167 +365,233 @@
         }
       ]
     },
-    "configuration": {
-      "title": "4D Call Chain",
-      "properties": {
-        "callchain.languageServer.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Run the 4D language server (go-to-definition, find references, workspace symbols, document outline, native call hierarchy, semantic tokens, diagnostics/linter, hover, completion, signature help). Off by default in the lean Call-Chain-only build; it runs in a separate process that re-indexes the whole project. Note: the packaged .vsix does not bundle this server, so enabling it there has no effect — run the extension from source to use it."
-        },
-        "callchain.testIntegration.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable test integration: the test runner commands, ScottHarris.4d-testing-extension delegation, gutter pass/fail decorations, and the per-index coverage computation that powers the 'N tests cover this' code lens. Off by default; not part of the Call Chain core."
-        },
-        "callchain.projectRoot": {
-          "type": "string",
-          "default": "",
-          "description": "Absolute path to 4D project root (folder containing 'Project/'). Defaults to first workspace folder."
-        },
-        "callchain.mcpServer.binPath": {
-          "type": "string",
-          "default": "",
-          "description": "Absolute path to the 4D Call Chain MCP server bin.js, used by the 'Set up MCP server for AI agents' command. Leave empty to auto-resolve. Set this when running from a packaged .vsix, where the server isn't bundled."
-        },
-        "callchain.testCommand": {
-          "type": "string",
-          "default": "make test class={class} format=json outputPath={jsonOutputPath}",
-          "description": "Command template used when running tests via our fallback runner (ScottHarris.4d-testing-extension is preferred when installed). {class} is the test class name; {jsonOutputPath} is the value of callchain.jsonResultsPath."
-        },
-        "callchain.jsonResultsPath": {
-          "type": "string",
-          "default": "Components/testing.4dbase/test-results/results.json",
-          "description": "Relative path (from projectRoot) where the JSON test-results file is written and read. Matches the format consumed by ScottHarris.4d-testing-extension."
-        },
-        "callchain.junitResultsPath": {
-          "type": "string",
-          "default": "Components/testing.4dbase/test-results/junit.xml",
-          "description": "Optional JUnit XML fallback path. Used only if the JSON file is missing."
-        },
-        "callchain.maxGraphDepth": {
-          "type": "number",
-          "default": 3,
-          "minimum": 1,
-          "maximum": 8,
-          "description": "Default maximum BFS depth when rendering the graph."
-        },
-        "callchain.indexExclusions": {
-          "type": "array",
-          "default": [
-            "DerivedData",
-            "Libraries",
-            ".git",
-            "node_modules"
-          ],
-          "description": "Folder names (anywhere in the tree) to skip during indexing."
-        },
-        "callchain.showCoverageHints": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show gutter markers on functions not reached by any test function. Works on its own — does not require callchain.testIntegration.enabled."
-        },
-        "callchain.coverage.testFunctionPattern": {
-          "type": "string",
-          "default": "^test_",
-          "description": "Regular expression matched against a function's name to decide whether it is a test (a coverage seed). Functions that match are excluded from the uncovered list. Defaults to the test_ prefix convention."
-        },
-        "callchain.coverage.testClassPattern": {
-          "type": "string",
-          "default": "_Test$",
-          "description": "Regular expression matched against a class name to decide whether it is a test class. Functions belonging to a matching class are excluded from the uncovered list. Defaults to the _Test suffix convention."
-        },
-        "callchain.coverage.testMethodPattern": {
-          "type": "string",
-          "default": "^UT_",
-          "description": "Regular expression matched against a project method's name to decide whether it is a test (a coverage seed). Project methods that match are treated as tests and excluded from the uncovered list, even when they don't belong to a test class. Defaults to the UT_ prefix convention."
-        },
-        "callchain.autoIndexOnStartup": {
-          "type": "boolean",
-          "default": true,
-          "description": "Build (or load) the index automatically on activation."
-        },
-        "callchain.showCallSiteSnippets": {
-          "type": "boolean",
-          "default": true,
-          "description": "When a caller/callee has multiple call sites in the same file, show the source-line snippet next to the line number. Disable to show 'line N' only."
-        },
-        "callchain.codeLens.showCallers": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the '▲ N callers' code lens above functions and methods."
-        },
-        "callchain.codeLens.showCallees": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show the '▼ N callees' code lens above functions and methods."
-        },
-        "callchain.codeLens.showViaBase": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the '⊕ N via base' code lens above an overriding class function — the call sites that resolve to an ancestor's method but can dispatch to this override at runtime. Surfaces polymorphic-dispatch callers that '▲ N callers' (direct edges only) misses, so overrides aren't mistaken for dead code."
-        },
-        "callchain.codeLens.showGraph": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show the '◎ Graph' code lens above functions/methods and the '◎ Graph class' lens on class declarations."
-        },
-        "callchain.codeLens.showOverrides": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the '↧ N overrides' code lens above class functions that are overridden by subclasses (classes that extend this one)."
-        },
-        "callchain.codeLens.showOverriding": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the '↥ overrides {Class}' code lens above a class function that overrides a function inherited from an ancestor class."
-        },
-        "callchain.codeLens.showExtendedBy": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the '↥ Extended by N' code lens on a class declaration, counting subclasses (direct, plus total descendants when deeper)."
-        },
-        "callchain.codeLens.showPropertyUsage": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the '↔ N reads · M writes' usage code lens above class properties, computed-attribute getters/setters, and ORDA aliases (replaces the '▲ N callers' lens for these field-like members). When multiple share one line, each lens is prefixed with the member name."
-        },
-        "callchain.builtinConstantsPaths": {
-          "type": "array",
-          "items": {
-            "type": "string"
+    "configuration": [
+      {
+        "title": "Indexing",
+        "properties": {
+          "callchain.index.projectRoot": {
+            "type": "string",
+            "default": "",
+            "description": "Absolute path to 4D project root (folder containing 'Project/'). Defaults to first workspace folder.",
+            "scope": "resource"
           },
-          "default": [],
-          "description": "Optional absolute paths to a 4D 4D_ConstantsEN.xlf file. If empty, the extension auto-detects tool4d.app / 4D installations under /Applications."
-        },
-        "callchain.lint.rules": {
-          "type": "object",
-          "default": {},
-          "description": "Best-practices lint rules. Each entry maps a rule id to a severity ('off' | 'info' | 'warning' | 'error') OR an object { severity, options } for per-rule tuning. All rules ship off-by-default; opt in here. Known rule ids: 'style/trailing-whitespace', 'types/missing-param-type', 'types/missing-return-type', 'decl/implicit-local', 'unused/method-no-callers', 'unused/parameter', 'unused/local', 'style/class-pascal-case', 'style/method-camel-case', 'style/missing-docstring-on-public', 'style/builtin-name-collision'.",
-          "additionalProperties": {
-            "oneOf": [
-              {
-                "type": "string",
-                "enum": ["off", "info", "warning", "error"]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "severity": {
-                    "type": "string",
-                    "enum": ["off", "info", "warning", "error"]
-                  },
-                  "options": {
-                    "type": "object"
-                  }
+          "callchain.index.exclusions": {
+            "type": "array",
+            "default": [
+              "DerivedData",
+              "Libraries",
+              ".git",
+              "node_modules"
+            ],
+            "description": "Folder names (anywhere in the tree) to skip during indexing.",
+            "scope": "resource"
+          },
+          "callchain.index.builtinConstantsPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "description": "Optional absolute paths to a 4D 4D_ConstantsEN.xlf file. If empty, the extension auto-detects tool4d.app / 4D installations under /Applications.",
+            "scope": "resource"
+          },
+          "callchain.index.autoOnStartup": {
+            "type": "boolean",
+            "default": true,
+            "description": "Build (or load) the index automatically on activation.",
+            "scope": "window"
+          }
+        }
+      },
+      {
+        "title": "Language Server",
+        "properties": {
+          "callchain.server.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Run the 4D language server (go-to-definition, find references, workspace symbols, document outline, native call hierarchy, semantic tokens, diagnostics/linter, hover, completion, signature help). Off by default in the lean Call-Chain-only build; it runs in a separate process that re-indexes the whole project. Note: the packaged .vsix does not bundle this server, so enabling it there has no effect — run the extension from source to use it.",
+            "scope": "window"
+          }
+        }
+      },
+      {
+        "title": "Code Lenses",
+        "properties": {
+          "callchain.codeLens.showCallers": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the '▲ N callers' code lens above functions and methods.",
+            "scope": "window"
+          },
+          "callchain.codeLens.showCallees": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show the '▼ N callees' code lens above functions and methods.",
+            "scope": "window"
+          },
+          "callchain.codeLens.showViaBase": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the '⊕ N via base' code lens above an overriding class function — the call sites that resolve to an ancestor's method but can dispatch to this override at runtime. Surfaces polymorphic-dispatch callers that '▲ N callers' (direct edges only) misses, so overrides aren't mistaken for dead code.",
+            "scope": "window"
+          },
+          "callchain.codeLens.showGraph": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show the '◎ Graph' code lens above functions/methods and the '◎ Graph class' lens on class declarations.",
+            "scope": "window"
+          },
+          "callchain.codeLens.showOverrides": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the '↧ N overrides' code lens above class functions that are overridden by subclasses (classes that extend this one).",
+            "scope": "window"
+          },
+          "callchain.codeLens.showOverriding": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the '↥ overrides {Class}' code lens above a class function that overrides a function inherited from an ancestor class.",
+            "scope": "window"
+          },
+          "callchain.codeLens.showExtendedBy": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the '↥ Extended by N' code lens on a class declaration, counting subclasses (direct, plus total descendants when deeper).",
+            "scope": "window"
+          },
+          "callchain.codeLens.showPropertyUsage": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the '↔ N reads · M writes' usage code lens above class properties, computed-attribute getters/setters, and ORDA aliases (replaces the '▲ N callers' lens for these field-like members). When multiple share one line, each lens is prefixed with the member name.",
+            "scope": "window"
+          }
+        }
+      },
+      {
+        "title": "Views & Graph",
+        "properties": {
+          "callchain.views.showCallSiteSnippets": {
+            "type": "boolean",
+            "default": true,
+            "description": "When a caller/callee has multiple call sites in the same file, show the source-line snippet next to the line number. Disable to show 'line N' only.",
+            "scope": "window"
+          },
+          "callchain.graph.maxDepth": {
+            "type": "number",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 8,
+            "description": "Default maximum BFS depth when rendering the graph.",
+            "scope": "window"
+          }
+        }
+      },
+      {
+        "title": "Coverage",
+        "properties": {
+          "callchain.coverage.showHints": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show gutter markers on functions not reached by any test function. Works on its own — does not require callchain.tests.enabled.",
+            "scope": "window"
+          },
+          "callchain.coverage.testFunctionPattern": {
+            "type": "string",
+            "default": "^test_",
+            "description": "Regular expression matched against a function's name to decide whether it is a test (a coverage seed). Functions that match are excluded from the uncovered list. Defaults to the test_ prefix convention.",
+            "scope": "resource"
+          },
+          "callchain.coverage.testClassPattern": {
+            "type": "string",
+            "default": "_Test$",
+            "description": "Regular expression matched against a class name to decide whether it is a test class. Functions belonging to a matching class are excluded from the uncovered list. Defaults to the _Test suffix convention.",
+            "scope": "resource"
+          },
+          "callchain.coverage.testMethodPattern": {
+            "type": "string",
+            "default": "^UT_",
+            "description": "Regular expression matched against a project method's name to decide whether it is a test (a coverage seed). Project methods that match are treated as tests and excluded from the uncovered list, even when they don't belong to a test class. Defaults to the UT_ prefix convention.",
+            "scope": "resource"
+          }
+        }
+      },
+      {
+        "title": "Testing",
+        "properties": {
+          "callchain.tests.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable test integration: the test runner commands, ScottHarris.4d-testing-extension delegation, gutter pass/fail decorations, and the per-index coverage computation that powers the 'N tests cover this' code lens. Off by default; not part of the Call Chain core.",
+            "scope": "resource"
+          },
+          "callchain.tests.command": {
+            "type": "string",
+            "default": "make test class={class} format=json outputPath={jsonOutputPath}",
+            "description": "Command template used when running tests via our fallback runner (ScottHarris.4d-testing-extension is preferred when installed). {class} is the test class name; {jsonOutputPath} is the value of callchain.jsonResultsPath.",
+            "scope": "resource"
+          },
+          "callchain.tests.jsonResultsPath": {
+            "type": "string",
+            "default": "Components/testing.4dbase/test-results/results.json",
+            "description": "Relative path (from projectRoot) where the JSON test-results file is written and read. Matches the format consumed by ScottHarris.4d-testing-extension.",
+            "scope": "resource"
+          }
+        }
+      },
+      {
+        "title": "Lint",
+        "properties": {
+          "callchain.lint.rules": {
+            "type": "object",
+            "default": {},
+            "description": "Best-practices lint rules. Each entry maps a rule id to a severity ('off' | 'info' | 'warning' | 'error') OR an object { severity, options } for per-rule tuning. All rules ship off-by-default; opt in here. Known rule ids: 'style/trailing-whitespace', 'types/missing-param-type', 'types/missing-return-type', 'decl/implicit-local', 'unused/method-no-callers', 'unused/parameter', 'unused/local', 'style/class-pascal-case', 'style/method-camel-case', 'style/missing-docstring-on-public', 'style/builtin-name-collision'.",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "off",
+                    "info",
+                    "warning",
+                    "error"
+                  ]
                 },
-                "additionalProperties": false
-              }
-            ]
+                {
+                  "type": "object",
+                  "properties": {
+                    "severity": {
+                      "type": "string",
+                      "enum": [
+                        "off",
+                        "info",
+                        "warning",
+                        "error"
+                      ]
+                    },
+                    "options": {
+                      "type": "object"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "scope": "resource"
+          }
+        }
+      },
+      {
+        "title": "MCP",
+        "properties": {
+          "callchain.mcp.binPath": {
+            "type": "string",
+            "default": "",
+            "description": "Absolute path to the 4D Call Chain MCP server bin.js, used by the 'Set up MCP server for AI agents' command. Leave empty to auto-resolve. Set this when running from a packaged .vsix, where the server isn't bundled.",
+            "scope": "machine"
           }
         }
       }
-    }
+    ]
   },
   "license": "MIT",
   "repository": {
@@ -560,7 +626,6 @@
     "cytoscape": "^3.33.3",
     "cytoscape-dagre": "^2.5.0",
     "dagre": "^0.8.5",
-    "fast-xml-parser": "^4.4.0",
     "vscode-languageclient": "^9.0.1"
   }
 }

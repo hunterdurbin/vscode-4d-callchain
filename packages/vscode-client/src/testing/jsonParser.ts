@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { TestResult } from "./junitParser";
+import { TestResult } from "./results";
 
 /**
  * Parses the JSON test-results format produced by the 4D testing component

@@ -6,6 +6,7 @@ import { TestResultsWatcher } from "./resultsWatcher";
 import { delegateToScottHarris, isScottHarrisInstalled, runTests } from "./testRunner";
 import { CoverageService } from "../coverage/coverageService";
 import { openSymbol } from "../commands/navigationCommands";
+import * as config from "../config";
 
 /**
  * The optional test-integration subsystem: results watcher, pass/fail gutter
@@ -31,8 +32,6 @@ export function registerTestIntegration(
     output.appendLine("[Activate] ScottHarris.4d-testing-extension detected — ▶ Run will delegate to its Test Explorer.");
   }
 
-  const cfg = () => vscode.workspace.getConfiguration("callchain");
-
   context.subscriptions.push(
     vscode.commands.registerCommand("callchain.runTestsForClass", async (className?: string, testFunctionName?: string) => {
       const cls = className ?? (await vscode.window.showInputBox({ prompt: "Test class name (e.g. OrderHydrator_Test)" }));
@@ -44,9 +43,8 @@ export function registerTestIntegration(
         if (ok) return;
       }
       // 2. Fall back to our own runner.
-      const template = cfg().get<string>("testCommand", "make test class={class} format=json outputPath={jsonOutputPath}");
-      const jsonRel = cfg().get<string>("jsonResultsPath", "Components/testing.4dbase/test-results/results.json");
-      const cmd = template.replace(/\{jsonOutputPath\}/g, jsonRel);
+      const jsonRel = config.jsonResultsPath();
+      const cmd = config.testCommand().replace(/\{jsonOutputPath\}/g, jsonRel);
       await runTests({ projectRoot, commandTemplate: cmd, className: cls, output: testOutput });
       const jsonAbs = path.join(projectRoot, jsonRel);
       decorator.loadFromJson(jsonAbs);
@@ -57,11 +55,10 @@ export function registerTestIntegration(
         await vscode.commands.executeCommand("testing.runAll");
         return;
       }
-      const template = cfg()
-        .get<string>("testCommand", "make test class={class} format=json outputPath={jsonOutputPath}")
-        .replace(/\bclass=\{class\}\s*/g, "");
-      const jsonRel = cfg().get<string>("jsonResultsPath", "Components/testing.4dbase/test-results/results.json");
-      const cmd = template.replace(/\{jsonOutputPath\}/g, jsonRel);
+      const jsonRel = config.jsonResultsPath();
+      const cmd = config.testCommand()
+        .replace(/\bclass=\{class\}\s*/g, "")
+        .replace(/\{jsonOutputPath\}/g, jsonRel);
       await runTests({ projectRoot, commandTemplate: cmd, output: testOutput });
       const jsonAbs = path.join(projectRoot, jsonRel);
       decorator.loadFromJson(jsonAbs);

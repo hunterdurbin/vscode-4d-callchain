@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { showCallSiteSnippets } from "../config";
 import { CallGraph, SymbolKind, dispatchCallers, fuzzyMatch, parseFilterQuery } from "@4d/core";
 import type { CallEdge, SymbolRecord } from "@4d/core";
 import { descriptionFor, iconFor } from "./treeIcons";
@@ -476,9 +477,7 @@ export class CallTreeProvider implements vscode.TreeDataProvider<Node> {
       return item;
     }
     if (node.kind === "site") {
-      const showSnippet = vscode.workspace
-        .getConfiguration("callchain")
-        .get<boolean>("showCallSiteSnippets", true);
+      const showSnippet = showCallSiteSnippets();
       // Field-like-member edges carry a read/write access tag — surface it on
       // the call-site label (e.g. "line 160 · write").
       const accessTag = node.edge.access ? ` · ${node.edge.access}` : "";

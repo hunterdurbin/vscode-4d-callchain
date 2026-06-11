@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import { TestStatusDecorator } from "../decorations/testStatusDecorator";
+import { jsonResultsPath } from "../config";
 
 /**
  * Watches for test-result files in two locations:
@@ -28,19 +29,13 @@ export class TestResultsWatcher {
   ) {}
 
   start(): void {
-    const cfg = vscode.workspace.getConfiguration("callchain");
-    const jsonRel = cfg.get<string>("jsonResultsPath", "Components/testing.4dbase/test-results/results.json");
-    const junitRel = cfg.get<string>("junitResultsPath", "Components/testing.4dbase/test-results/junit.xml");
+    const jsonRel = jsonResultsPath();
 
-    // Initial load — prefer JSON over JUnit if both exist.
+    // Initial load.
     const jsonAbs = path.join(this.projectRoot, jsonRel);
-    const junitAbs = path.join(this.projectRoot, junitRel);
     if (fs.existsSync(jsonAbs)) {
       this.decorator.loadFromJson(jsonAbs);
       this.output.appendLine(`[Tests] Loaded ${jsonAbs}`);
-    } else if (fs.existsSync(junitAbs)) {
-      this.decorator.loadFromJunit(junitAbs);
-      this.output.appendLine(`[Tests] Loaded ${junitAbs} (JUnit fallback)`);
     }
 
     // Watch persistent JSON.
@@ -48,18 +43,6 @@ export class TestResultsWatcher {
       const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.projectRoot, jsonRel));
       w.onDidCreate(() => this.decorator.loadFromJson(jsonAbs));
       w.onDidChange(() => this.decorator.loadFromJson(jsonAbs));
-      this.disposables.push(w);
-    }
-
-    // Watch persistent JUnit (fallback).
-    if (junitRel) {
-      const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.projectRoot, junitRel));
-      w.onDidCreate(() => {
-        if (!fs.existsSync(jsonAbs)) this.decorator.loadFromJunit(junitAbs);
-      });
-      w.onDidChange(() => {
-        if (!fs.existsSync(jsonAbs)) this.decorator.loadFromJunit(junitAbs);
-      });
       this.disposables.push(w);
     }
 

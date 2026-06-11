@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { mcpBinPath } from "../config";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -13,13 +14,13 @@ import {
 
 /**
  * Locate the MCP server's `dist/bin.js`. Resolution order:
- *   1. the `callchain.mcpServer.binPath` setting (escape hatch for packaged use)
+ *   1. the `callchain.mcp.binPath` setting (escape hatch for packaged use)
  *   2. `require.resolve` via the workspace symlink (works when running from source)
  *   3. an extension-relative node_modules path
  * Returns undefined if none point at an existing file.
  */
 export function resolveBinPath(context: vscode.ExtensionContext): string | undefined {
-  const configured = vscode.workspace.getConfiguration("callchain").get<string>("mcpServer.binPath", "");
+  const configured = mcpBinPath();
   if (configured) return configured;
 
   try {
@@ -81,7 +82,7 @@ export function registerMcpSetup(
         "Open settings"
       );
       if (choice === "Open settings") {
-        await vscode.commands.executeCommand("workbench.action.openSettings", "callchain.mcpServer.binPath");
+        await vscode.commands.executeCommand("workbench.action.openSettings", "callchain.mcp.binPath");
         return;
       }
       if (choice !== "Copy with placeholder") return;
