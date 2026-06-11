@@ -7,7 +7,8 @@ Navigate call chains in [4D](https://us.4d.com/) v21 projects — methods, class
 ## Features
 
 - **Callers** and **Callees** trees in the activity bar (update as you move the cursor)
-- **Graph view** rendered with Cytoscape.js — depth slider, direction toggle, color-coded by symbol kind
+- **Butterfly graph** rendered with Cytoscape.js — callers left, callees right; single-click re-centers, double-click opens the editor, visited nodes stay marked
+- **Method Trace window** — unrolls the whole call chain from a method as an expandable tree, one row per call site in source order, with symbol-kind filters
 - **CodeLens** above every function: `N callers • N callees • tests cover • Run`
 - **Test integration** — JUnit XML parsing, run tests from the gutter, coverage hints
 - Recognizes 4D's full call surface:
@@ -31,7 +32,8 @@ provides the grammar and themes. They're independent — neither requires the ot
 - `callchain.index.projectRoot` — path to the 4D project root (the folder containing `Project/`). Defaults to the first workspace folder.
 - `callchain.tests.command` — test command template (default: `make test class={class} format=json outputPath={jsonOutputPath}`).
 - `callchain.tests.jsonResultsPath` — relative path to the JSON test results file.
-- `callchain.graph.maxDepth` — default graph BFS depth.
+- `callchain.graph.maxDepth` — caller/callee levels per side of the butterfly graph.
+- `callchain.trace.hiddenKinds` — symbol-kind categories hidden by default in the Method Trace view.
 - `callchain.coverage.showHints` — gutter markers for uncovered functions.
 - `callchain.lint.rules` — per-rule severity + options for the built-in linter (all off by default).
 
@@ -48,7 +50,7 @@ Everything runs locally; the extension makes **no network requests** and collect
 - The optional MCP setup (`4D Call Chain: Copy MCP server config for AI agents`) never writes any
   files: it only copies a ready-to-paste JSON snippet to your clipboard, annotated with the agent
   config file it belongs in. Editing your agent configs is always left to you.
-- The graph view is a local webview with a strict Content-Security-Policy; no remote scripts.
+- The graph and trace views are local webviews with a strict Content-Security-Policy; no remote scripts.
 
 Source is fully open and the published package is built from it: [github.com/hunterdurbin/vscode-4d-callchain](https://github.com/hunterdurbin/vscode-4d-callchain).
 

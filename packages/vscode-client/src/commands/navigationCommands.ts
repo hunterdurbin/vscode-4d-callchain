@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { Indexer, SymbolKind } from "@4d/core";
 import type { SymbolRecord } from "@4d/core";
 import { GraphPanel } from "../views/graphView/graphPanel";
+import { TracePanel } from "../views/traceView/tracePanel";
 import { descendantClasses, findOverriddenFunction, findOverridesOfFunction } from "../codelens/overrides";
 import type { Views } from "../views/registerViews";
 
@@ -162,6 +163,20 @@ export function registerNavigationCommands(
       }
       GraphPanel.show(context, graph, rootId);
     }),
+    vscode.commands.registerCommand("callchain.showTrace", async (symbolId?: string) => {
+      const graph = indexer.getGraph();
+      if (!graph) {
+        vscode.window.showInformationMessage("Index not ready yet.");
+        return;
+      }
+      let rootId = symbolId;
+      if (!rootId) rootId = tracker.getCurrent()?.id;
+      if (!rootId) {
+        vscode.window.showInformationMessage("Place the cursor on a 4D function/method first, or pick one.");
+        return;
+      }
+      TracePanel.show(context, graph, rootId);
+    }),
     vscode.commands.registerCommand("callchain.contextShowCallers", (node: any) => {
       const sym = extractSymbol(node);
       if (!sym) return;
@@ -179,6 +194,12 @@ export function registerNavigationCommands(
       const graph = indexer.getGraph();
       if (!sym || !graph) return;
       GraphPanel.show(context, graph, sym.id);
+    }),
+    vscode.commands.registerCommand("callchain.contextShowTrace", (node: any) => {
+      const sym = extractSymbol(node);
+      const graph = indexer.getGraph();
+      if (!sym || !graph) return;
+      TracePanel.show(context, graph, sym.id);
     }),
     vscode.commands.registerCommand("callchain.contextPinCallers", (node: any) => {
       const sym = extractSymbol(node);

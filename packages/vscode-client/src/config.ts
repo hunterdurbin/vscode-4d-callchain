@@ -50,7 +50,11 @@ export function showCallSiteSnippets(): boolean {
 }
 
 export function maxGraphDepth(): number {
-  return cfg().get<number>("graph.maxDepth", 3);
+  return cfg().get<number>("graph.maxDepth", 1);
+}
+
+export function traceHiddenKinds(): string[] {
+  return cfg().get<string[]>("trace.hiddenKinds", ["builtins", "constants", "variables"]);
 }
 
 // ── Coverage ────────────────────────────────────────────────────────────────

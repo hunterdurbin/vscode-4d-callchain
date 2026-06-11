@@ -46,12 +46,13 @@ function usageLensTitle(reads: number, writes: number, compact: boolean, name?: 
   return `${name ? `${name}: ` : ""}↔ ${body}`;
 }
 
-/** The eight per-lens visibility toggles, read once and cached (see below). */
+/** The per-lens visibility toggles, read once and cached (see below). */
 interface LensConfig {
   showCallers: boolean;
   showCallees: boolean;
   showViaBase: boolean;
   showGraph: boolean;
+  showTrace: boolean;
   showOverrides: boolean;
   showOverriding: boolean;
   showExtendedBy: boolean;
@@ -65,6 +66,7 @@ function readLensConfig(): LensConfig {
     showCallees: cfg.get<boolean>("codeLens.showCallees", false),
     showViaBase: cfg.get<boolean>("codeLens.showViaBase", true),
     showGraph: cfg.get<boolean>("codeLens.showGraph", false),
+    showTrace: cfg.get<boolean>("codeLens.showTrace", false),
     showOverrides: cfg.get<boolean>("codeLens.showOverrides", true),
     showOverriding: cfg.get<boolean>("codeLens.showOverriding", true),
     showExtendedBy: cfg.get<boolean>("codeLens.showExtendedBy", true),
@@ -131,7 +133,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider, vscode.Di
     const testPatterns = this.testPatternsGetter();
 
     const {
-      showCallers, showCallees, showViaBase, showGraph,
+      showCallers, showCallees, showViaBase, showGraph, showTrace,
       showOverrides, showOverriding, showExtendedBy, showPropertyUsage
     } = this.config;
 
@@ -206,6 +208,11 @@ export class CallChainLensProvider implements vscode.CodeLensProvider, vscode.Di
       if (showGraph) out.push(new vscode.CodeLens(range, {
         title: `◎ Graph`,
         command: "callchain.showGraph",
+        arguments: [s.id]
+      }));
+      if (showTrace) out.push(new vscode.CodeLens(range, {
+        title: `⇲ Trace`,
+        command: "callchain.showTrace",
         arguments: [s.id]
       }));
 

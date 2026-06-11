@@ -23,7 +23,8 @@ provides the grammar and themes. They're independent — install whichever you n
 ## Features
 
 - **Callers** and **Callees** trees in the activity bar (updates as you move the cursor)
-- **Graph view** rendered with Cytoscape.js — depth slider, direction toggle, color-coded by symbol kind
+- **Butterfly graph** rendered with Cytoscape.js — callers left, callees right; single-click re-centers, double-click opens the editor, visited nodes stay marked
+- **Method Trace window** — unrolls the whole call chain from a method as an expandable tree, one row per call site in source order, with symbol-kind filters
 - **CodeLens** above every function: `N callers • N callees • tests cover • Run`
 - **Test integration** — JUnit XML parsing, run `make test` from gutter, coverage hints
 - Recognizes 4D's full call surface:
@@ -73,11 +74,12 @@ Settings are grouped into titled sections in the Settings UI (search for
 **Language Server**
 - `callchain.server.enabled` — run the 4D language server (definitions, references, call hierarchy, semantic tokens, diagnostics/linter, hover, completion, signature help) in its own process.
 
-**Code Lenses** — `callchain.codeLens.show*` toggles for each lens kind (callers, callees, via-base, graph, overrides, overriding, extended-by, property usage).
+**Code Lenses** — `callchain.codeLens.show*` toggles for each lens kind (callers, callees, via-base, graph, trace, overrides, overriding, extended-by, property usage).
 
 **Views & Graph**
 - `callchain.views.showCallSiteSnippets` — code snippets on call-site rows.
-- `callchain.graph.maxDepth` — default graph BFS depth.
+- `callchain.graph.maxDepth` — caller/callee levels per side of the butterfly graph.
+- `callchain.trace.hiddenKinds` — symbol-kind categories hidden by default in the Method Trace view.
 
 **Coverage**
 - `callchain.coverage.showHints` — gutter markers for uncovered functions.

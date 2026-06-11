@@ -21,4 +21,7 @@ html, body { margin: 0; padding: 0; height: 100%; width: 100%; font-family: var(
 .k-Plugin            { background: #f48771; }
 .k-Unresolved        { background: #f44747; }
 .k-CompilerMethod    { background: #888888; }
+.visited-dot         { background: transparent; border: 2px solid #b180d7; box-sizing: border-box; }
+#toolbar button:disabled { opacity: 0.4; }
+#truncated { color: var(--vscode-editorWarning-foreground, #cca700); }
 #cy { width: 100%; height: calc(100% - 70px); }

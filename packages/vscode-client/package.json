@@ -53,7 +53,11 @@
       },
       {
         "command": "callchain.showGraph",
-        "title": "4D Call Chain: Show Graph"
+        "title": "4D Call Chain: Show Butterfly Graph"
+      },
+      {
+        "command": "callchain.showTrace",
+        "title": "4D Call Chain: Show Method Trace"
       },
       {
         "command": "callchain.revealAtCursor",
@@ -114,6 +118,10 @@
       {
         "command": "callchain.contextShowGraph",
         "title": "Show graph from here"
+      },
+      {
+        "command": "callchain.contextShowTrace",
+        "title": "Show method trace from here"
       },
       {
         "command": "callchain.contextPinCallers",
@@ -233,6 +241,11 @@
           "command": "callchain.showGraph",
           "when": "resourceExtname == .4dm",
           "group": "navigation"
+        },
+        {
+          "command": "callchain.showTrace",
+          "when": "resourceExtname == .4dm",
+          "group": "navigation"
         }
       ],
       "view/title": [
@@ -332,6 +345,11 @@
           "command": "callchain.contextShowGraph",
           "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
           "group": "navigation@3"
+        },
+        {
+          "command": "callchain.contextShowTrace",
+          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
+          "group": "navigation@4"
         },
         {
           "command": "callchain.contextPinCallers",
@@ -441,6 +459,12 @@
             "description": "Show the '◎ Graph' code lens above functions/methods and the '◎ Graph class' lens on class declarations.",
             "scope": "window"
           },
+          "callchain.codeLens.showTrace": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show the '⇲ Trace' code lens above functions/methods, opening the Method Trace window from that symbol.",
+            "scope": "window"
+          },
           "callchain.codeLens.showOverrides": {
             "type": "boolean",
             "default": true,
@@ -478,10 +502,20 @@
           },
           "callchain.graph.maxDepth": {
             "type": "number",
-            "default": 3,
+            "default": 1,
             "minimum": 1,
-            "maximum": 8,
-            "description": "Default maximum BFS depth when rendering the graph.",
+            "maximum": 4,
+            "description": "Levels of callers (left) and callees (right) shown on each side of the butterfly graph.",
+            "scope": "window"
+          },
+          "callchain.trace.hiddenKinds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["methods", "classes", "forms", "builtins", "constants", "variables", "plugins", "components", "unresolved"]
+            },
+            "default": ["builtins", "constants", "variables"],
+            "description": "Symbol-kind categories hidden by default in the Method Trace view (toggleable in the view's Kinds menu).",
             "scope": "window"
           }
         }
@@ -624,8 +658,6 @@
     "@4d/language-server": "*",
     "@4d/mcp-server": "*",
     "cytoscape": "^3.33.3",
-    "cytoscape-dagre": "^2.5.0",
-    "dagre": "^0.8.5",
     "vscode-languageclient": "^9.0.1"
   }
 }

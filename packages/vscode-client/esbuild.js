@@ -43,6 +43,30 @@ function copyWasmAssets() {
   console.log("[esbuild] copied tree-sitter.wasm + tree-sitter-fourd.wasm → dist/");
 }
 
+function copyWebviewAssets() {
+  // Webview panels load their js/css (and the cytoscape vendor bundle) at
+  // runtime from disk — those files are not part of the esbuild bundle, and
+  // .vscodeignore excludes src/** and node_modules/**, so they must live in
+  // dist/ to survive `vsce package`.
+  const views = [
+    { src: path.join(__dirname, "src", "views", "graphView", "webview"), out: path.join(outdir, "webview", "graph") },
+    { src: path.join(__dirname, "src", "views", "traceView", "webview"), out: path.join(outdir, "webview", "trace") },
+  ];
+  for (const { src, out } of views) {
+    if (!fs.existsSync(src)) continue;
+    fs.mkdirSync(out, { recursive: true });
+    for (const f of fs.readdirSync(src)) {
+      fs.copyFileSync(path.join(src, f), path.join(out, f));
+    }
+  }
+
+  const vendorDir = path.join(outdir, "webview", "vendor");
+  fs.mkdirSync(vendorDir, { recursive: true });
+  fs.copyFileSync(resolvePkgFile("cytoscape/dist/cytoscape.min.js"), path.join(vendorDir, "cytoscape.min.js"));
+
+  console.log("[esbuild] copied webview assets → dist/webview/");
+}
+
 async function main() {
   const watch = process.argv.includes("--watch");
   // Start from a clean dist so stray tsc output from `npm run compile` never
@@ -62,11 +86,16 @@ async function main() {
       "@4d/parser-4d",
       "@4d/language-server",
       "@4d/mcp-server",
+      // Only require.resolve'd for its webview asset path (webviewAssets.ts);
+      // keep the lookup at runtime so the dist/webview/vendor fallback works
+      // in packaged installs.
+      "cytoscape",
     ],
     logLevel: "info",
   });
 
   copyWasmAssets();
+  copyWebviewAssets();
 
   if (watch) {
     await ctx.watch();

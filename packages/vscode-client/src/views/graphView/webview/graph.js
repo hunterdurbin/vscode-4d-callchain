@@ -2,7 +2,6 @@
 (function () {
   const vscode = acquireVsCodeApi();
   let cy;
-  let currentData = { nodes: [], edges: [], rootId: null };
 
   const KIND_COLORS = {
     ProjectMethod:     "#4ec9b0",
@@ -22,18 +21,35 @@
     CompilerMethod:    "#888888"
   };
 
+  const COL_GAP = 260; // horizontal distance between tiers
+  const ROW_GAP = 48;  // vertical distance between rows in a column
+
+  function nodePosition(n) {
+    const dir = n.side === "caller" ? -1 : n.side === "callee" ? 1 : 0;
+    return {
+      x: n.tier * COL_GAP * dir,
+      y: n.side === "center" ? 0 : (n.order - (n.colCount - 1) / 2) * ROW_GAP
+    };
+  }
+
   function buildElements(data) {
-    const nodes = data.nodes.map((n) => ({
-      data: {
-        id: n.id,
-        label: n.label,
-        kind: n.kind,
-        ownerClass: n.ownerClass || "",
-        uri: n.uri,
-        line: n.line
-      },
-      classes: n.id === data.rootId ? "root" : ""
-    }));
+    const visited = new Set(data.visitedIds);
+    const nodes = data.nodes.map((n) => {
+      const classes = [];
+      if (n.side === "center") classes.push("root");
+      else if (visited.has(n.symbolId)) classes.push("visited");
+      return {
+        data: {
+          id: n.elId,
+          symbolId: n.symbolId,
+          label: n.label,
+          kind: n.kind,
+          ownerClass: n.ownerClass || ""
+        },
+        position: nodePosition(n),
+        classes: classes.join(" ")
+      };
+    });
     const edges = data.edges.map((e) => ({
       data: { id: e.id, source: e.source, target: e.target, kind: e.kind, resolved: e.resolved }
     }));
@@ -59,8 +75,9 @@
           "text-halign": "center"
         }
       },
-      { selector: "node.root", style: { "border-width": 3, "border-color": "#ffd700" } },
-      { selector: "node.dim",  style: { opacity: 0.18 } },
+      { selector: "node.root",    style: { "border-width": 3, "border-color": "#ffd700" } },
+      { selector: "node.visited", style: { "border-width": 2, "border-color": "#b180d7", "background-blacken": -0.15 } },
+      { selector: "node.dim",     style: { opacity: 0.18 } },
       {
         selector: "edge",
         style: {
@@ -78,41 +95,53 @@
     ];
   }
 
-  function applyLayout(name) {
-    if (!cy) return;
-    const layouts = {
-      dagre:        { name: "dagre", rankDir: "LR", nodeSep: 30, rankSep: 80, edgeSep: 10 },
-      cose:         { name: "cose", animate: false, padding: 30 },
-      breadthfirst: { name: "breadthfirst", directed: true, padding: 30, spacingFactor: 1.2 },
-      concentric:   { name: "concentric", animate: false, padding: 30, levelWidth: () => 1 }
-    };
-    cy.layout(layouts[name] || layouts.dagre).run();
-  }
-
   function render(data) {
-    currentData = data;
     document.getElementById("stats").textContent =
-      `${data.nodes.length} nodes • ${data.edges.length} edges — root: ${data.rootLabel}`;
+      `${data.nodes.length} nodes • ${data.edges.length} edges — center: ${data.centerLabel}`;
+    document.getElementById("back").disabled = !data.canGoBack;
+    document.getElementById("forward").disabled = !data.canGoForward;
+    document.getElementById("truncated").hidden = !data.truncated;
+    const depthEl = document.getElementById("depth");
+    if (Number(depthEl.value) !== data.depth) {
+      depthEl.value = String(data.depth);
+      document.getElementById("depthVal").textContent = String(data.depth);
+    }
+
     if (!cy) {
       cy = cytoscape({
         container: document.getElementById("cy"),
         elements: buildElements(data),
         style: buildStyle(),
+        layout: { name: "preset" },
         wheelSensitivity: 0.2
       });
-      cy.on("tap", "node", (evt) => {
-        const id = evt.target.id();
-        vscode.postMessage({ type: "openSymbol", payload: { id } });
+      // Single click re-centers; double click opens the symbol in the editor.
+      // cytoscape's "onetap" only fires when no second tap follows, so the
+      // two gestures never both trigger.
+      cy.on("onetap", "node", (evt) => {
+        vscode.postMessage({ type: "recenter", payload: { symbolId: evt.target.data("symbolId") } });
       });
-      cy.on("cxttap", "node", (evt) => {
-        const id = evt.target.id();
-        vscode.postMessage({ type: "setRoot", payload: { id } });
+      cy.on("dbltap", "node", (evt) => {
+        vscode.postMessage({ type: "openSymbol", payload: { symbolId: evt.target.data("symbolId") } });
       });
     } else {
       cy.elements().remove();
       cy.add(buildElements(data));
+      cy.layout({ name: "preset" }).run();
     }
-    applyLayout(document.getElementById("layout").value);
+    applyFilter();
+    cy.fit(undefined, 30);
+  }
+
+  function applyFilter() {
+    if (!cy) return;
+    const q = document.getElementById("filter").value.toLowerCase();
+    cy.batch(() => {
+      cy.nodes().forEach((n) => {
+        const match = !q || n.data("label").toLowerCase().includes(q) || (n.data("ownerClass") || "").toLowerCase().includes(q);
+        n.toggleClass("dim", !match);
+      });
+    });
   }
 
   window.addEventListener("message", (event) => {
@@ -122,33 +151,15 @@
     }
   });
 
-  function emitRebuild() {
-    vscode.postMessage({
-      type: "rebuild",
-      payload: {
-        depth: Number(document.getElementById("depth").value),
-        direction: document.getElementById("direction").value
-      }
-    });
-  }
-
   document.getElementById("depth").addEventListener("input", (e) => {
     document.getElementById("depthVal").textContent = e.target.value;
-    emitRebuild();
+    vscode.postMessage({ type: "setDepth", payload: { depth: Number(e.target.value) } });
   });
-  document.getElementById("direction").addEventListener("change", emitRebuild);
-  document.getElementById("layout").addEventListener("change", () => applyLayout(document.getElementById("layout").value));
+  document.getElementById("back").addEventListener("click", () => vscode.postMessage({ type: "back" }));
+  document.getElementById("forward").addEventListener("click", () => vscode.postMessage({ type: "forward" }));
+  document.getElementById("clearTrail").addEventListener("click", () => vscode.postMessage({ type: "clearTrail" }));
   document.getElementById("fit").addEventListener("click", () => cy && cy.fit(undefined, 30));
-  document.getElementById("filter").addEventListener("input", (e) => {
-    const q = e.target.value.toLowerCase();
-    if (!cy) return;
-    cy.batch(() => {
-      cy.nodes().forEach((n) => {
-        const match = !q || n.data("label").toLowerCase().includes(q) || (n.data("ownerClass") || "").toLowerCase().includes(q);
-        n.toggleClass("dim", !match);
-      });
-    });
-  });
+  document.getElementById("filter").addEventListener("input", applyFilter);
 
   vscode.postMessage({ type: "ready" });
 })();
