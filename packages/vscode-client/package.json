@@ -49,7 +49,7 @@
       },
       {
         "command": "callchain.setupMcp",
-        "title": "4D Call Chain: Set up MCP server for AI agents"
+        "title": "4D Call Chain: Copy MCP server config for AI agents"
       },
       {
         "command": "callchain.showGraph",

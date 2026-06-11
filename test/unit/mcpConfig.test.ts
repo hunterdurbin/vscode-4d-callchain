@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   buildEntry,
-  mergeIntoConfig,
   renderSnippet,
   serverNameFor,
   targetById
@@ -39,27 +38,6 @@ describe("mcpConfig", () => {
     expect(targetById("claude-global").filePath(ROOT, home)).toBe(`${home}/.claude.json`);
     expect(targetById("cursor").filePath(ROOT, home)).toBe(`${ROOT}/.cursor/mcp.json`);
     expect(targetById("vscode").filePath(ROOT, home)).toBe(`${ROOT}/.vscode/mcp.json`);
-  });
-
-  it("mergeIntoConfig adds the server without dropping existing ones", () => {
-    const target = targetById("claude-project");
-    const existing = {
-      mcpServers: { "some-other": { command: "x", args: [] } },
-      unrelatedTopKey: true
-    };
-    const merged = mergeIntoConfig(existing, target, "4d-callchain", buildEntry(BIN, ROOT, target));
-    const servers = merged.mcpServers as Record<string, unknown>;
-    expect(Object.keys(servers).sort()).toEqual(["4d-callchain", "some-other"]);
-    expect(merged.unrelatedTopKey).toBe(true);
-    // input not mutated
-    expect(Object.keys(existing.mcpServers)).toEqual(["some-other"]);
-  });
-
-  it("merges into the VS Code 'servers' key and tolerates an empty config", () => {
-    const target = targetById("vscode");
-    const merged = mergeIntoConfig(undefined, target, "4d-callchain", buildEntry(BIN, ROOT, target));
-    expect(merged.mcpServers).toBeUndefined();
-    expect((merged.servers as any)["4d-callchain"].type).toBe("stdio");
   });
 
   it("renderSnippet emits valid JSON nested under the root key", () => {

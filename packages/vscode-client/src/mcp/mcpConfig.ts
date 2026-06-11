@@ -15,9 +15,9 @@ export interface McpTarget {
   rootKey: "mcpServers" | "servers";
   /** VS Code's `.vscode/mcp.json` entries require a `"type": "stdio"` field. */
   needsType: boolean;
-  /** Absolute path of the config file for this target. */
+  /** Absolute path of the config file the user should paste the snippet into. */
   filePath(projectRoot: string, home: string): string;
-  /** Whether the file is a shared user-global file (prompt before writing). */
+  /** Whether the file is a shared user-global file (affects server naming). */
   global: boolean;
 }
 
@@ -92,23 +92,6 @@ export function buildEntry(binPath: string, projectRoot: string, target: McpTarg
   };
   if (target.needsType) entry.type = "stdio";
   return entry;
-}
-
-/**
- * Return a new config object with `entry` placed under
- * `config[target.rootKey][name]`, preserving every other key and server. Pure —
- * does not mutate `existing`.
- */
-export function mergeIntoConfig(
-  existing: Record<string, unknown> | undefined,
-  target: McpTarget,
-  name: string,
-  entry: McpServerEntry
-): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...(existing ?? {}) };
-  const prevMap = (out[target.rootKey] as Record<string, unknown> | undefined) ?? {};
-  out[target.rootKey] = { ...prevMap, [name]: entry };
-  return out;
 }
 
 /** Pretty-printed JSON snippet for one target (for clipboard / display). */

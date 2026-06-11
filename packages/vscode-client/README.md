@@ -1,6 +1,6 @@
 # 4D Call Chain Explorer
 
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/hunterdurbin.vscode-4d-callchain?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=hunterdurbin.vscode-4d-callchain)
+[![Open VSX](https://img.shields.io/open-vsx/v/hunterdurbin/vscode-4d-callchain?label=Open%20VSX)](https://open-vsx.org/extension/hunterdurbin/vscode-4d-callchain)
 
 Navigate call chains in [4D](https://us.4d.com/) v21 projects — methods, class functions, and plugins — right inside VS Code.
 
@@ -28,12 +28,29 @@ provides the grammar and themes. They're independent — neither requires the ot
 
 ## Settings
 
-- `callchain.projectRoot` — path to the 4D project root (the folder containing `Project/`). Defaults to the first workspace folder.
-- `callchain.testCommand` — test command template (default: `make test class={class} format=junit`).
-- `callchain.junitResultsPath` — relative path to JUnit XML output.
-- `callchain.maxGraphDepth` — default graph BFS depth.
-- `callchain.showCoverageHints` — gutter markers for uncovered functions.
+- `callchain.index.projectRoot` — path to the 4D project root (the folder containing `Project/`). Defaults to the first workspace folder.
+- `callchain.tests.command` — test command template (default: `make test class={class} format=json outputPath={jsonOutputPath}`).
+- `callchain.tests.jsonResultsPath` — relative path to the JSON test results file.
+- `callchain.graph.maxDepth` — default graph BFS depth.
+- `callchain.coverage.showHints` — gutter markers for uncovered functions.
 - `callchain.lint.rules` — per-rule severity + options for the built-in linter (all off by default).
+
+See the [full settings reference](https://github.com/hunterdurbin/vscode-4d-callchain#readme) for the complete list.
+
+## Security & privacy
+
+Everything runs locally; the extension makes **no network requests** and collects no telemetry.
+
+- Parsing uses [web-tree-sitter](https://github.com/tree-sitter/tree-sitter) compiled to **WebAssembly** — no native binaries ship in the package.
+- The extension spawns exactly two kinds of local processes: the bundled language server
+  (via the standard `vscode-languageclient` IPC transport), and — only when you click `▶ Run` —
+  **your own** `callchain.tests.command`, echoed verbatim to the output channel before it runs.
+- The optional MCP setup (`4D Call Chain: Copy MCP server config for AI agents`) never writes any
+  files: it only copies a ready-to-paste JSON snippet to your clipboard, annotated with the agent
+  config file it belongs in. Editing your agent configs is always left to you.
+- The graph view is a local webview with a strict Content-Security-Policy; no remote scripts.
+
+Source is fully open and the published package is built from it: [github.com/hunterdurbin/vscode-4d-callchain](https://github.com/hunterdurbin/vscode-4d-callchain).
 
 ## Documentation
 

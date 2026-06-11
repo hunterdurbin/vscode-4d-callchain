@@ -1,16 +1,20 @@
 # 4D Call Chain Explorer
 
-[![VS Code Marketplace](https://vsmarketplacebadges.dev/version-short/hunterdurbin.vscode-4d-callchain.svg?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=hunterdurbin.vscode-4d-callchain)
+[![Open VSX](https://img.shields.io/open-vsx/v/hunterdurbin/vscode-4d-callchain?label=Open%20VSX)](https://open-vsx.org/extension/hunterdurbin/vscode-4d-callchain)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 VS Code extension for navigating call chains in 4D v21 projects.
 
+> **Note:** the Visual Studio Marketplace listing is temporarily unavailable while we resolve an
+> automated-scan false positive with Microsoft. Install from Open VSX or the `.vsix` below in the
+> meantime.
+
 ## Install
 
-- **VS Code / Cursor:** search **"4D Call Chain Explorer"** in the Extensions view, or install from the
-  [Marketplace](https://marketplace.visualstudio.com/items?itemName=hunterdurbin.vscode-4d-callchain).
-- **VSCodium / any editor:** download the `.vsix` from the [latest release](https://github.com/hunterdurbin/vscode-4d-callchain/releases)
+- **VS Code / Cursor:** download the `.vsix` from the [latest release](https://github.com/hunterdurbin/vscode-4d-callchain/releases)
   and run `code --install-extension vscode-4d-callchain-<version>.vsix`.
+- **VSCodium / any Open VSX editor:** install from [Open VSX](https://open-vsx.org/extension/hunterdurbin/vscode-4d-callchain),
+  or search **"4D Call Chain Explorer"** in the Extensions view.
 
 For 4D **syntax highlighting**, also install [`4D.4d-analyzer`](https://marketplace.visualstudio.com/items?itemName=4D.4d-analyzer)
 (the official 4D extension). Call Chain Explorer provides the call-graph navigation; the analyzer
@@ -108,14 +112,15 @@ writes (`<projectRoot>/.vscode/callchain-index-*.msgpack`) — so startup is
 near-instant when the extension has indexed once — and watches that cache to
 stay in sync as you save.
 
-**Quick setup:** run the **4D Call Chain: Set up MCP server for AI agents**
+**Quick setup:** run the **4D Call Chain: Copy MCP server config for AI agents**
 command from the Command Palette. It resolves the server path and the current
 project root, then lets you pick target(s) — Claude Code (project `.mcp.json` or
 global `~/.claude.json`), Cursor (`.cursor/mcp.json`), VS Code/Copilot
-(`.vscode/mcp.json`) — and either writes/merges the config (existing servers are
-preserved; a `.bak` is saved first) or copies the JSON to your clipboard. When
-running from a packaged `.vsix` (where the server isn't bundled), point
-`callchain.mcp.binPath` at the server's `dist/bin.js`.
+(`.vscode/mcp.json`) — and copies a ready-to-paste JSON snippet to your
+clipboard, annotated with the file each one belongs in. The extension never
+edits agent config files itself. When running from a packaged `.vsix` (where
+the server isn't bundled), point `callchain.mcp.binPath` at the server's
+`dist/bin.js`.
 
 To wire it up by hand instead, build the monorepo (`npm run build`) and register
 the server with your agent. For Claude Code, add to `.mcp.json`:

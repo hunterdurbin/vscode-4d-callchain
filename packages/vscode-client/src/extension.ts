@@ -92,7 +92,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerIndexWatchers(context, projectRoot, indexer);
   registerNavigationCommands(context, indexer, views, output);
   registerFilterCommands(context, views);
-  context.subscriptions.push(registerMcpSetup(context, output, resolveProjectRoot));
+  context.subscriptions.push(registerMcpSetup(context, resolveProjectRoot));
 
   if (testEnabled && decorator) {
     decorator.onDidChange(() => lensProvider.refresh());
