@@ -214,6 +214,16 @@ export interface CallEdge {
    * line/column don't collapse into one edge.
    */
   access?: "read" | "write";
+  /**
+   * Set when the call site's receiver expression is `This` or `Super`. Lets
+   * trace UIs re-resolve the member against the concrete (pinned) receiver
+   * class for polymorphic dispatch. Only set when the edge targets a class
+   * member resolved on the receiver's chain or the `Unresolved:This.<x>`
+   * fallback — never for the flavored-builtin fallback (`Entity.save` etc.)
+   * or for chained receivers (`This.prop.fn()`, whose receiver is the prop's
+   * type, not `This`). Not part of the edge-dedup key.
+   */
+  receiver?: "this" | "super";
 }
 
 export interface SymbolIndex {
@@ -303,9 +313,12 @@ export interface ChainStep {
 // field and splices the `&& (...)` remainder in as `_if_tail` children, which
 // the CST visitor previously walked only as statements and dropped. Caches
 // built before the fix are missing those edges and must rebuild.
+// Bumped to 46 when `CallEdge` gained the optional `receiver` tag
+// ("this"/"super") on This./Super. member references — old caches lack the
+// tag the Method Trace's polymorphic-dispatch re-resolution needs.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 45;
+export const INDEX_VERSION = 46;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

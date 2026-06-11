@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { CallGraph } from "@4d/core";
 import { showCallSiteSnippets, traceHiddenKinds } from "../../config";
-import { buildTraceChildren, KIND_CATEGORIES, TraceRow } from "./traceData";
+import { buildTraceChildren, createTraceCaches, KIND_CATEGORIES, TraceRow } from "./traceData";
 import { resolveWebviewAssets } from "../webviewAssets";
 
 const EXPAND_BUDGET = 1000; // rows per single lazy expand
@@ -10,6 +10,7 @@ const DEEP_BUDGET = 5000; // rows per expand-to-depth rebuild
 interface NodeEntry {
   row: TraceRow;
   ancestors: Set<string>; // chain root → … → this row's callee (inclusive)
+  receiverClass?: string; // concrete class pinned for this row's subtree
 }
 
 export class TracePanel {
@@ -75,8 +76,11 @@ export class TracePanel {
   private registerRows(rows: TraceRow[], parentAncestors: ReadonlySet<string>): void {
     for (const row of rows) {
       const ancestors = new Set([...parentAncestors, row.calleeId]);
-      this.nodes.set(row.nodeId, { row, ancestors });
+      this.nodes.set(row.nodeId, { row, ancestors, receiverClass: row.receiverClass });
       if (row.children) this.registerRows(row.children, ancestors);
+      // "May run" alternatives expand as their own branches: their own callee
+      // joins the parent's ancestor chain, and their class is the pin.
+      if (row.alternatives) this.registerRows(row.alternatives, parentAncestors);
     }
   }
 
@@ -90,7 +94,16 @@ export class TracePanel {
     this.idCounter = 0;
     const budget = { left: depth > 1 ? DEEP_BUDGET : EXPAND_BUDGET };
     const ancestors = new Set([this.rootId]);
-    const children = buildTraceChildren(this.graph, this.rootId, ancestors, depth, this.nextId, budget);
+    const children = buildTraceChildren(
+      this.graph,
+      this.rootId,
+      ancestors,
+      depth,
+      this.nextId,
+      budget,
+      root.ownerClass,
+      createTraceCaches()
+    );
     this.registerRows(children, ancestors);
     this.panel.title = `4D Trace — ${root.ownerClass ? `${root.ownerClass}.` : ""}${root.name}`;
     this.panel.webview.postMessage({
@@ -133,7 +146,8 @@ export class TracePanel {
           entry.ancestors,
           1,
           this.nextId,
-          budget
+          budget,
+          entry.receiverClass
         );
         this.registerRows(children, entry.ancestors);
         this.panel.webview.postMessage({

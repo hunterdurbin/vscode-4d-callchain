@@ -15,9 +15,11 @@ export {
   inheritedFunctions,
   findOverriddenFunction,
   overriddenFunctionChain,
-  dispatchCallers
+  dispatchCallers,
+  resolveMemberForClass,
+  overrideCandidates
 } from "./model/overrides";
-export type { DispatchCallerGroup } from "./model/overrides";
+export type { DispatchCallerGroup, MemberSlot } from "./model/overrides";
 export {
   SymbolKind,
   ClassFlavor,

@@ -922,7 +922,7 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
     for (const call of parsed.rawCalls) {
       const hint = call.hint;
       if (!hint) continue;
-      const pushEdge = (toId: string, kind: CallKind, resolved: boolean, access?: "read" | "write") => {
+      const pushEdge = (toId: string, kind: CallKind, resolved: boolean, access?: "read" | "write", receiver?: "this" | "super") => {
         edges.push({
           fromId: call.fromSymbolId,
           toId,
@@ -932,7 +932,8 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           resolved,
           column: call.column,
           endColumn: call.endColumn,
-          ...(access ? { access } : {})
+          ...(access ? { access } : {}),
+          ...(receiver ? { receiver } : {})
         });
       };
 
@@ -1047,19 +1048,21 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           if (className) {
             const fn = resolveOnClassChain(className, hint.method);
             if (fn) {
-              pushEdge(fn.id, fn.ownerClass === className ? CallKind.Static : CallKind.Inherited, true);
+              pushEdge(fn.id, fn.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, undefined, "this");
               break;
             }
             // Fall back to the builtin API for flavored classes:
             // `Entity.save`, `EntitySelection.query`, `DataClass.new`, etc.
             // (`resolveMethodOrBuiltin` consults classFlavor via builtinBaseOf.)
+            // No receiver tag: the builtin symbol's name isn't the member name,
+            // so dispatch re-resolution can't use it.
             const hit = resolveMethodOrBuiltin(className, hint.method);
             if (hit) {
               pushEdge(hit.id, CallKind.Static, true);
               break;
             }
           }
-          pushEdge(findOrCreateUnresolved(`This.${hint.method}`), CallKind.Dynamic, false);
+          pushEdge(findOrCreateUnresolved(`This.${hint.method}`), CallKind.Dynamic, false, undefined, "this");
           break;
         }
         case "SuperCall": {
@@ -1067,11 +1070,11 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
             const m = hint.method ?? "constructor";
             const fn = resolveOnClassChain(parsed.classInfo.extends, m);
             if (fn) {
-              pushEdge(fn.id, CallKind.Inherited, true);
+              pushEdge(fn.id, CallKind.Inherited, true, undefined, "super");
               break;
             }
           }
-          pushEdge(findOrCreateUnresolved("Super"), CallKind.Dynamic, false);
+          pushEdge(findOrCreateUnresolved("Super"), CallKind.Dynamic, false, undefined, "super");
           break;
         }
         case "VarCall": {
@@ -1231,19 +1234,19 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           if (!className) break;
           const g = resolveGetterOnChain(className, hint.property);
           if (g) {
-            pushEdge(g.id, g.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "read");
+            pushEdge(g.id, g.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "read", "this");
             break;
           }
           // An Alias attribute is read like a field — link the reference to it.
           const a = resolveAliasOnChain(className, hint.property);
           if (a) {
-            pushEdge(a.id, a.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "read");
+            pushEdge(a.id, a.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "read", "this");
             break;
           }
           // Plain `property` field read.
           const p = resolvePropertyOnChain(className, hint.property);
           if (p) {
-            pushEdge(p.id, p.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "read");
+            pushEdge(p.id, p.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "read", "this");
           }
           break;
         }
@@ -1251,19 +1254,19 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           if (!className) break;
           const s = resolveSetterOnChain(className, hint.property);
           if (s) {
-            pushEdge(s.id, s.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "write");
+            pushEdge(s.id, s.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "write", "this");
             break;
           }
           // Aliases are writable too — `This.<alias>:=…` links to the Alias symbol.
           const a = resolveAliasOnChain(className, hint.property);
           if (a) {
-            pushEdge(a.id, a.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "write");
+            pushEdge(a.id, a.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "write", "this");
             break;
           }
           // Plain `property` field write.
           const p = resolvePropertyOnChain(className, hint.property);
           if (p) {
-            pushEdge(p.id, p.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "write");
+            pushEdge(p.id, p.ownerClass === className ? CallKind.Static : CallKind.Inherited, true, "write", "this");
           }
           break;
         }

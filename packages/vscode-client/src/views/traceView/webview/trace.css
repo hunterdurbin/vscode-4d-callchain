@@ -58,6 +58,10 @@ html, body { margin: 0; padding: 0; height: 100%; width: 100%; font-family: var(
 .meta { opacity: 0.6; font-size: 11px; flex: none; }
 .access { font-style: italic; }
 .unresolved-badge { color: #f44747; opacity: 0.9; }
+.row.alternative { opacity: 0.75; font-style: italic; }
+.may-run-badge { color: #c586c0; margin-right: 2px; flex: none; font-size: 11px; }
+.dispatch-badge { color: #4ec9b0; opacity: 0.9; }
+ul.alts { border-left-style: dashed; }
 
 .snippet { opacity: 0.7; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
 

@@ -32,6 +32,8 @@
       r.childIds = r.children ? adoptRows(r.children) : null; // null = not loaded
       r.expanded = !!r.children;
       delete r.children;
+      r.altIds = r.alternatives ? adoptRows(r.alternatives) : [];
+      delete r.alternatives;
       rowsById.set(r.nodeId, r);
       ids.push(r.nodeId);
     }
@@ -84,11 +86,12 @@
   /** True if the row or any LOADED descendant matches the name filter. */
   function subtreeMatches(row) {
     if (matchesName(row)) return true;
-    if (!row.childIds) return false;
-    return row.childIds.some((id) => {
-      const c = rowsById.get(id);
-      return c && !isKindHidden(c) && subtreeMatches(c);
-    });
+    const scan = (ids) =>
+      (ids || []).some((id) => {
+        const c = rowsById.get(id);
+        return c && !isKindHidden(c) && subtreeMatches(c);
+      });
+    return scan(row.childIds) || scan(row.altIds);
   }
 
   // ── Rendering ──────────────────────────────────────────────────────────────
@@ -152,7 +155,18 @@
 
     const li = document.createElement("li");
     const line = document.createElement("div");
-    line.className = "row" + (matchesName(row) && nameQuery ? " match" : "");
+    line.className =
+      "row" +
+      (matchesName(row) && nameQuery ? " match" : "") +
+      (row.isAlternative ? " alternative" : "");
+
+    if (row.isAlternative) {
+      const badge = document.createElement("span");
+      badge.className = "may-run-badge";
+      badge.textContent = "↪ may run";
+      badge.title = "Possible dispatch target — a subclass overrides this member";
+      line.appendChild(badge);
+    }
 
     const twistie = document.createElement("span");
     twistie.className = "twistie";
@@ -173,6 +187,14 @@
     line.appendChild(twistie);
     line.appendChild(kindDot(row.kind));
     line.appendChild(nameSpan(row.ownerClass, row.name));
+
+    if (row.dispatched) {
+      const badge = document.createElement("span");
+      badge.className = "meta dispatch-badge";
+      badge.textContent = `via ${row.receiverClass || "?"}`;
+      badge.title = `Statically ${row.staticLabel || "?"} — re-resolved against the concrete receiver class`;
+      line.appendChild(badge);
+    }
 
     const lineNo = document.createElement("span");
     lineNo.className = "meta";
@@ -212,6 +234,18 @@
       vscode.postMessage({ type: "openCallSite", payload: { nodeId: row.nodeId } });
     });
     li.appendChild(line);
+
+    // "May run" alternatives sit directly under the call row, always visible
+    // (the twistie governs only the static target's children).
+    if (row.altIds && row.altIds.length) {
+      const ul = document.createElement("ul");
+      ul.className = "alts";
+      for (const id of row.altIds) {
+        const altLi = renderRow(rowsById.get(id));
+        if (altLi) ul.appendChild(altLi);
+      }
+      if (ul.childElementCount) li.appendChild(ul);
+    }
 
     if (row.expanded && row.childIds && row.childIds.length) {
       const ul = document.createElement("ul");

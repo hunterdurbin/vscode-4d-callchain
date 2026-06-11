@@ -110,6 +110,84 @@ function parentClassName(graph: CallGraph, className: string): string | undefine
 }
 
 /**
+ * Which member slot a reference targets, mirroring the resolver's ThisCall /
+ * ThisGet / ThisSet lookup order: `call` for `This.fn()`, `read`/`write` for
+ * property access (from `CallEdge.access`).
+ */
+export type MemberSlot = "call" | "read" | "write";
+
+/**
+ * Kind passes per slot, in the resolver's priority order: a getter anywhere on
+ * the chain beats an alias anywhere, which beats a plain property — each pass
+ * walks the full chain before the next kind is tried (matches
+ * resolveGetterOnChain → resolveAliasOnChain → resolvePropertyOnChain).
+ */
+const SLOT_KIND_PASSES: Record<MemberSlot, SymbolKind[]> = {
+  call: [SymbolKind.ClassFunction],
+  read: [SymbolKind.ClassGetter, SymbolKind.Alias, SymbolKind.ClassProperty],
+  write: [SymbolKind.ClassSetter, SymbolKind.Alias, SymbolKind.ClassProperty]
+};
+
+/**
+ * Resolve `memberName` for a CONCRETE receiver class: the declaration that
+ * actually runs when an instance of `className` references the member. Walks
+ * the `extendsClass` chain upward from `className` itself (nearest declaration
+ * wins), cycle-guarded, case-insensitive. Used by the Method Trace to
+ * re-resolve `This.x` references against the pinned receiver class
+ * (polymorphic dispatch). Returns undefined when no declaration exists
+ * anywhere on the chain (e.g. an abstract hook).
+ */
+export function resolveMemberForClass(
+  graph: CallGraph,
+  className: string,
+  memberName: string,
+  slot: MemberSlot
+): SymbolRecord | undefined {
+  const candidates = graph.byName(memberName);
+  if (candidates.length === 0) return undefined;
+  for (const kind of SLOT_KIND_PASSES[slot]) {
+    const visited = new Set<string>();
+    let cur: string | undefined = className;
+    while (cur && !visited.has(cur.toLowerCase())) {
+      const curLower = cur.toLowerCase();
+      visited.add(curLower);
+      const hit = candidates.find((s) => s.kind === kind && s.ownerClass?.toLowerCase() === curLower);
+      if (hit) return hit;
+      cur = parentClassName(graph, cur);
+    }
+  }
+  return undefined;
+}
+
+/** The single override-relevant kind per slot (used to filter candidates). */
+const SLOT_OVERRIDE_KIND: Record<MemberSlot, SymbolKind> = {
+  call: SymbolKind.ClassFunction,
+  read: SymbolKind.ClassGetter,
+  write: SymbolKind.ClassSetter
+};
+
+/**
+ * Descendant overrides of (`className`, `memberName`) compatible with `slot` —
+ * the "may run" dispatch targets when the concrete receiver class is unknown.
+ * Built on `overridesForClass`, so it works even when the base member has no
+ * symbol at all (a purely abstract hook only referenced via `This.x`). Pass a
+ * `precomputed` map (one `overridesForClass` result) to amortize the
+ * O(symbols) scan across many lookups for the same class.
+ */
+export function overrideCandidates(
+  graph: CallGraph,
+  className: string,
+  memberName: string,
+  slot: MemberSlot,
+  precomputed?: Map<string, SymbolRecord[]>
+): SymbolRecord[] {
+  const byName = precomputed ?? overridesForClass(graph, className);
+  const list = byName.get(memberName.toLowerCase()) ?? [];
+  const kind = SLOT_OVERRIDE_KIND[slot];
+  return list.filter((s) => s.kind === kind);
+}
+
+/**
  * Function-kind members inherited from the strict ancestors of `className`,
  * keyed by lowercased member name → the nearest ancestor's declaration. Walks
  * up the `extendsClass` chain (cycle-guarded), keeping the first (nearest)

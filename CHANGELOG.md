@@ -34,6 +34,21 @@ A "Kinds" menu filters rows by symbol category — built-ins, constants, and
 variables are hidden by default (`callchain.trace.hiddenKinds`) — plus a name
 filter, snippet toggle, and expand-to-depth control.
 
+### Added — polymorphic dispatch in the Method Trace
+The trace now resolves which class function actually runs. It pins the
+concrete receiver class as it descends through `This.`/`Super.` calls, so a
+base-class skeleton calling an overridden (or abstract) hook traces into the
+subclass override — marked with a "via <Class>" badge whose tooltip names the
+static target. `Super.fn()` correctly executes the parent implementation
+while keeping the receiver pinned inside it, and overridden getters/setters
+re-resolve the same way. When the concrete class can't be known (tracing the
+base class itself, or entering through a base-typed reference), descendant
+overrides appear as ghosted "↪ may run" rows — each expandable as its own
+branch with that subclass pinned. Recursion detection works on the
+re-resolved target. Under the hood, `CallEdge` gained an optional
+`receiver: "this" | "super"` tag set at index time (INDEX_VERSION 46 — one
+automatic reindex after upgrading).
+
 ### Fixed
 - Webview assets (graph/trace js+css, cytoscape) are now copied into `dist/`
   at build time. Previously they were loaded from `src/` and `node_modules/`,
