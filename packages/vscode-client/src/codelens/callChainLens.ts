@@ -46,17 +46,60 @@ function usageLensTitle(reads: number, writes: number, compact: boolean, name?: 
   return `${name ? `${name}: ` : ""}↔ ${body}`;
 }
 
-export class CallChainLensProvider implements vscode.CodeLensProvider {
+/** The eight per-lens visibility toggles, read once and cached (see below). */
+interface LensConfig {
+  showCallers: boolean;
+  showCallees: boolean;
+  showViaBase: boolean;
+  showGraph: boolean;
+  showOverrides: boolean;
+  showOverriding: boolean;
+  showExtendedBy: boolean;
+  showPropertyUsage: boolean;
+}
+
+function readLensConfig(): LensConfig {
+  const cfg = vscode.workspace.getConfiguration("callchain");
+  return {
+    showCallers: cfg.get<boolean>("codeLens.showCallers", true),
+    showCallees: cfg.get<boolean>("codeLens.showCallees", false),
+    showViaBase: cfg.get<boolean>("codeLens.showViaBase", true),
+    showGraph: cfg.get<boolean>("codeLens.showGraph", false),
+    showOverrides: cfg.get<boolean>("codeLens.showOverrides", true),
+    showOverriding: cfg.get<boolean>("codeLens.showOverriding", true),
+    showExtendedBy: cfg.get<boolean>("codeLens.showExtendedBy", true),
+    showPropertyUsage: cfg.get<boolean>("codeLens.showPropertyUsage", true)
+  };
+}
+
+export class CallChainLensProvider implements vscode.CodeLensProvider, vscode.Disposable {
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this.emitter.event;
+  // provideCodeLenses runs on every document change/save; eight
+  // getConfiguration round-trips per call are pure overhead, so the toggles
+  // are cached and refreshed by the config listener below.
+  private config = readLensConfig();
+  private readonly configListener: vscode.Disposable;
 
   constructor(
     private graphGetter: () => CallGraph | undefined,
-    private testStatusGetter: () => TestStatusDecorator,
+    private testStatusGetter: () => TestStatusDecorator | undefined,
     private coverageGetter: () => CoverageReport | undefined,
     private testPatternsGetter: () => TestPatterns = () => DEFAULT_TEST_PATTERNS,
     private lineMap?: (uri: string, savedLine: number) => number
-  ) {}
+  ) {
+    this.configListener = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("callchain.codeLens")) {
+        this.config = readLensConfig();
+        this.refresh();
+      }
+    });
+  }
+
+  dispose(): void {
+    this.configListener.dispose();
+    this.emitter.dispose();
+  }
 
   refresh(): void {
     this.emitter.fire();
@@ -78,22 +121,19 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     if (!graph) return [];
 
     const docUri = doc.uri.toString();
-    const symbols = graph.allSymbols().filter((s) => sameUri(s.location.uri, docUri));
+    // By-URI lookup maintained by the graph — previously a full
+    // allSymbols() scan with a per-symbol decode on every lens request.
+    const symbols = graph.symbolsInFile(docUri);
     if (symbols.length === 0) return [];
 
     const decorator = this.testStatusGetter();
     const coverage = this.coverageGetter();
     const testPatterns = this.testPatternsGetter();
 
-    const cfg = vscode.workspace.getConfiguration("callchain");
-    const showCallers = cfg.get<boolean>("codeLens.showCallers", true);
-    const showCallees = cfg.get<boolean>("codeLens.showCallees", false);
-    const showViaBase = cfg.get<boolean>("codeLens.showViaBase", true);
-    const showGraph = cfg.get<boolean>("codeLens.showGraph", false);
-    const showOverrides = cfg.get<boolean>("codeLens.showOverrides", true);
-    const showOverriding = cfg.get<boolean>("codeLens.showOverriding", true);
-    const showExtendedBy = cfg.get<boolean>("codeLens.showExtendedBy", true);
-    const showPropertyUsage = cfg.get<boolean>("codeLens.showPropertyUsage", true);
+    const {
+      showCallers, showCallees, showViaBase, showGraph,
+      showOverrides, showOverriding, showExtendedBy, showPropertyUsage
+    } = this.config;
 
     // Count field-like members per (mapped) line so we can disambiguate stacked
     // lenses when several share a line (`property text1; text2 : Text`).
@@ -133,7 +173,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     const out: vscode.CodeLens[] = [];
     for (const s of symbols) {
       if (s.kind === SymbolKind.Class) {
-        out.push(...this.lensesForClass(s, docUri, showGraph, showExtendedBy, graph, showCallers && !hasConstructor));
+        out.push(...this.lensesForClass(s, docUri, showGraph, showExtendedBy, graph, showCallers && !hasConstructor, decorator !== undefined));
         continue;
       }
       const callerCount = graph.callers(s.id).length;
@@ -234,7 +274,9 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
       // Test result + run button on test functions. Keyed on the test-function
       // pattern + a test-flavored class: these run via the 4D test runner, which
       // needs an owning class (standalone test methods can't be run this way).
-      if (s.classFlavor === ClassFlavor.Test && testPatterns.testFunctionPattern.test(s.name) && s.ownerClass) {
+      // The decorator only exists when test integration is enabled — without
+      // it there is no run command either, so the lens is suppressed.
+      if (decorator && s.classFlavor === ClassFlavor.Test && testPatterns.testFunctionPattern.test(s.name) && s.ownerClass) {
         const r = decorator.resultFor(s.ownerClass, s.name);
         const status = r ? (r.status === "passed" ? "✓" : "✗") : "○";
         out.push(new vscode.CodeLens(range, {
@@ -253,7 +295,8 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
     showGraph: boolean,
     showExtendedBy: boolean,
     graph: CallGraph,
-    showClassCallers: boolean
+    showClassCallers: boolean,
+    testRunAvailable: boolean
   ): vscode.CodeLens[] {
     const line = this.mapLine(docUri, s.location.line);
     const range = new vscode.Range(line, 0, line, 1);
@@ -283,7 +326,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
         }));
       }
     }
-    if (s.classFlavor === ClassFlavor.Test) {
+    if (testRunAvailable && s.classFlavor === ClassFlavor.Test) {
       lenses.push(new vscode.CodeLens(range, {
         title: `▶ Run tests for ${s.name}`,
         command: "callchain.runTestsForClass",
@@ -299,8 +342,3 @@ export class CallChainLensProvider implements vscode.CodeLensProvider {
   }
 }
 
-export function sameUri(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  try { return decodeURIComponent(a) === decodeURIComponent(b); }
-  catch { return a === b; }
-}

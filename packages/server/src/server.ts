@@ -126,8 +126,9 @@ export function startServer(): void {
       projectRoot: state.projectRoot,
       exclusions: initOptions.exclusions ?? ["DerivedData", "Libraries", ".git", "node_modules"],
       builtinConstantsPaths: initOptions.builtinConstantsPaths ?? [],
-      // Coalesce post-patch cache writes; a burst of saves only writes once.
-      persistDebounceMs: 250,
+      // This process is the sole cache writer when running (the extension
+      // host sets persistMode "off"); coalesce a save burst into one write.
+      persistDebounceMs: 1000,
       logger: state.makeLogger()
     });
 
@@ -179,6 +180,13 @@ export function startServer(): void {
   // rules fire and disabled rules clear without restarting.
   connection.onDidChangeConfiguration(() => {
     void refreshLintConfig();
+  });
+
+  // As the sole cache writer, land any pending debounced persist before the
+  // client tears us down — otherwise the last save burst's index is lost and
+  // the next session pays a full rebuild.
+  connection.onShutdown(async () => {
+    await state.indexer?.flushPersist();
   });
 
   connection.onDidChangeWatchedFiles(async (params) => {

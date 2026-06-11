@@ -16,7 +16,7 @@ export function registerLenses(
   context: vscode.ExtensionContext,
   indexer: Indexer,
   coverage: CoverageService,
-  testStatusGetter: () => TestStatusDecorator
+  testStatusGetter: () => TestStatusDecorator | undefined
 ): CallChainLensProvider {
   const dirtyLines = new DirtyLineTracker(
     () => indexer.getGraph(),
@@ -32,16 +32,8 @@ export function registerLenses(
     (uri, savedLine) => dirtyLines.displayLine(uri, savedLine)
   );
   context.subscriptions.push(
+    lensProvider, // owns its emitter + the codeLens-config listener
     vscode.languages.registerCodeLensProvider({ pattern: "**/*.{4dm,4DForm}" }, lensProvider)
-  );
-
-  // Re-render lenses when their visibility toggles change.
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("callchain.codeLens")) {
-        lensProvider.refresh();
-      }
-    })
   );
 
   return lensProvider;

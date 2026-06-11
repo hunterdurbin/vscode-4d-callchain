@@ -47,7 +47,9 @@ export class CursorTracker {
     }
     const uri = editor.document.uri.toString();
     const line = editor.selection.active.line;
-    const candidates = this.graph.allSymbols().filter((s) => sameUri(s.location.uri, uri));
+    // By-URI lookup — previously a full allSymbols() scan with per-symbol
+    // decodes on every (debounced) cursor move.
+    const candidates = this.graph.symbolsInFile(uri);
     if (candidates.length === 0) {
       this.emit(undefined);
       return;
@@ -72,14 +74,5 @@ export class CursorTracker {
     if (s?.id === this.current?.id) return;
     this.current = s;
     this.emitter.fire(s);
-  }
-}
-
-function sameUri(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  try {
-    return decodeURIComponent(a) === decodeURIComponent(b);
-  } catch {
-    return a === b;
   }
 }

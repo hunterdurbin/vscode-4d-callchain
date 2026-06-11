@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import { CallGraph } from "@4d/core";
-import { sameUri } from "./callChainLens";
 import { applyContentChange, countNewlines } from "./lineShift";
 
 /**
@@ -71,8 +70,10 @@ export class DirtyLineTracker {
     const map = new Map<number, number>();
     const graph = this.graphGetter();
     if (!graph) return map;
-    for (const s of graph.allSymbols()) {
-      if (sameUri(s.location.uri, uriStr)) map.set(s.location.line, s.location.line);
+    // By-URI lookup — previously an all-symbols scan on the first keystroke
+    // of every dirty document.
+    for (const s of graph.symbolsInFile(uriStr)) {
+      map.set(s.location.line, s.location.line);
     }
     return map;
   }

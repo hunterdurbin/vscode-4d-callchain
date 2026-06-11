@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { CallGraph } from "@4d/core";
 import { CoverageHintsDecorator } from "../decorations/coverageHintsDecorator";
+import { TrailingScheduler } from "../util/trailingScheduler";
 import {
   CoverageReport,
   computeCoverage,
@@ -12,25 +13,45 @@ import {
 
 /**
  * Owns the coverage report (which tests reach which symbols), the
- * test-detection patterns, and the gutter hints decorator. Coverage is
- * skipped entirely when neither test integration nor coverage hints need it.
+ * test-detection patterns, and the gutter hints decorator.
+ *
+ * Coverage is a full DFS from every test seed over the whole call graph —
+ * too expensive to run synchronously inside the indexer's onDidUpdate (i.e.
+ * on every save, on the thread every extension shares). Index updates
+ * therefore only `invalidate()`; the compute runs once on a trailing timer
+ * after the save burst settles, and `onDidCompute` lets consumers (lenses)
+ * re-render with the fresh report. `get()` serves the cached — possibly one
+ * update stale — report in the meantime. When neither test integration nor
+ * coverage hints are enabled, nothing is ever computed.
  */
-export class CoverageService {
+export class CoverageService implements vscode.Disposable {
   private report: CoverageReport | undefined;
   private patterns: TestPatterns;
   private hintsEnabled: boolean;
   private readonly hints = new CoverageHintsDecorator();
+  private readonly scheduler: TrailingScheduler;
+  private readonly emitter = new vscode.EventEmitter<void>();
+  /** Fires after each (re)compute lands — consumers re-render from `get()`. */
+  readonly onDidCompute = this.emitter.event;
 
   constructor(
     private readonly graphGetter: () => CallGraph | undefined,
     private readonly testEnabled: boolean,
-    private readonly output: vscode.OutputChannel
+    private readonly output: vscode.OutputChannel,
+    computeDelayMs = 1500
   ) {
     this.hintsEnabled = vscode.workspace.getConfiguration("callchain").get<boolean>("showCoverageHints", false);
     this.patterns = this.compilePatterns();
+    this.scheduler = new TrailingScheduler(() => this.computeNow(), computeDelayMs);
   }
 
-  /** The current report; undefined while coverage is disabled or not yet computed. */
+  dispose(): void {
+    this.scheduler.cancel();
+    this.hints.dispose();
+    this.emitter.dispose();
+  }
+
+  /** The current (possibly one-update-stale) report; undefined while disabled. */
   get(): CoverageReport | undefined {
     return this.report;
   }
@@ -39,26 +60,47 @@ export class CoverageService {
     return this.patterns;
   }
 
+  private get enabled(): boolean {
+    return this.testEnabled || this.hintsEnabled;
+  }
+
   /**
-   * Recompute coverage from the current graph and push it to the consumers.
-   * Used both on index updates and on coverage-related config changes so the
-   * two paths can never disagree.
+   * Mark the report stale after an index update. Schedules the (expensive)
+   * recompute on the trailing timer; a burst of saves computes once.
    */
-  recompute(graph = this.graphGetter()): void {
-    if (graph && (this.testEnabled || this.hintsEnabled)) {
+  invalidate(): void {
+    if (!this.enabled) {
+      this.report = undefined;
+      this.pushToHints();
+      return;
+    }
+    this.scheduler.schedule();
+  }
+
+  /** Re-read the hint toggle + patterns from settings and recompute promptly
+   *  (config changes are rare and user-initiated — they expect to see the
+   *  effect now, not after the idle delay). */
+  refreshFromConfig(): void {
+    this.hintsEnabled = vscode.workspace.getConfiguration("callchain").get<boolean>("showCoverageHints", false);
+    this.patterns = this.compilePatterns();
+    this.scheduler.cancel();
+    this.computeNow();
+  }
+
+  private computeNow(): void {
+    const graph = this.graphGetter();
+    if (graph && this.enabled) {
       this.report = computeCoverage(graph, this.patterns);
     } else {
       this.report = undefined;
     }
-    this.hints.setUncovered(this.report?.uncovered ?? []);
-    this.hints.setEnabled(this.hintsEnabled);
+    this.pushToHints();
+    this.emitter.fire();
   }
 
-  /** Re-read the hint toggle + patterns from settings and recompute. */
-  refreshFromConfig(): void {
-    this.hintsEnabled = vscode.workspace.getConfiguration("callchain").get<boolean>("showCoverageHints", false);
-    this.patterns = this.compilePatterns();
-    this.recompute();
+  private pushToHints(): void {
+    this.hints.setUncovered(this.report?.uncovered ?? []);
+    this.hints.setEnabled(this.hintsEnabled);
   }
 
   private compilePatterns(): TestPatterns {

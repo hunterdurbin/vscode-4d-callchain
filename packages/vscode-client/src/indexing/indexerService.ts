@@ -7,6 +7,8 @@ export interface IndexerServiceOptions {
   exclusions: string[];
   builtinConstantsPaths: string[];
   output: vscode.OutputChannel;
+  /** Whether the language-server process is also running (see persist note). */
+  serverEnabled: boolean;
 }
 
 /** Construct the in-process indexer wired to the extension's output channel. */
@@ -15,10 +17,15 @@ export function createIndexer(opts: IndexerServiceOptions): Indexer {
     projectRoot: opts.projectRoot,
     exclusions: opts.exclusions,
     builtinConstantsPaths: opts.builtinConstantsPaths,
-    // Coalesce post-patch cache writes so a burst of saves only writes the
-    // cache once, and so the msgpack encode of a multi-MB index doesn't
-    // block the extension host (= VSCode UI thread) on every save.
-    persistDebounceMs: 250,
+    // The msgpack encode of a multi-MB index is synchronous CPU on the
+    // extension host — the thread every extension's save participants share.
+    // When the language server is running, IT becomes the sole cache writer
+    // (a few hundred ms of encode in its own process is harmless) and this
+    // indexer never encodes at all. Solo, writes stay on, pushed out to a
+    // 5s trailing debounce so a save/format burst encodes once at idle
+    // (deactivate() flushes the pending write).
+    persistMode: opts.serverEnabled ? "off" : "debounced",
+    persistDebounceMs: 5000,
     logger: {
       info: (m) => opts.output.appendLine(m),
       warn: (m) => opts.output.appendLine(m),

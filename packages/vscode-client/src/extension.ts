@@ -39,8 +39,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // test-integration subsystem are not required by Call Chain — default off,
   // flip the matching callchain.* setting to re-enable.
   const testEnabled = cfg.get<boolean>("testIntegration.enabled", false);
+  const serverEnabled = cfg.get<boolean>("languageServer.enabled", false);
 
-  const indexer = createIndexer({ projectRoot, exclusions, builtinConstantsPaths, output });
+  const indexer = createIndexer({ projectRoot, exclusions, builtinConstantsPaths, output, serverEnabled });
   indexerRef = indexer;
 
   const views = registerViews(context);
@@ -49,9 +50,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // integration off. The patterns decide what counts as a test; the callers
   // test filter uses the same test-detection regexes as coverage.
   const coverage = new CoverageService(() => indexer.getGraph(), testEnabled, output);
+  context.subscriptions.push(coverage);
   views.callers.setTestPatterns(coverage.getPatterns());
 
-  const decorator = new TestStatusDecorator();
+  // The pass/fail gutter decorator exists only when test integration is on —
+  // with it off there are no results to render, and its document-change
+  // listeners shouldn't be ticking on every keystroke.
+  const decorator = testEnabled ? new TestStatusDecorator() : undefined;
+  if (decorator) context.subscriptions.push(decorator);
 
   const lensProvider = registerLenses(context, indexer, coverage, () => decorator);
 
@@ -70,25 +76,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  // Wire indexer → views, coverage, lenses.
+  // Wire indexer → views, coverage, lenses. Coverage is only INVALIDATED
+  // here — the full-graph DFS it implies runs on a trailing timer after the
+  // save burst settles, never synchronously on the indexer-update path (which
+  // shares the extension-host thread with every other extension's save
+  // participants). Lenses re-render now with the stale report and again via
+  // onDidCompute when the fresh one lands.
   indexer.onDidUpdate((graph) => {
     views.callers.setGraph(graph);
     views.callees.setGraph(graph);
     views.search.setGraph(graph);
     views.tracker.setGraph(graph);
-    // Coverage drives the "N tests cover this" lens and the gutter hints; the
-    // service skips the graph walk entirely when nothing needs it. An
-    // undefined report makes the lens fall back to caller/callee annotations.
-    coverage.recompute(graph);
+    coverage.invalidate();
     lensProvider.refresh();
   });
+  context.subscriptions.push(coverage.onDidCompute(() => lensProvider.refresh()));
 
   registerIndexWatchers(context, projectRoot, indexer);
   registerNavigationCommands(context, indexer, views, output);
   registerFilterCommands(context, views);
   context.subscriptions.push(registerMcpSetup(context, output, resolveProjectRoot));
 
-  if (testEnabled) {
+  if (testEnabled && decorator) {
     decorator.onDidChange(() => lensProvider.refresh());
     registerTestIntegration(context, projectRoot, indexer, decorator, coverage, output, testOutput);
   }
