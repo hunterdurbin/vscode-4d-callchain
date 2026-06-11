@@ -80,8 +80,8 @@ describe("incremental indexing (patchFile)", () => {
     return;
   }
 
-  it("INDEX_VERSION is 46 after CallEdge gained the receiver tag", () => {
-    expect(INDEX_VERSION).toBe(46);
+  it("INDEX_VERSION is 47 after CallEdge gained the receiverClass tag", () => {
+    expect(INDEX_VERSION).toBe(47);
   });
 
   it("pure body edit produces the same symbols + edges as a fresh rebuild", async () => {

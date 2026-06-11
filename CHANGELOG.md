@@ -50,10 +50,15 @@ type: whenever an implementation can be determined on its chain, the trace
 shows that single row. Only an undeterminable reference (an abstract hook
 with no implementation anywhere on the chain) lists ghosted "↪ may run"
 rows — one per descendant implementation, each expandable as its own branch
-with that subclass pinned. Recursion detection works on the re-resolved
-target. Under the hood, `CallEdge` gained an optional
-`receiver: "this" | "super"` tag set at index time (INDEX_VERSION 46 — one
-automatic reindex after upgrading).
+with that subclass pinned. The pin survives entry points too: `$dog.run()`
+pins `Dog` even when `run` is declared on the base class, and `cs.Dog.new()`
+pins `Dog` even with an inherited constructor. Determined rows whose member
+has subclass overrides elsewhere carry an informational "⇣ N" badge (those
+overrides aren't this trace's target, but other call paths reach them).
+Recursion detection works on the re-resolved target. Under the hood,
+`CallEdge` gained optional `receiver: "this" | "super"` and
+`receiverClass` tags set at index time (INDEX_VERSION 47 — one automatic
+reindex after upgrading).
 
 ### Fixed
 - Webview assets (graph/trace js+css, cytoscape) are now copied into `dist/`

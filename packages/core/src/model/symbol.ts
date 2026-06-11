@@ -224,6 +224,15 @@ export interface CallEdge {
    * type, not `This`). Not part of the edge-dedup key.
    */
   receiver?: "this" | "super";
+  /**
+   * The statically-known class of the receiver expression at the call site,
+   * when the resolver derived one: the variable's declared/inferred class for
+   * `$var.fn()`, the named class for `cs.X.fn()` / `cs.X.new()` / `ds.X.fn()`.
+   * May be MORE DERIVED than the resolved target's ownerClass (calling an
+   * inherited member) — that's the point: trace UIs pin this class so
+   * `This.x` references inside the inherited member dispatch correctly.
+   */
+  receiverClass?: string;
 }
 
 export interface SymbolIndex {
@@ -316,9 +325,13 @@ export interface ChainStep {
 // Bumped to 46 when `CallEdge` gained the optional `receiver` tag
 // ("this"/"super") on This./Super. member references — old caches lack the
 // tag the Method Trace's polymorphic-dispatch re-resolution needs.
+// Bumped to 47 when `CallEdge` gained the optional `receiverClass` tag (the
+// statically-known class of `$var.fn()` / `cs.X.fn()` / `cs.X.new()` / `ds.X`
+// receivers) so the Method Trace can pin the concrete class when entering an
+// inherited member through a derived-typed reference.
 // Cached indexes built before each bump are silently invalidated on load —
 // users see one rebuild after upgrading.
-export const INDEX_VERSION = 46;
+export const INDEX_VERSION = 47;
 
 export function symbolIdFor(kind: SymbolKind, name: string, ownerClass?: string): string {
   if (ownerClass) {

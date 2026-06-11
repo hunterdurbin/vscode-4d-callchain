@@ -57,6 +57,13 @@ export interface TraceRow {
   alternatives?: TraceRow[];
   /** This row IS a may-run alternative (rendered ghosted with an ↪ prefix). */
   isAlternative?: boolean;
+  /**
+   * Number of subclass overrides of this member that exist BELOW the
+   * effective target's class — informational ("⇣ N" badge): they are not the
+   * determined target for this trace's receiver, but other call paths can
+   * reach them.
+   */
+  overrideCount?: number;
 }
 
 export interface TraceBudget {
@@ -146,13 +153,16 @@ export function buildTraceChildren(
     const recursive = ancestors.has(effectiveId);
 
     // ── Receiver context for this row's subtree ──
-    // This/Super calls stay on the same instance; untagged edges into a class
-    // member enter that object's context (its static type); anything else
-    // (project methods, builtins…) clears the pin.
+    // This/Super calls stay on the same instance. Other edges enter that
+    // object's context: prefer the statically-known receiver class recorded
+    // at index time (`$dog.run()` → "Dog" even when run is declared on
+    // Animal; `cs.Dog.new()` → "Dog" even with an inherited constructor),
+    // falling back to the resolved member's declaring class. Non-class
+    // targets (project methods, builtins…) clear the pin.
     const childReceiver =
       e.receiver === "this" || e.receiver === "super"
         ? receiverClass ?? effSym?.ownerClass
-        : effSym?.ownerClass;
+        : e.receiverClass ?? effSym?.ownerClass;
 
     const row: TraceRow = {
       nodeId: nextId(),
@@ -176,6 +186,20 @@ export function buildTraceChildren(
       row.dispatched = true;
       row.staticCalleeId = staticSym.id;
       row.staticLabel = labelOf(staticSym);
+    }
+
+    // ── "⇣ N" informational badge: overrides below the effective target ──
+    // Not the determined target for THIS receiver, but other call paths can
+    // reach them. Only for class-member targets.
+    if (effSym?.ownerClass && memberName) {
+      const count = overrideCandidates(
+        graph,
+        effSym.ownerClass,
+        memberName,
+        slot,
+        cachedOverrides(graph, caches, effSym.ownerClass)
+      ).filter((a) => a.id !== effectiveId).length;
+      if (count > 0) row.overrideCount = count;
     }
 
     // ── "May run" alternatives only when nothing could be determined ──

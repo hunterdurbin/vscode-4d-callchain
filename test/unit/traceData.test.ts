@@ -397,6 +397,84 @@ describe("buildTraceChildren — polymorphic dispatch", () => {
     expect(helper.receiverClass).toBeUndefined();
   });
 
+  it("entry through a derived-typed reference pins the variable's class (Init→Dog scenario)", () => {
+    // Init does `$dog := cs.Dog.new()` then `$dog.run()`. `run` is declared
+    // only on Animal, so the edge's static target is Animal.run — but the
+    // edge carries receiverClass "Dog" from the variable's type. Inside the
+    // inherited run, This.hook must dispatch to Dog.hook.
+    const syms = [
+      classSym("Animal"),
+      classSym("Dog", "Animal"),
+      memberSym("Animal", "run"),
+      memberSym("Animal", "hook"),
+      memberSym("Dog", "hook"),
+      sym("Init", "Init")
+    ];
+    const g = dispatchGraph(syms, [
+      dEdge("Init", "ClassFunction:Animal.run", { receiverClass: "Dog", line: 1 }),
+      dEdge("ClassFunction:Animal.run", "ClassFunction:Animal.hook", {
+        receiver: "this", line: 2
+      })
+    ]);
+    const rows = buildTraceChildren(g, "Init", new Set(["Init"]), 2, counter(), { left: 100 }, undefined);
+    const run = rows[0];
+    expect(run.calleeId).toBe("ClassFunction:Animal.run");
+    expect(run.receiverClass).toBe("Dog"); // pin from the edge, not the declaring class
+    const hook = run.children![0];
+    expect(hook.calleeId).toBe("ClassFunction:Dog.hook");
+    expect(hook.dispatched).toBe(true);
+    expect(hook.staticLabel).toBe("Animal.hook");
+  });
+
+  it("constructor edges pin the constructed class even when inherited", () => {
+    // cs.Dog.new() with the constructor declared on Animal: edge targets
+    // Animal's constructor but receiverClass is "Dog".
+    const syms = [
+      classSym("Animal"),
+      classSym("Dog", "Animal"),
+      memberSym("Animal", "constructor", SymbolKind.ClassConstructor),
+      memberSym("Animal", "hook"),
+      memberSym("Dog", "hook"),
+      sym("Init", "Init")
+    ];
+    const g = dispatchGraph(syms, [
+      dEdge("Init", "ClassConstructor:Animal.constructor", { receiverClass: "Dog", line: 1 }),
+      dEdge("ClassConstructor:Animal.constructor", "ClassFunction:Animal.hook", {
+        receiver: "this", line: 2
+      })
+    ]);
+    const rows = buildTraceChildren(g, "Init", new Set(["Init"]), 2, counter(), { left: 100 }, undefined);
+    expect(rows[0].receiverClass).toBe("Dog");
+    expect(rows[0].children![0].calleeId).toBe("ClassFunction:Dog.hook");
+  });
+
+  it("reports overrideCount on determined rows whose member has subclass overrides", () => {
+    // Cat runs the inherited Animal.hook (determined) — but Dog.hook exists,
+    // so the row carries an informational overrideCount instead of may-run rows.
+    const syms = [...HIERARCHY, classSym("Cat", "Animal"), memberSym("Cat", "meow")];
+    const g = dispatchGraph(syms, [
+      dEdge("ClassFunction:Cat.meow", "ClassFunction:Animal.hook", {
+        receiver: "this", line: 1
+      })
+    ]);
+    const rows = buildTraceChildren(
+      g, "ClassFunction:Cat.meow", new Set(["ClassFunction:Cat.meow"]), 1, counter(), { left: 100 }, "Cat"
+    );
+    expect(rows[0].calleeId).toBe("ClassFunction:Animal.hook");
+    expect(rows[0].alternatives).toBeUndefined();
+    expect(rows[0].overrideCount).toBe(1); // Dog.hook
+  });
+
+  it("omits overrideCount when no subclass overrides exist", () => {
+    const g = dispatchGraph(HIERARCHY, [
+      dEdge("ClassFunction:Dog.run", "ClassFunction:Dog.hook", { receiver: "this", line: 1 })
+    ]);
+    const rows = buildTraceChildren(
+      g, "ClassFunction:Dog.run", new Set(["ClassFunction:Dog.run"]), 1, counter(), { left: 100 }, "Dog"
+    );
+    expect(rows[0].overrideCount).toBeUndefined();
+  });
+
   it("alternatives consume budget and stop when exhausted", () => {
     // Abstract hook (no Animal.hook impl) — the only case that still
     // produces may-run alternatives under exact-pin semantics.

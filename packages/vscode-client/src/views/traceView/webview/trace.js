@@ -206,6 +206,15 @@
       badge.title = `Statically ${row.staticLabel || "?"} — re-resolved against the concrete receiver class`;
       line.appendChild(badge);
     }
+    if (row.overrideCount) {
+      const badge = document.createElement("span");
+      badge.className = "meta override-badge";
+      badge.textContent = `⇣${row.overrideCount}`;
+      badge.title =
+        `${row.overrideCount} subclass override${row.overrideCount === 1 ? "" : "s"} exist — ` +
+        `not the determined target for this trace's receiver, but other call paths can reach them`;
+      line.appendChild(badge);
+    }
 
     const lineNo = document.createElement("span");
     lineNo.className = "meta";

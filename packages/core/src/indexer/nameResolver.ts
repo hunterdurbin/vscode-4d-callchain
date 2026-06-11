@@ -922,7 +922,14 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
     for (const call of parsed.rawCalls) {
       const hint = call.hint;
       if (!hint) continue;
-      const pushEdge = (toId: string, kind: CallKind, resolved: boolean, access?: "read" | "write", receiver?: "this" | "super") => {
+      const pushEdge = (
+        toId: string,
+        kind: CallKind,
+        resolved: boolean,
+        access?: "read" | "write",
+        receiver?: "this" | "super",
+        receiverClass?: string
+      ) => {
         edges.push({
           fromId: call.fromSymbolId,
           toId,
@@ -933,7 +940,8 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           column: call.column,
           endColumn: call.endColumn,
           ...(access ? { access } : {}),
-          ...(receiver ? { receiver } : {})
+          ...(receiver ? { receiver } : {}),
+          ...(receiverClass ? { receiverClass } : {})
         });
       };
 
@@ -973,8 +981,10 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
         case "CsNew": {
           const cls = classByName.get(hint.className.toLowerCase());
           if (cls) {
+            // The instance is exactly `cls` even when the constructor (or any
+            // member the body calls) is inherited — tag the receiver class.
             const ctor = classFunctions.get(`${cls.name}.constructor`.toLowerCase());
-            pushEdge(ctor?.id ?? cls.id, CallKind.Static, true);
+            pushEdge(ctor?.id ?? cls.id, CallKind.Static, true, undefined, undefined, cls.name);
           } else {
             pushEdge(findOrCreateUnresolved(`cs.${hint.className}.new`), CallKind.Dynamic, false);
           }
@@ -983,7 +993,7 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
         case "CsCall": {
           const fn = resolveOnClassChain(hint.className, hint.method);
           if (fn) {
-            pushEdge(fn.id, CallKind.Static, true);
+            pushEdge(fn.id, CallKind.Static, true, undefined, undefined, hint.className);
           } else {
             pushEdge(findOrCreateUnresolved(`cs.${hint.className}.${hint.method}`), CallKind.Dynamic, false);
           }
@@ -1037,7 +1047,7 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
             resolveOnClassChain(hint.className, hint.method) ??
             classFunctions.get(`${hint.className}.${hint.method}`.toLowerCase());
           if (fn) {
-            pushEdge(fn.id, CallKind.Static, true);
+            pushEdge(fn.id, CallKind.Static, true, undefined, undefined, hint.className);
           } else {
             // Built-in DataClass method like .query, .new, .all — bucket per table.
             pushEdge(findOrCreateTableBuiltin(hint.className, hint.method), CallKind.Static, true);
@@ -1080,26 +1090,28 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
         case "VarCall": {
           const locals = localTypes.get(call.fromSymbolId);
           const rawType = locals?.get(hint.variable);
+          // The variable's statically-known class (may be more derived than
+          // the resolved member's declaring class — tag it on resolved edges).
+          const varClass = classFromVarType(rawType);
           // First try the canonical chain-walker form so EntitySelection<T>,
           // Collection, etc. land on their builtin API entry.
           const canon = normalizeType(rawType);
           if (canon) {
             const hit = resolveMethodOrBuiltin(canon, hint.method);
             if (hit) {
-              pushEdge(hit.id, CallKind.Static, true);
+              pushEdge(hit.id, CallKind.Static, true, undefined, undefined, varClass);
               break;
             }
           }
           // Legacy fallback: classFromVarType returns the bare class name and
           // tolerates `cs.<X>` shapes the canonical normaliser drops; preserve
           // the previous behaviour of attributing to a synthetic Builtin on miss.
-          const targetClass = classFromVarType(rawType);
-          if (targetClass) {
-            const fn = resolveOnClassChain(targetClass, hint.method);
+          if (varClass) {
+            const fn = resolveOnClassChain(varClass, hint.method);
             if (fn) {
-              pushEdge(fn.id, CallKind.Static, true);
+              pushEdge(fn.id, CallKind.Static, true, undefined, undefined, varClass);
             } else {
-              pushEdge(findOrCreateBuiltin(`${targetClass}.${hint.method}`), CallKind.Static, true);
+              pushEdge(findOrCreateBuiltin(`${varClass}.${hint.method}`), CallKind.Static, true);
             }
             break;
           }
@@ -1123,7 +1135,7 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           if (currentType) {
             const hit = resolveMethodOrBuiltin(currentType, hint.method);
             if (hit) {
-              pushEdge(hit.id, CallKind.Static, true);
+              pushEdge(hit.id, CallKind.Static, true, undefined, undefined, classFromVarType(currentType));
               break;
             }
           }
@@ -1148,7 +1160,7 @@ export function resolveCallsForFile(parsed: ParsedFile, scratch: ResolverScratch
           if (currentType) {
             const hit = resolveMethodOrBuiltin(currentType, hint.method);
             if (hit) {
-              pushEdge(hit.id, CallKind.Static, true);
+              pushEdge(hit.id, CallKind.Static, true, undefined, undefined, classFromVarType(currentType));
               break;
             }
           }
