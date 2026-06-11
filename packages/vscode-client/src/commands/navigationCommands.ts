@@ -149,13 +149,15 @@ export function registerNavigationCommands(
       }
       await peekSymbols(cls.location.uri, anchorLine ?? cls.location.line ?? 0, subs);
     }),
-    vscode.commands.registerCommand("callchain.showGraph", async (symbolId?: string) => {
+    vscode.commands.registerCommand("callchain.showGraph", async (symbolId?: unknown) => {
       const graph = indexer.getGraph();
       if (!graph) {
         vscode.window.showInformationMessage("Index not ready yet.");
         return;
       }
-      let rootId = symbolId;
+      // From the editor context menu VS Code passes the document Uri, not a
+      // symbol id — only trust a string and fall back to the cursor symbol.
+      let rootId = typeof symbolId === "string" ? symbolId : undefined;
       if (!rootId) rootId = tracker.getCurrent()?.id;
       if (!rootId) {
         vscode.window.showInformationMessage("Place the cursor on a 4D function/method first, or pick one.");
@@ -163,13 +165,15 @@ export function registerNavigationCommands(
       }
       GraphPanel.show(context, graph, rootId);
     }),
-    vscode.commands.registerCommand("callchain.showTrace", async (symbolId?: string) => {
+    vscode.commands.registerCommand("callchain.showTrace", async (symbolId?: unknown) => {
       const graph = indexer.getGraph();
       if (!graph) {
         vscode.window.showInformationMessage("Index not ready yet.");
         return;
       }
-      let rootId = symbolId;
+      // From the editor context menu VS Code passes the document Uri, not a
+      // symbol id — only trust a string and fall back to the cursor symbol.
+      let rootId = typeof symbolId === "string" ? symbolId : undefined;
       if (!rootId) rootId = tracker.getCurrent()?.id;
       if (!rootId) {
         vscode.window.showInformationMessage("Place the cursor on a 4D function/method first, or pick one.");
