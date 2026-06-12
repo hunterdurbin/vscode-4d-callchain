@@ -401,10 +401,6 @@
       run: () => vscode.postMessage({ type: "setRoot", payload: { symbolId: row.calleeId } })
     });
     items.push({
-      label: "Show in Butterfly graph",
-      run: () => vscode.postMessage({ type: "showInGraph", payload: { symbolId: row.calleeId } })
-    });
-    items.push({
       label: "Open definition",
       run: () => vscode.postMessage({ type: "openDefinition", payload: { nodeId: row.nodeId } })
     });
@@ -437,10 +433,6 @@
   function rootMenuItems() {
     const qualified = root.ownerClass ? `${root.ownerClass}.${root.name}` : root.name;
     const items = [
-      {
-        label: "Show in Butterfly graph",
-        run: () => vscode.postMessage({ type: "showInGraph", payload: { symbolId: root.symbolId } })
-      },
       {
         label: "Open definition",
         run: () => vscode.postMessage({ type: "openSymbolById", payload: { symbolId: root.symbolId } })

@@ -12,7 +12,6 @@ import { registerViews } from "./views/registerViews";
 import { CoverageService } from "./coverage/coverageService";
 import { registerLenses } from "./lenses/registerLenses";
 import { registerNavigationCommands } from "./commands/navigationCommands";
-import { GraphPanel } from "./views/graphView/graphPanel";
 import { TracePanel } from "./views/traceView/tracePanel";
 import { registerFilterCommands } from "./commands/filterCommands";
 import { registerTestIntegration } from "./testing/testIntegration";
@@ -88,9 +87,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     views.tracker.setGraph(graph);
     coverage.invalidate();
     lensProvider.refresh();
-    // Open webview panels hold a reference to the replaced CallGraph — swap it
-    // so they don't go stale after a rebuild.
-    GraphPanel.refreshIfOpen(graph);
+    // The open webview panel holds a reference to the replaced CallGraph —
+    // swap it so it doesn't go stale after a rebuild.
     TracePanel.refreshIfOpen(graph);
   });
   context.subscriptions.push(coverage.onDidCompute(() => lensProvider.refresh()));

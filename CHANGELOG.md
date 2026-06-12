@@ -7,20 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed — graph view is now a butterfly graph
-The free-form graph (dagre/organic/concentric layouts, right-click to re-root)
-is replaced by a butterfly layout: callers fan out to the left, callees to the
-right, with the current symbol centered.
-- **Single-click** a node to re-center the butterfly on it; **double-click**
-  opens it in the editor.
-- Previously-centered nodes keep a purple "visited" outline so you can see
-  where you've been; ◀/▶ buttons walk the navigation history, and "Clear
-  trail" resets the markers.
-- A symbol that both calls and is called by the center appears once per side,
-  so the wings stay strictly separated even through cycles; direct recursion
-  renders as a self-loop on the center.
-- `callchain.graph.maxDepth` now means levels **per side** (default 1, max 4).
-- The `dagre`/`cytoscape-dagre` dependencies are gone.
+### Removed — graph view
+The graph view is gone entirely (the free-form dagre/organic graph and the
+butterfly rewrite that briefly replaced it here). The Method Trace window is
+the call-chain visualization going forward. Removed with it:
+`4D Call Chain: Show Butterfly Graph`, the "Show graph from here" tree
+context entry, the `◎ Graph` code lens (`callchain.codeLens.showGraph`),
+the `callchain.graph.maxDepth` setting, and the `cytoscape` dependency.
 
 ### Added — Method Trace window
 `4D Call Chain: Show Method Trace` (editor/tree context menu: "Show method
@@ -34,9 +27,9 @@ A "Kinds" menu filters rows by symbol category — including fine-grained class
 categories (constructors, class functions, getters, setters, property reads,
 property writes); built-ins, constants, and variables are hidden by default
 (`callchain.trace.hiddenKinds`) — plus a name filter, snippet toggle, and
-expand-to-depth control. The trace and butterfly panels lock their editor
-group on open, so navigating from them opens files in the other group instead
-of covering the panel.
+expand-to-depth control. The trace panel locks its editor group on open, so
+navigating from it opens files in the other group instead of covering the
+panel.
 
 ### Added — polymorphic dispatch in the Method Trace
 The trace now resolves which class function actually runs. It pins the
@@ -61,12 +54,11 @@ Recursion detection works on the re-resolved target. Under the hood,
 reindex after upgrading).
 
 ### Fixed
-- Webview assets (graph/trace js+css, cytoscape) are now copied into `dist/`
-  at build time. Previously they were loaded from `src/` and `node_modules/`,
-  which `.vscodeignore` excludes — the graph view was broken in any packaged
-  `.vsix` install.
-- The graph and trace panels now refresh against the new index after a
-  reindex instead of holding a stale graph.
+- Webview assets (trace js+css) are now copied into `dist/` at build time.
+  Previously they were loaded from `src/`, which `.vscodeignore` excludes —
+  the panel was broken in any packaged `.vsix` install.
+- The trace panel now refreshes against the new index after a reindex
+  instead of holding a stale graph.
 
 ## [0.2.0] - 2026-06-11
 

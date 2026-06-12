@@ -51,7 +51,6 @@ interface LensConfig {
   showCallers: boolean;
   showCallees: boolean;
   showViaBase: boolean;
-  showGraph: boolean;
   showTrace: boolean;
   showOverrides: boolean;
   showOverriding: boolean;
@@ -65,7 +64,6 @@ function readLensConfig(): LensConfig {
     showCallers: cfg.get<boolean>("codeLens.showCallers", true),
     showCallees: cfg.get<boolean>("codeLens.showCallees", false),
     showViaBase: cfg.get<boolean>("codeLens.showViaBase", true),
-    showGraph: cfg.get<boolean>("codeLens.showGraph", false),
     showTrace: cfg.get<boolean>("codeLens.showTrace", false),
     showOverrides: cfg.get<boolean>("codeLens.showOverrides", true),
     showOverriding: cfg.get<boolean>("codeLens.showOverriding", true),
@@ -133,7 +131,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider, vscode.Di
     const testPatterns = this.testPatternsGetter();
 
     const {
-      showCallers, showCallees, showViaBase, showGraph, showTrace,
+      showCallers, showCallees, showViaBase, showTrace,
       showOverrides, showOverriding, showExtendedBy, showPropertyUsage
     } = this.config;
 
@@ -175,7 +173,7 @@ export class CallChainLensProvider implements vscode.CodeLensProvider, vscode.Di
     const out: vscode.CodeLens[] = [];
     for (const s of symbols) {
       if (s.kind === SymbolKind.Class) {
-        out.push(...this.lensesForClass(s, docUri, showGraph, showExtendedBy, graph, showCallers && !hasConstructor, decorator !== undefined));
+        out.push(...this.lensesForClass(s, docUri, showExtendedBy, graph, showCallers && !hasConstructor, decorator !== undefined));
         continue;
       }
       const callerCount = graph.callers(s.id).length;
@@ -204,11 +202,6 @@ export class CallChainLensProvider implements vscode.CodeLensProvider, vscode.Di
         title: `▼ ${calleeCount} callees`,
         command: "callchain.pinAndReveal",
         arguments: [s.id, "callees"]
-      }));
-      if (showGraph) out.push(new vscode.CodeLens(range, {
-        title: `◎ Graph`,
-        command: "callchain.showGraph",
-        arguments: [s.id]
       }));
       if (showTrace) out.push(new vscode.CodeLens(range, {
         title: `⇲ Trace`,
@@ -299,7 +292,6 @@ export class CallChainLensProvider implements vscode.CodeLensProvider, vscode.Di
   private lensesForClass(
     s: SymbolRecord,
     docUri: string,
-    showGraph: boolean,
     showExtendedBy: boolean,
     graph: CallGraph,
     showClassCallers: boolean,
@@ -340,11 +332,6 @@ export class CallChainLensProvider implements vscode.CodeLensProvider, vscode.Di
         arguments: [s.name]
       }));
     }
-    if (showGraph) lenses.push(new vscode.CodeLens(range, {
-      title: `◎ Graph class`,
-      command: "callchain.showGraph",
-      arguments: [s.id]
-    }));
     return lenses;
   }
 }

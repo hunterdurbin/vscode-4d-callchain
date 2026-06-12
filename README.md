@@ -23,7 +23,6 @@ provides the grammar and themes. They're independent — install whichever you n
 ## Features
 
 - **Callers** and **Callees** trees in the activity bar (updates as you move the cursor)
-- **Butterfly graph** rendered with Cytoscape.js — callers left, callees right; single-click re-centers, double-click opens the editor, visited nodes stay marked
 - **Method Trace window** — unrolls the whole call chain from a method as an expandable tree, one row per call site in source order, with symbol-kind filters
 - **CodeLens** above every function: `N callers • N callees • tests cover • Run`
 - **Test integration** — JUnit XML parsing, run `make test` from gutter, coverage hints
@@ -78,7 +77,6 @@ Settings are grouped into titled sections in the Settings UI (search for
 
 **Views & Graph**
 - `callchain.views.showCallSiteSnippets` — code snippets on call-site rows.
-- `callchain.graph.maxDepth` — caller/callee levels per side of the butterfly graph.
 - `callchain.trace.hiddenKinds` — symbol-kind categories hidden by default in the Method Trace view.
 
 **Coverage**
@@ -100,7 +98,7 @@ Settings are grouped into titled sections in the Settings UI (search for
 > Old → new: `projectRoot`→`index.projectRoot`, `indexExclusions`→`index.exclusions`,
 > `builtinConstantsPaths`→`index.builtinConstantsPaths`, `autoIndexOnStartup`→`index.autoOnStartup`,
 > `languageServer.enabled`→`server.enabled` (`ideServer.enabled` removed — the two servers merged),
-> `showCallSiteSnippets`→`views.showCallSiteSnippets`, `maxGraphDepth`→`graph.maxDepth`,
+> `showCallSiteSnippets`→`views.showCallSiteSnippets`,
 > `showCoverageHints`→`coverage.showHints`, `testIntegration.enabled`→`tests.enabled`,
 > `testCommand`→`tests.command`, `jsonResultsPath`→`tests.jsonResultsPath`
 > (`junitResultsPath` removed — JSON results only), `mcpServer.binPath`→`mcp.binPath`.

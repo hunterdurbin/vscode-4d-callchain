@@ -225,11 +225,6 @@ export class TracePanel {
         });
         break;
       }
-      case "showInGraph":
-        if (typeof msg.payload?.symbolId === "string") {
-          vscode.commands.executeCommand("callchain.showGraph", msg.payload.symbolId);
-        }
-        break;
       case "openSymbolById":
         if (typeof msg.payload?.symbolId === "string") {
           vscode.commands.executeCommand("callchain.openSymbol", msg.payload.symbolId);

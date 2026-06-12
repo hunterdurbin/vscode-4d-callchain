@@ -7,7 +7,6 @@ Navigate call chains in [4D](https://us.4d.com/) v21 projects — methods, class
 ## Features
 
 - **Callers** and **Callees** trees in the activity bar (update as you move the cursor)
-- **Butterfly graph** rendered with Cytoscape.js — callers left, callees right; single-click re-centers, double-click opens the editor, visited nodes stay marked
 - **Method Trace window** — unrolls the whole call chain from a method as an expandable tree, one row per call site in source order, with symbol-kind filters
 - **CodeLens** above every function: `N callers • N callees • tests cover • Run`
 - **Test integration** — JUnit XML parsing, run tests from the gutter, coverage hints
@@ -32,7 +31,6 @@ provides the grammar and themes. They're independent — neither requires the ot
 - `callchain.index.projectRoot` — path to the 4D project root (the folder containing `Project/`). Defaults to the first workspace folder.
 - `callchain.tests.command` — test command template (default: `make test class={class} format=json outputPath={jsonOutputPath}`).
 - `callchain.tests.jsonResultsPath` — relative path to the JSON test results file.
-- `callchain.graph.maxDepth` — caller/callee levels per side of the butterfly graph.
 - `callchain.trace.hiddenKinds` — symbol-kind categories hidden by default in the Method Trace view.
 - `callchain.coverage.showHints` — gutter markers for uncovered functions.
 - `callchain.lint.rules` — per-rule severity + options for the built-in linter (all off by default).

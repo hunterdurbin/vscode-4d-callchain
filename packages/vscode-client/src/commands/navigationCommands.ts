@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import { Indexer, SymbolKind } from "@4d/core";
 import type { SymbolRecord } from "@4d/core";
-import { GraphPanel } from "../views/graphView/graphPanel";
 import { TracePanel } from "../views/traceView/tracePanel";
 import { descendantClasses, findOverriddenFunction, findOverridesOfFunction } from "../codelens/overrides";
 import type { Views } from "../views/registerViews";
@@ -149,22 +148,6 @@ export function registerNavigationCommands(
       }
       await peekSymbols(cls.location.uri, anchorLine ?? cls.location.line ?? 0, subs);
     }),
-    vscode.commands.registerCommand("callchain.showGraph", async (symbolId?: unknown) => {
-      const graph = indexer.getGraph();
-      if (!graph) {
-        vscode.window.showInformationMessage("Index not ready yet.");
-        return;
-      }
-      // From the editor context menu VS Code passes the document Uri, not a
-      // symbol id — only trust a string and fall back to the cursor symbol.
-      let rootId = typeof symbolId === "string" ? symbolId : undefined;
-      if (!rootId) rootId = tracker.getCurrent()?.id;
-      if (!rootId) {
-        vscode.window.showInformationMessage("Place the cursor on a 4D function/method first, or pick one.");
-        return;
-      }
-      GraphPanel.show(context, graph, rootId);
-    }),
     vscode.commands.registerCommand("callchain.showTrace", async (symbolId?: unknown) => {
       const graph = indexer.getGraph();
       if (!graph) {
@@ -192,12 +175,6 @@ export function registerNavigationCommands(
       if (!sym) return;
       callees.pinRoot(sym.id);
       calleesView.reveal(undefined as any, { focus: true }).then(undefined, () => { /* ignore */ });
-    }),
-    vscode.commands.registerCommand("callchain.contextShowGraph", (node: any) => {
-      const sym = extractSymbol(node);
-      const graph = indexer.getGraph();
-      if (!sym || !graph) return;
-      GraphPanel.show(context, graph, sym.id);
     }),
     vscode.commands.registerCommand("callchain.contextShowTrace", (node: any) => {
       const sym = extractSymbol(node);

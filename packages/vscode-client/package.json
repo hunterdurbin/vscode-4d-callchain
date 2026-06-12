@@ -52,10 +52,6 @@
         "title": "4D Call Chain: Copy MCP server config for AI agents"
       },
       {
-        "command": "callchain.showGraph",
-        "title": "4D Call Chain: Show Butterfly Graph"
-      },
-      {
         "command": "callchain.showTrace",
         "title": "4D Call Chain: Show Method Trace"
       },
@@ -114,10 +110,6 @@
       {
         "command": "callchain.contextShowCallees",
         "title": "Show callees"
-      },
-      {
-        "command": "callchain.contextShowGraph",
-        "title": "Show graph from here"
       },
       {
         "command": "callchain.contextShowTrace",
@@ -238,11 +230,6 @@
           "group": "navigation"
         },
         {
-          "command": "callchain.showGraph",
-          "when": "resourceExtname == .4dm",
-          "group": "navigation"
-        },
-        {
           "command": "callchain.showTrace",
           "when": "resourceExtname == .4dm",
           "group": "navigation"
@@ -342,14 +329,9 @@
           "group": "navigation@2"
         },
         {
-          "command": "callchain.contextShowGraph",
-          "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
-          "group": "navigation@3"
-        },
-        {
           "command": "callchain.contextShowTrace",
           "when": "view =~ /^callchain\\./ && viewItem =~ /^callchain\\.symbol/",
-          "group": "navigation@4"
+          "group": "navigation@3"
         },
         {
           "command": "callchain.contextPinCallers",
@@ -453,12 +435,6 @@
             "description": "Show the '⊕ N via base' code lens above an overriding class function — the call sites that resolve to an ancestor's method but can dispatch to this override at runtime. Surfaces polymorphic-dispatch callers that '▲ N callers' (direct edges only) misses, so overrides aren't mistaken for dead code.",
             "scope": "window"
           },
-          "callchain.codeLens.showGraph": {
-            "type": "boolean",
-            "default": false,
-            "description": "Show the '◎ Graph' code lens above functions/methods and the '◎ Graph class' lens on class declarations.",
-            "scope": "window"
-          },
           "callchain.codeLens.showTrace": {
             "type": "boolean",
             "default": false,
@@ -498,14 +474,6 @@
             "type": "boolean",
             "default": true,
             "description": "When a caller/callee has multiple call sites in the same file, show the source-line snippet next to the line number. Disable to show 'line N' only.",
-            "scope": "window"
-          },
-          "callchain.graph.maxDepth": {
-            "type": "number",
-            "default": 1,
-            "minimum": 1,
-            "maximum": 6,
-            "description": "Initial levels of callers (left) and callees (right) per side of the butterfly graph. Once changed in the view, the in-view level spinners (persisted per workspace) take precedence.",
             "scope": "window"
           },
           "callchain.trace.hiddenKinds": {
@@ -657,7 +625,6 @@
     "@4d/core": "*",
     "@4d/language-server": "*",
     "@4d/mcp-server": "*",
-    "cytoscape": "^3.33.3",
     "vscode-languageclient": "^9.0.1"
   }
 }
