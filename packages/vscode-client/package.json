@@ -500,9 +500,28 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": ["methods", "classConstructors", "classFunctions", "classGetters", "classSetters", "propertyReads", "propertyWrites", "forms", "builtins", "constants", "variables", "plugins", "components", "unresolved"]
+              "enum": [
+                "methods",
+                "classConstructors",
+                "classFunctions",
+                "classGetters",
+                "classSetters",
+                "propertyReads",
+                "propertyWrites",
+                "forms",
+                "builtins",
+                "constants",
+                "variables",
+                "plugins",
+                "components",
+                "unresolved"
+              ]
             },
-            "default": ["builtins", "constants", "variables"],
+            "default": [
+              "builtins",
+              "constants",
+              "variables"
+            ],
             "description": "Symbol-kind categories hidden by default in the Method Trace view (toggleable in the view's Kinds menu).",
             "scope": "window"
           }
@@ -643,7 +662,7 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.0.0",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.28.1",
     "ovsx": "^0.10.0",
     "typescript": "^5.4.0"
   },
