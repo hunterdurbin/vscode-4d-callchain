@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { CallGraph, Indexer, consoleLogger } from "@4d/core";
+import { CallGraph, Indexer, activeParserKind, consoleLogger } from "@4d/core";
 import { ServerOptions } from "./server.js";
 
 /**
@@ -25,6 +25,12 @@ export class GraphState {
       projectRoot: opts.projectRoot,
       exclusions: [],
       cacheDir: opts.cacheDir,
+      // Only write the shared cache when this process parses with
+      // tree-sitter. A regex-degraded rebuild (failed wasm init) must never
+      // overwrite the extension's cache — the parserKind stamp would make
+      // the extension reject and rebuild it anyway, but staying read-only
+      // avoids that rebuild churn.
+      persistMode: activeParserKind() === "treesitter" ? "debounced" : "off",
       logger: consoleLogger // routes to stderr — stdout is the MCP transport
     });
     this.cachePath = this.indexer.getCachePath();

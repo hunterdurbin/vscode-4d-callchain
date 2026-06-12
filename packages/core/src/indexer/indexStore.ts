@@ -10,7 +10,7 @@ import { DEFAULT_BUILTIN_CONSTANTS_PROBES, discoverBuiltinConstants, discoverCon
 import { discoverVariables } from "./variableScanner";
 import { discoverCompilerMethodTypes, CompilerMethodTypes } from "./compilerMethodScanner";
 import { discoverComponents } from "./componentScanner";
-import { ParsedFile, parseFile } from "./fileParser";
+import { ParsedFile, activeParserKind, parseFile } from "./fileParser";
 import { buildResolverInput, buildResolverScratch, buildSymbolIndex, ResolverInput } from "./nameResolver";
 import { classifyFile } from "./projectScanner";
 import { IndexPersistence } from "./persistence";
@@ -171,7 +171,12 @@ export class Indexer {
         const buf = fs.readFileSync(cachePath);
         const raw = unpack(buf) as SymbolIndex;
         const readMs = Date.now() - tRead;
-        if (raw.version === INDEX_VERSION && (await this.persistence.isFresh(raw))) {
+        // A cache built by the regex fallback lacks chained-call edges; a
+        // tree-sitter-capable process must rebuild rather than serve it.
+        // Regex-only processes (e.g. a degraded MCP server) still accept it.
+        const provenanceOk =
+          raw.parserKind === "treesitter" || activeParserKind() !== "treesitter";
+        if (raw.version === INDEX_VERSION && provenanceOk && (await this.persistence.isFresh(raw))) {
           this.opts.logger.info(
             `[Indexer] Loaded cached index (${raw.symbols.length} symbols, ${raw.edges.length} edges, ${Math.round(buf.length / 1024)}KB, ${readMs}ms)`
           );
@@ -179,6 +184,10 @@ export class Indexer {
           this.graph = new CallGraph(raw);
           this.emitter.fire(this.graph);
           return this.graph;
+        } else if (raw.version === INDEX_VERSION && !provenanceOk) {
+          this.opts.logger.info(
+            `[Indexer] Cache was built by the ${raw.parserKind ?? "regex"} parser but tree-sitter is available — rebuilding`
+          );
         } else {
           this.opts.logger.info(`[Indexer] Cache stale or version mismatch — rebuilding`);
         }
@@ -412,6 +421,10 @@ export class Indexer {
 
   private async doRebuild(): Promise<CallGraph> {
     const start = Date.now();
+    // Captured before parsing starts: if tree-sitter init resolves mid-parse,
+    // files already went through the regex parser, so the index must not
+    // claim tree-sitter provenance.
+    const parserKind = activeParserKind();
     this.opts.logger.info(`[Indexer] Scanning ${this.opts.projectRoot}`);
     const tDiscover = Date.now();
     const { files, constants, builtinConstants, variables, constantsSet, compilerMethodTypes } =
@@ -449,6 +462,7 @@ export class Indexer {
     const resolveMs = Date.now() - tResolve;
     const idx = built.index;
     idx.fileMtimes = mtimes;
+    idx.parserKind = parserKind;
 
     // Record mtimes for the non-.4dm source-of-truth files so `isFresh()`
     // can detect offline edits to catalog / constants / components between

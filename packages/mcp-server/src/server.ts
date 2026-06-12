@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { consoleLogger } from "@4d/core";
 import { GraphState } from "./graphState.js";
+import { initParser } from "./parserInit.js";
 import { registerTools } from "./tools.js";
 
 export interface ServerOptions {
@@ -16,6 +17,10 @@ export interface ServerOptions {
  * tools, and serve over stdio. Tools are registered in Phase 4.
  */
 export async function startServer(opts: ServerOptions): Promise<void> {
+  // Must complete before GraphState constructs: its Indexer decides the
+  // persist policy from the active parser kind, and a cold load() rebuild
+  // must parse with tree-sitter to produce a full-fidelity index.
+  await initParser();
   const state = new GraphState(opts);
   await state.init();
   consoleLogger.info(

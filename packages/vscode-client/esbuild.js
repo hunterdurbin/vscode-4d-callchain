@@ -15,8 +15,8 @@
 //   - vscode: provided by the host at runtime.
 //   - @4d/parser-4d: only used for its wasmPath, which we supply directly from
 //     the copied tree-sitter-fourd.wasm; its require is lazy and never executed
-//     in either bundle (see @4d/core initTreeSitterParser — the MCP server
-//     never calls it; it reads the shared msgpack cache or regex-parses).
+//     in either bundle (see @4d/core initTreeSitterParser — both the extension
+//     and the MCP server pass explicit wasm paths from dist/).
 //   - @4d/language-server: spawned only behind an opt-in config flag that
 //     defaults off and is intentionally not shipped in the lean
 //     Call-Chain-only .vsix.

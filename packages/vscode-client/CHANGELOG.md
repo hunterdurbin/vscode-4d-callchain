@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1 — fix Method Trace losing same-line chained calls
+
+- **Fixed: chained calls like `cs.X.new().method()` disappearing from Method
+  Trace** (only the `.new()` resolved). The bundled MCP server indexed with
+  the fallback regex parser — which cannot see same-line chains — and
+  persisted that degraded index into the cache shared with the extension,
+  where it was trusted until the next re-index. Three-part fix:
+  - The MCP server now initializes the tree-sitter parser at startup (the
+    wasm assets ship next to its bundle), so its rebuilds have full fidelity.
+  - If tree-sitter ever fails to come up, the MCP server no longer writes
+    the shared cache at all (read-only fallback).
+  - The persisted index is now stamped with the parser that built it; a
+    tree-sitter-capable process rejects regex-built (or pre-0.3.1) caches
+    and rebuilds once, self-healing any already-degraded cache.
+
 ## 0.3.0 — security & trust hardening
 
 This release tightens the extension's security posture end to end. No features

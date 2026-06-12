@@ -157,6 +157,24 @@ function isAssignmentChained(line: string, openParenIdx: number): boolean {
   return line[p] === ".";
 }
 
+/**
+ * Which parser `parseFile()` would use right now. Mirrors its dispatch
+ * exactly (env opt-out + lazy require + WASM readiness). Used to stamp
+ * parser provenance on rebuilt indexes and to decide whether a persisted
+ * cache built by the regex fallback should be trusted.
+ */
+export function activeParserKind(): "treesitter" | "regex" {
+  if (process.env.FOURD_PARSER !== "regex") {
+    try {
+      const ts: typeof import("../parser/parseWithTreeSitter") = require("../parser/parseWithTreeSitter");
+      if (ts.isTreeSitterReady()) return "treesitter";
+    } catch {
+      // Fall through to the regex parser silently.
+    }
+  }
+  return "regex";
+}
+
 export function parseFile(file: DiscoveredFile, projectRootUri: string, constantsSet?: Set<string>, presetSource?: string): ParsedFile {
   // Tree-sitter is the default once `initTreeSitterParser()` has resolved
   // (the LSP servers and extension host await it at startup). The legacy

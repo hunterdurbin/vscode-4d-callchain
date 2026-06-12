@@ -39,6 +39,7 @@ export type {
   ChainStep
 } from "./model/symbol";
 export type { ParsedFile } from "./indexer/fileParser";
+export { activeParserKind } from "./indexer/fileParser";
 
 export type { Logger } from "./util/logger";
 export { consoleLogger } from "./util/logger";

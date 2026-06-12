@@ -249,6 +249,14 @@ export interface SymbolIndex {
   constantsMtimes?: Record<string, number>;
   /** mtimes for every component `.4DZ` archive the indexer discovered. */
   componentMtimes?: Record<string, number>;
+  /**
+   * Which parser produced this index. Caches built by the regex fallback
+   * lack chained-call (CsChainCall) edges and other tree-sitter-only
+   * resolution, so a tree-sitter-capable process treats such a cache as
+   * stale and rebuilds. Missing on pre-stamp caches — treated as "regex",
+   * which costs one rebuild after upgrade and flushes any degraded cache.
+   */
+  parserKind?: "treesitter" | "regex";
 }
 
 /**
