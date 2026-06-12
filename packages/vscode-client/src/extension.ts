@@ -5,6 +5,7 @@ import { initTreeSitterParser } from "@4d/core";
 import { LanguageClient } from "vscode-languageclient/node";
 import { TestStatusDecorator } from "./decorations/testStatusDecorator";
 import { registerMcpSetup } from "./mcp/setupMcp";
+import { registerMcpProvider } from "./mcp/mcpProvider";
 import * as config from "./config";
 import { resolveProjectRoot } from "./activation/projectRoot";
 import { createIndexer, registerIndexWatchers } from "./indexing/indexerService";
@@ -24,6 +25,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const output = vscode.window.createOutputChannel("4D Call Chain");
   const testOutput = vscode.window.createOutputChannel("4D Call Chain - Tests");
   context.subscriptions.push(output, testOutput);
+
+  // Registered before the project-root early return: the provider itself
+  // resolves the root lazily and returns nothing until one exists (and until
+  // the user opts in via callchain.mcp.enabled).
+  registerMcpProvider(context, resolveProjectRoot, output);
 
   const projectRoot = resolveProjectRoot();
   if (!projectRoot) {
@@ -98,9 +104,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerFilterCommands(context, views);
   context.subscriptions.push(registerMcpSetup(context, resolveProjectRoot));
 
+  // Test integration shells out (the configured test command runs through
+  // `sh`), so it stays off in untrusted workspaces regardless of settings —
+  // Workspace Trust's restrictedConfigurations alone wouldn't stop the
+  // DEFAULT command template from running an untrusted repo's Makefile.
   if (testEnabled && decorator) {
-    decorator.onDidChange(() => lensProvider.refresh());
-    registerTestIntegration(context, projectRoot, indexer, decorator, coverage, output, testOutput);
+    if (vscode.workspace.isTrusted) {
+      decorator.onDidChange(() => lensProvider.refresh());
+      registerTestIntegration(context, projectRoot, indexer, decorator, coverage, output, testOutput);
+    } else {
+      output.appendLine("[Activate] test integration disabled: untrusted workspace.");
+      context.subscriptions.push(
+        vscode.workspace.onDidGrantWorkspaceTrust(() => {
+          decorator.onDidChange(() => lensProvider.refresh());
+          registerTestIntegration(context, projectRoot, indexer, decorator, coverage, output, testOutput);
+        })
+      );
+    }
   }
 
   if (config.autoIndexOnStartup()) {
@@ -118,13 +138,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // signature help. VSCode's native UIs (F12, Shift+F12, Peek Call Hierarchy)
   // pick these up automatically once the document selector matches. Gated:
   // off by default, and a separate process that re-indexes independently.
-  if (serverEnabled) {
+  if (serverEnabled && vscode.workspace.isTrusted) {
     try {
       lspClient = startLanguageServer(output, exclusions, constantsPaths);
       context.subscriptions.push({ dispose: () => { void lspClient?.stop(); } });
     } catch (err) {
       output.appendLine(`[LSP] Failed to start language-server: ${err}`);
     }
+  } else if (serverEnabled) {
+    output.appendLine("[Activate] language-server disabled: untrusted workspace.");
   } else {
     output.appendLine("[Activate] language-server disabled (callchain.server.enabled = false).");
   }

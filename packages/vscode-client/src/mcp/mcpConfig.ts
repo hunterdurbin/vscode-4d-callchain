@@ -59,7 +59,7 @@ export const MCP_TARGETS: McpTarget[] = [
   {
     id: "vscode",
     label: "VS Code / Copilot",
-    detail: ".vscode/mcp.json (uses \"servers\" + type: stdio)",
+    detail: ".vscode/mcp.json (uses \"servers\" + type: stdio) — or skip the file and enable callchain.mcp.enabled",
     rootKey: "servers",
     needsType: true,
     global: false,

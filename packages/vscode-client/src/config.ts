@@ -79,6 +79,10 @@ export function jsonResultsPath(): string {
 
 // ── MCP ─────────────────────────────────────────────────────────────────────
 
+export function mcpEnabled(): boolean {
+  return cfg().get<boolean>("mcp.enabled", false);
+}
+
 export function mcpBinPath(): string {
   return cfg().get<string>("mcp.binPath", "");
 }

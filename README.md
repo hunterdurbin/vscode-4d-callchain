@@ -34,6 +34,17 @@ provides the grammar and themes. They're independent — install whichever you n
   - `CALL WORKER`, `New process`, `EXECUTE METHOD`, `Formula(...)`
   - Plugins and built-in commands
 
+## Security & privacy
+
+Everything runs locally; the extension makes **no network requests** and collects no telemetry.
+Parsing is WebAssembly (web-tree-sitter) — no native binaries — and `.4DZ` component archives are
+read with a pure-JS unzip, so the extension spawns no shell utilities. Workspace Trust is declared
+with `"limited"` support: process-affecting settings are ignored and nothing shells out in
+untrusted workspaces. The MCP server is opt-in (`callchain.mcp.enabled`, default off) and the
+extension never writes agent config files. The shipped JavaScript is deliberately unminified so
+the `.vsix` can be diffed against this repo. The full statement lives in the
+[shipped README](packages/vscode-client/README.md#security--privacy).
+
 ## Development
 
 ```bash
@@ -112,15 +123,21 @@ writes (`<projectRoot>/.vscode/callchain-index-*.msgpack`) — so startup is
 near-instant when the extension has indexed once — and watches that cache to
 stay in sync as you save.
 
-**Quick setup:** run the **4D Call Chain: Copy MCP server config for AI agents**
+**In VS Code (1.101+):** set `callchain.mcp.enabled: true` and the extension
+offers the bundled server through VS Code's official
+`McpServerDefinitionProvider` API — no config files involved. It's off by
+default, and even when enabled VS Code asks before actually starting the
+server ("MCP: List Servers" shows it as *4D Call Chain*).
+
+**Other agents:** run the **4D Call Chain: Copy MCP server config for AI agents**
 command from the Command Palette. It resolves the server path and the current
 project root, then lets you pick target(s) — Claude Code (project `.mcp.json` or
 global `~/.claude.json`), Cursor (`.cursor/mcp.json`), VS Code/Copilot
 (`.vscode/mcp.json`) — and copies a ready-to-paste JSON snippet to your
 clipboard, annotated with the file each one belongs in. The extension never
-edits agent config files itself. When running from a packaged `.vsix` (where
-the server isn't bundled), point `callchain.mcp.binPath` at the server's
-`dist/bin.js`.
+edits agent config files itself. The packaged `.vsix` bundles the server at
+`dist/mcp/bin.js`; `callchain.mcp.binPath` overrides the auto-resolved path
+if you want to point at a different build.
 
 To wire it up by hand instead, build the monorepo (`npm run build`) and register
 the server with your agent. For Claude Code, add to `.mcp.json`:

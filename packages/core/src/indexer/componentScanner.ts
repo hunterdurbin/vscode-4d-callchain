@@ -1,7 +1,6 @@
-import * as cp from "child_process";
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
+import { unzipSync } from "fflate";
 
 export interface DiscoveredComponentClassProp {
   /** The class type this property holds, as it appears in classes.json. */
@@ -58,8 +57,8 @@ export interface DiscoveredComponent {
  *
  * Components are typically shipped compiled as a `.4DZ` (zip archive). The
  * source `.4dm` files are absent, but `Project/DerivedData/methodAttributes.json`
- * inside the archive lists every project method by name. We extract that file
- * via `unzip -p` and parse it — the keys of the `methods` object are the
+ * inside the archive lists every project method by name. We unzip that file
+ * in-process and parse it — the keys of the `methods` object are the
  * method names exposed to the host project.
  *
  * **Why component-class symbols are line-only (see TODO #12):** as of 4D v21,
@@ -92,11 +91,6 @@ export function discoverComponents(
       seen.add(name);
       const bundlePath = path.join(componentsRoot, entry);
       const zipPath = findArchive(bundlePath);
-      // One spawnSync per .4DZ instead of three — extract all three
-      // metadata files in a single `unzip` call and parse the resulting
-      // strings. Saves ~2/3 of the unzip startup cost per component
-      // (a typical 4D install ships 10+ components, so ~20-40 fewer
-      // spawns on cold load).
       const extracted = zipPath ? extractMetadataFromZip(zipPath) : EMPTY_EXTRACT;
       const methods = parseMethodNames(extracted.methodAttributes);
       const classStoreName = parseClassStoreName(extracted.settings) ?? name;
@@ -174,10 +168,9 @@ function findArchive(bundlePath: string): string | undefined {
 
 /**
  * Three metadata files the component scanner reads from each `.4DZ`.
- * Shells out to `unzip` once per component (instead of three times) to
- * extract them all into a temp directory, then parses the resulting
- * strings in pure JS. Files absent from the archive come back as
- * `undefined`; downstream parsers tolerate that.
+ * Decompressed in-process with fflate (no child processes, no temp
+ * files); only the three wanted entries are inflated. Files absent from
+ * the archive come back as `undefined`; downstream parsers tolerate that.
  */
 interface ExtractedMetadata {
   methodAttributes: string | undefined;
@@ -195,46 +188,28 @@ const ZIP_PATH_SETTINGS = "Project/Sources/settings.4DSettings";
 const ZIP_PATH_CLASSES = "Project/DerivedData/CompiledCode/classes.json";
 
 function extractMetadataFromZip(zipPath: string): ExtractedMetadata {
-  // `unzip -d <tmpdir> <archive> <files...>` runs a single subprocess
-  // that extracts all named entries at once. unzip silently skips
-  // entries that don't exist in the archive, so we don't need to
-  // pre-check membership. `unzip` is almost always present on
-  // macOS/Linux; on Windows 10+ the same syntax works via the
-  // bundled shim.
-  let tmpDir: string | undefined;
+  let entries: Record<string, Uint8Array>;
   try {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fourd-comp-"));
+    const wanted = new Set([ZIP_PATH_METHOD_ATTRS, ZIP_PATH_SETTINGS, ZIP_PATH_CLASSES]);
+    entries = unzipSync(new Uint8Array(fs.readFileSync(zipPath)), {
+      filter: (f) => wanted.has(f.name),
+    });
   } catch {
+    // Unreadable or corrupt archive — same silent-empty as before.
     return EMPTY_EXTRACT;
   }
-  try {
-    const result = cp.spawnSync(
-      "unzip",
-      ["-qq", "-o", zipPath, ZIP_PATH_METHOD_ATTRS, ZIP_PATH_SETTINGS, ZIP_PATH_CLASSES, "-d", tmpDir],
-      { encoding: "utf8" },
-    );
-    if (result.error) return EMPTY_EXTRACT;
-    // unzip returns 11 when nothing matched (e.g. component ships none
-    // of these). That's not an error from our perspective.
-    if (result.status !== 0 && result.status !== 11) return EMPTY_EXTRACT;
-    return {
-      methodAttributes: readIfPresent(path.join(tmpDir, ZIP_PATH_METHOD_ATTRS)),
-      settings: readIfPresent(path.join(tmpDir, ZIP_PATH_SETTINGS)),
-      classes: readIfPresent(path.join(tmpDir, ZIP_PATH_CLASSES)),
-    };
-  } finally {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {/* ignore */}
-  }
-}
-
-function readIfPresent(p: string): string | undefined {
-  try {
-    let raw = fs.readFileSync(p, "utf8");
+  const text = (name: string): string | undefined => {
+    const data = entries[name];
+    if (!data) return undefined;
+    let raw = Buffer.from(data).toString("utf8");
     if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
     return raw;
-  } catch {
-    return undefined;
-  }
+  };
+  return {
+    methodAttributes: text(ZIP_PATH_METHOD_ATTRS),
+    settings: text(ZIP_PATH_SETTINGS),
+    classes: text(ZIP_PATH_CLASSES),
+  };
 }
 
 function parseMethodNames(raw: string | undefined): string[] {

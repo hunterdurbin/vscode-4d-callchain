@@ -2,7 +2,7 @@
   "name": "vscode-4d-callchain",
   "displayName": "4D Call Chain Explorer",
   "description": "Explore call chains in 4D v21 projects: methods, class functions, plugins. Tree + graph views, test integration.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "hunterdurbin",
   "engines": {
     "vscode": "^1.85.0"
@@ -10,6 +10,20 @@
   "categories": [
     "Other"
   ],
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Call-chain indexing and views work in untrusted workspaces (read-only parsing). Running tests, the optional language server, and the MCP server require a trusted workspace, and settings that affect process execution or file-path resolution are ignored until the workspace is trusted.",
+      "restrictedConfigurations": [
+        "callchain.tests.command",
+        "callchain.tests.jsonResultsPath",
+        "callchain.index.projectRoot",
+        "callchain.index.builtinConstantsPaths",
+        "callchain.mcp.binPath"
+      ]
+    }
+  },
   "activationEvents": [
     "onLanguage:4d",
     "workspaceContains:**/Project/Sources/catalog.4DCatalog",
@@ -17,6 +31,12 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "callchain.mcpServers",
+        "label": "4D Call Chain"
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
@@ -585,10 +605,16 @@
       {
         "title": "MCP",
         "properties": {
+          "callchain.mcp.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Offer the bundled 4D Call Chain MCP server to VS Code's built-in MCP support (chat agent mode). Off by default — nothing is registered until you opt in, and even then the server is only listed; VS Code asks for confirmation before starting it. Has no effect in hosts without the MCP API.",
+            "scope": "window"
+          },
           "callchain.mcp.binPath": {
             "type": "string",
             "default": "",
-            "description": "Absolute path to the 4D Call Chain MCP server bin.js, used by the 'Set up MCP server for AI agents' command. Leave empty to auto-resolve. Set this when running from a packaged .vsix, where the server isn't bundled.",
+            "description": "Absolute path to the 4D Call Chain MCP server bin.js, used by the MCP server provider and the 'Copy MCP server config' command. Leave empty to auto-resolve (the packaged extension bundles the server at dist/mcp/bin.js).",
             "scope": "machine"
           }
         }

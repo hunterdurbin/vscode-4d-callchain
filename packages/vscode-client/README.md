@@ -41,16 +41,25 @@ See the [full settings reference](https://github.com/hunterdurbin/vscode-4d-call
 
 Everything runs locally; the extension makes **no network requests** and collects no telemetry.
 
-- Parsing uses [web-tree-sitter](https://github.com/tree-sitter/tree-sitter) compiled to **WebAssembly** — no native binaries ship in the package.
-- The extension spawns exactly two kinds of local processes: the bundled language server
-  (via the standard `vscode-languageclient` IPC transport), and — only when you click `▶ Run` —
-  **your own** `callchain.tests.command`, echoed verbatim to the output channel before it runs.
-- The optional MCP setup (`4D Call Chain: Copy MCP server config for AI agents`) never writes any
-  files: it only copies a ready-to-paste JSON snippet to your clipboard, annotated with the agent
-  config file it belongs in. Editing your agent configs is always left to you.
-- The graph and trace views are local webviews with a strict Content-Security-Policy; no remote scripts.
+- Parsing uses [web-tree-sitter](https://github.com/tree-sitter/tree-sitter) compiled to **WebAssembly** — no native binaries ship in the package. Compiled-component archives (`.4DZ`) are read in-process with a pure-JS unzip; the extension spawns no shell utilities.
+- The only processes the extension can spawn are opt-in and trust-gated: the optional language
+  server (via the standard `vscode-languageclient` IPC transport, off by default), and — only when
+  you click `▶ Run` in a **trusted** workspace — **your own** `callchain.tests.command`, echoed
+  verbatim to the output channel before it runs.
+- **Workspace Trust** is declared with `"limited"` support: in untrusted workspaces only read-only
+  parsing and views run, and the settings that influence process execution or path resolution
+  (`callchain.tests.command`, `callchain.tests.jsonResultsPath`, `callchain.index.projectRoot`,
+  `callchain.index.builtinConstantsPaths`, `callchain.mcp.binPath`) are ignored.
+- The MCP server is **opt-in twice over**: the official `McpServerDefinitionProvider` registration
+  is off until you enable `callchain.mcp.enabled`, and even then VS Code lists the server and asks
+  before starting it. The extension itself never starts the server and never writes any agent
+  config file — the alternative `Copy MCP server config` command only puts a ready-to-paste JSON
+  snippet on your clipboard, annotated with the file it belongs in.
+- The trace views are local webviews with a strict Content-Security-Policy; no remote scripts.
 
-Source is fully open and the published package is built from it: [github.com/hunterdurbin/vscode-4d-callchain](https://github.com/hunterdurbin/vscode-4d-callchain).
+Source is fully open and the published package is built from it — the shipped JavaScript is
+deliberately **unminified** so anyone can diff the package against the repo:
+[github.com/hunterdurbin/vscode-4d-callchain](https://github.com/hunterdurbin/vscode-4d-callchain).
 
 ## Documentation
 

@@ -67,6 +67,14 @@ export async function delegateToScottHarris(
 
 export function runTests(opts: RunTestsOptions): Promise<RunResult> {
   return new Promise((resolve) => {
+    // Defense in depth: test integration is never registered in untrusted
+    // workspaces (see extension.ts), but nothing may reach `sh` without
+    // trust even if a future caller forgets that gate.
+    if (!vscode.workspace.isTrusted) {
+      void vscode.window.showWarningMessage("4D Call Chain: running tests requires a trusted workspace.");
+      resolve({ exitCode: -1, durationMs: 0 });
+      return;
+    }
     const className = opts.className ?? "";
     const command = opts.commandTemplate.replace(/\{class\}/g, className);
     opts.output.show(true);

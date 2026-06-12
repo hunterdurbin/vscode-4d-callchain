@@ -1,16 +1,22 @@
 // Bundles the extension into a single dist/extension.js for packaging into a
-// .vsix, and copies the two tree-sitter wasm assets next to it.
+// .vsix, plus the MCP server into dist/mcp/bin.js, and copies the two
+// tree-sitter wasm assets next to the extension bundle.
 //
 // Why bundle: the @4d/* packages are npm-workspace symlinks and web-tree-sitter
 // ships a runtime wasm — a plain `vsce package` would miss them and produce a
 // broken .vsix. esbuild inlines all the pure-JS deps (including @4d/core and
 // web-tree-sitter's loader), and we copy the wasm blobs the loader needs.
 //
+// Output is deliberately NOT minified: the .vsix ships readable JS so that
+// marketplace reviewers (and anyone auditing the package) can diff it against
+// this repo. Size cost is modest and worth it.
+//
 // Kept external (NOT bundled):
 //   - vscode: provided by the host at runtime.
 //   - @4d/parser-4d: only used for its wasmPath, which we supply directly from
 //     the copied tree-sitter-fourd.wasm; its require is lazy and never executed
-//     in the bundle (see @4d/core initTreeSitterParser).
+//     in either bundle (see @4d/core initTreeSitterParser — the MCP server
+//     never calls it; it reads the shared msgpack cache or regex-parses).
 //   - @4d/language-server: spawned only behind an opt-in config flag that
 //     defaults off and is intentionally not shipped in the lean
 //     Call-Chain-only .vsix.
@@ -74,7 +80,7 @@ async function main() {
     format: "cjs",
     target: "node18",
     sourcemap: true,
-    minify: !watch,
+    minify: false,
     external: [
       "vscode",
       "@4d/parser-4d",
@@ -84,16 +90,36 @@ async function main() {
     logLevel: "info",
   });
 
+  // Standalone MCP server bundle, shipped in the .vsix so the extension's
+  // MCP provider (and the copy-config command) can point at it. Launched by
+  // MCP clients as `node dist/mcp/bin.js --project-root <root>` — no vscode
+  // dependency.
+  const mcpCtx = await esbuild.context({
+    entryPoints: [path.join(__dirname, "..", "mcp-server", "src", "bin.ts")],
+    outfile: path.join(outdir, "mcp", "bin.js"),
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: "node18",
+    sourcemap: true,
+    minify: false,
+    external: ["@4d/parser-4d"],
+    logLevel: "info",
+  });
+
   copyWasmAssets();
   copyWebviewAssets();
 
   if (watch) {
     await ctx.watch();
+    await mcpCtx.watch();
     console.log("[esbuild] watching…");
   } else {
     await ctx.rebuild();
+    await mcpCtx.rebuild();
     await ctx.dispose();
-    console.log("[esbuild] bundle written → dist/extension.js");
+    await mcpCtx.dispose();
+    console.log("[esbuild] bundles written → dist/extension.js, dist/mcp/bin.js");
   }
 }
 

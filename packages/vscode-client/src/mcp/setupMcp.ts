@@ -6,15 +6,19 @@ import * as path from "path";
 import { buildEntry, MCP_TARGETS, renderSnippet, serverNameFor } from "./mcpConfig";
 
 /**
- * Locate the MCP server's `dist/bin.js`. Resolution order:
- *   1. the `callchain.mcp.binPath` setting (escape hatch for packaged use)
- *   2. `require.resolve` via the workspace symlink (works when running from source)
- *   3. an extension-relative node_modules path
+ * Locate the MCP server's bin.js. Resolution order:
+ *   1. the `callchain.mcp.binPath` setting (manual override)
+ *   2. the esbuild bundle shipped in the .vsix at dist/mcp/bin.js
+ *   3. `require.resolve` via the workspace symlink (works when running from source)
+ *   4. an extension-relative node_modules path
  * Returns undefined if none point at an existing file.
  */
 export function resolveBinPath(context: vscode.ExtensionContext): string | undefined {
   const configured = mcpBinPath();
   if (configured) return configured;
+
+  const bundled = path.join(context.extensionPath, "dist", "mcp", "bin.js");
+  if (fs.existsSync(bundled)) return bundled;
 
   try {
     return require.resolve("@4d/mcp-server/dist/bin.js");
